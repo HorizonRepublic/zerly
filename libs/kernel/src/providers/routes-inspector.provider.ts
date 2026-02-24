@@ -13,7 +13,7 @@ type VersionMeta = string | string[] | typeof VERSION_NEUTRAL | undefined;
 // Supported route kinds
 type RouteKind = 'HTTP' | 'RPC';
 
-interface RouteDefinition {
+interface IRouteDefinition {
   kind: RouteKind;
   method: string; // HTTP Verb (GET, POST) or RPC Type (CMD, EVT)
   pathOrPattern: string; // URL path or JSON pattern
@@ -119,7 +119,7 @@ export class RoutesInspectorProvider {
 
     if (!instance || !controllerName) return null;
 
-    const moduleName = (wrapper?.host?.name as string) ?? 'UnknownModule';
+    const moduleName = wrapper?.host?.name ?? 'UnknownModule';
 
     // HTTP specific: Controller-level path
     const basePath = this.normalizePath(
@@ -176,7 +176,7 @@ export class RoutesInspectorProvider {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     methodRef: any,
     context: { basePath: string; controllerVersion: VersionMeta },
-  ): RouteDefinition | null {
+  ): IRouteDefinition | null {
     const pathMeta = this.reflector.get<string | string[] | undefined>(PATH_METADATA, methodRef);
     const methodId = this.reflector.get<number | undefined>('method', methodRef);
 
@@ -203,7 +203,7 @@ export class RoutesInspectorProvider {
   private extractRpcDefinition(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     methodRef: any,
-  ): RouteDefinition | null {
+  ): IRouteDefinition | null {
     const pattern = this.reflector.get<object | string | undefined>(PATTERN_METADATA, methodRef);
 
     if (typeof pattern === 'undefined') {
@@ -233,7 +233,7 @@ export class RoutesInspectorProvider {
   // Output Formatting
   // ---------------------------------------------------------------------------
 
-  private formatRoute(def: RouteDefinition): string {
+  private formatRoute(def: IRouteDefinition): string {
     const methodColored = this.colorizeMethod(def.method, def.kind);
     const versionStr = def.version ? this.formatVersion(def.version) : '';
 

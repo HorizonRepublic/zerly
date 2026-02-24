@@ -1,4 +1,4 @@
-import { INestApplication, Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { RuntimeException } from '@nestjs/core/errors/exceptions';
 import { NestFastifyApplication } from '@nestjs/platform-fastify';
 
