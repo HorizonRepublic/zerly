@@ -1,3 +1,17 @@
+## 0.5.2 (2026-02-24)
+
+### Features
+
+- **auth:** add initial AuthModule lib ([#138](https://github.com/HorizonRepublic/zerly/pull/138))
+
+### Chores
+
+- **project:** Rebranding to Zerly ([#127](https://github.com/HorizonRepublic/zerly/pull/127))
+
+### ❤️ Thank You
+
+- Kyrylo Lytvynov @themaiby
+
 ## 0.5.1 (2026-01-22)
 
 This release contains no new changes.
