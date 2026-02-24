@@ -50,7 +50,7 @@
       "requireSemver": true
     },
     "version": {
-      "preVersionCommand": "pnpm dlx nx run-many -t build",
+      "preVersionCommand": "pnpm nx run-many -t build",
       "preserveLocalDependencyProtocols": false,
       "conventionalCommits": true,
       "manifestRootsToUpdate": [
@@ -87,7 +87,7 @@
           "mapAuthorsToGitHubUsernames": true
         },
         "git": {
-          "commit": true,
+          "commit": false,
           "commitMessage": "docs(changelog): update {projectName} to v{version}"
         }
       }

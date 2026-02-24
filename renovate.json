@@ -8,7 +8,7 @@
   "baseBranches": [
     "dev"
   ],
-  "commitMessagePrefix": "deps():",
+  "commitMessagePrefix": "chore(deps):",
   "branchPrefix": "renovate/",
   "labels": [
     "dependencies",
