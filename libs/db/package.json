@@ -1,6 +1,30 @@
 {
   "name": "@zerly/db",
   "version": "0.0.1",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/HorizonRepublic/zerly.git",
+    "directory": "libs/core"
+  },
+  "homepage": "https://github.com/HorizonRepublic/zerly/blob/main/libs/microservice/README.md",
+  "bugs": {
+    "url": "https://github.com/HorizonRepublic/zerly/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "nestjs",
+    "typescript",
+    "zerly",
+    "framework",
+    "library"
+  ],
+  "author": {
+    "name": "Horizon Republic",
+    "url": "https://github.com/HorizonRepublic"
+  },
+  "license": "MIT",
   "type": "commonjs",
   "main": "./src/index.js",
   "types": "./src/index.d.ts",
