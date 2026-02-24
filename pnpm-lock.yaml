@@ -367,6 +367,12 @@ importers:
 
   libs/kernel:
     dependencies:
+      '@fastify/compress':
+        specifier: ^8.3.1
+        version: 8.3.1
+      '@fastify/helmet':
+        specifier: ^13.0.2
+        version: 13.0.2
       '@nestjs/common':
         specifier: '>= 11.0.0'
         version: 11.1.13(class-validator@0.14.3)(reflect-metadata@0.2.2)(rxjs@7.8.2)
