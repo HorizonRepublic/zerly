@@ -1,3 +1,14 @@
+## 0.5.3 (2026-02-24)
+
+### Chores
+
+- **ci:** refine workflows to enhance flexibility and downgrade Node.js to v24 ([#143](https://github.com/HorizonRepublic/zerly/pull/143))
+- **ci:** refine workflows and downgrade Node ([#144](https://github.com/HorizonRepublic/zerly/pull/144))
+
+### ❤️ Thank You
+
+- Kyrylo Lytvynov @themaiby
+
 ## 0.5.2 (2026-02-24)
 
 ### Features
