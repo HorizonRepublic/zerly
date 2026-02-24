@@ -32,9 +32,10 @@
     "@horizon-republic/nestjs-jetstream": "^1.0.6",
     "@nestjs/common": "^11.1.12",
     "@nestjs/microservices": "^11.1.12",
-    "@zerly/core": "workspace:*",
-    "@zerly/kernel": "workspace:*",
     "nats": "^2.29.3",
-    "rxjs": "^7.8.2"
+    "rxjs": "^7.8.2",
+    "@zerly/core": "0.0.1",
+    "@zerly/kernel": "0.0.1",
+    "tslib": "^2.8.1"
   }
 }

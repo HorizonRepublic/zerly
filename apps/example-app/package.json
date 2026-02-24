@@ -6,7 +6,9 @@
     "@nestia/core": "^10.0.2",
     "@nestjs/common": "^11.1.12",
     "@zerly/kernel": "workspace:*",
-    "@zerly/logger": "workspace:*"
+    "@zerly/logger": "workspace:*",
+    "@nx/webpack": "22.5.1",
+    "webpackbar": "^7.0.0"
   },
   "devDependencies": {
     "@darraghor/eslint-plugin-nestjs-typed": "^7.1.16",
