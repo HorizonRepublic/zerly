@@ -146,7 +146,7 @@ export class Kernel {
    * Kernel.standalone(WorkerModule).subscribe();
    * ```
    */
-  public static standalone(appModule: Type<unknown>): Observable<Kernel> {
+  private static standalone(appModule: Type<unknown>): Observable<Kernel> {
     const kernel = new Kernel();
 
     // Standalone does not share the global bootstrapResult$ to allow multiple contexts if needed
