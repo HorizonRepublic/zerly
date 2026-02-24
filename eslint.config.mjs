@@ -41,7 +41,7 @@ export default [
 
   // JSON files - dependency checks
   {
-    files: ['apps/**/package.json'],
+    files: ['**/*.json'],
     languageOptions: {
       parser: jsoncParser,
     },
@@ -52,11 +52,14 @@ export default [
       '@nx/dependency-checks': [
         'error',
         {
-          ignoredDependencies: ['typia'],
+          ignoredDependencies: ['typia', '@zerly/*'],
           buildTargets: ['build'],
           checkMissingDependencies: true,
           checkObsoleteDependencies: true,
           checkVersionMismatches: true,
+          ignoredFiles: ['{projectRoot}/eslint.config.{js,cjs,mjs,ts,cts,mts}'],
+          useLocalPathsForWorkspaceDependencies: true,
+          peerDepsVersionStrategy: 'workspace', // or 'workspace' to use workspace:* for peer dependencies
         },
       ],
     },
@@ -73,24 +76,11 @@ export default [
       'import-x': importPlugin,
     },
     rules: {
-      '@nx/dependency-checks': [
-        'error',
-        {
-          buildTargets: ['build'],
-          checkMissingDependencies: true,
-          checkObsoleteDependencies: true,
-          checkVersionMismatches: true,
-          ignoredDependencies: ['tslib'],
-          ignoredFiles: ['webpack.config.js', 'eslint.config.cjs'],
-          includeTransitiveDependencies: true,
-          useLocalPathsForWorkspaceDependencies: true,
-        },
-      ],
       // Nx-specific rules
       '@nx/enforce-module-boundaries': [
         'error',
         {
-          allow: ['^.*/eslint(\\.base)?\\.config\\.[cm]?[jt]s$', '@nestkit-x/core/**'],
+          allow: ['^.*/eslint(\\.base)?\\.config\\.[cm]?[jt]s$', '@zerly/core/**'],
           depConstraints: [
             {
               onlyDependOnLibsWithTags: ['*'],

@@ -51,7 +51,6 @@
     },
     "version": {
       "preVersionCommand": "pnpm nx run-many -t build",
-      "preserveLocalDependencyProtocols": false,
       "conventionalCommits": true,
       "manifestRootsToUpdate": [
         "{projectRoot}",
