@@ -1,3 +1,13 @@
+## 0.5.5 (2026-02-24)
+
+### Chores
+
+- **merge:** main ([#149](https://github.com/HorizonRepublic/zerly/pull/149))
+
+### ❤️ Thank You
+
+- Kyrylo Lytvynov @themaiby
+
 ## 0.5.4 (2026-02-24)
 
 ### Chores

@@ -1,3 +1,7 @@
+## 0.5.5 (2026-02-24)
+
+This release contains no new changes.
+
 ## 0.5.4 (2026-02-24)
 
 This release contains no new changes.
