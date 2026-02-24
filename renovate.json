@@ -1,101 +1,62 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": [
-    "config:recommended",
-    ":disableRateLimiting",
-    ":semanticCommits"
-  ],
-  "baseBranches": [
-    "dev"
-  ],
+  "extends": ["config:recommended", ":disableRateLimiting", ":semanticCommits"],
+  "baseBranchPatterns": ["dev"],
   "commitMessagePrefix": "chore(deps):",
   "branchPrefix": "renovate/",
-  "labels": [
-    "dependencies",
-    "renovate"
-  ],
-  "addLabels": [
-    "automated-pr"
-  ],
+  "labels": ["dependencies", "renovate"],
+  "addLabels": ["automated-pr"],
   "dependencyDashboard": true,
   "osvVulnerabilityAlerts": true,
-  "assignees": [
-    "@themaiby"
-  ],
-  "reviewers": [
-    "@themaiby"
-  ],
+  "assignees": ["@themaiby"],
+  "reviewers": ["@themaiby"],
   "automerge": true,
   "automergeStrategy": "squash",
   "rebaseWhen": "conflicted",
   "packageRules": [
     {
       "groupName": "NestJS ecosystem",
-      "matchPackagePatterns": [
-        "^@nestjs/",
-        "^nestjs-",
-        "^@nestia/"
-      ],
-      "matchUpdateTypes": [
-        "minor",
-        "patch"
-      ]
+      "matchUpdateTypes": ["minor", "patch"],
+      "matchPackageNames": ["/^@nestjs//", "/^nestjs-/", "/^@nestia//"]
     },
     {
-      "matchPackagePatterns": [
-        "^@nx/",
-        "^nx$",
-        "^@nrwl/"
-      ],
-      "enabled": false
+      "enabled": false,
+      "matchPackageNames": ["/^@nx//", "/^nx$/", "/^@nrwl//"]
     },
     {
       "groupName": "Testing and Linting",
-      "matchPackagePatterns": [
-        "^jest",
-        "^@types/jest",
-        "^eslint",
-        "^prettier",
-        "^@swc/"
-      ],
-      "matchUpdateTypes": [
-        "minor",
-        "patch"
+      "matchUpdateTypes": ["minor", "patch"],
+      "matchPackageNames": [
+        "/^jest/",
+        "/^@types/jest/",
+        "/^eslint/",
+        "/^prettier/",
+        "/^@swc//"
       ]
     },
     {
       "groupName": "Internal packages",
-      "matchPackagePatterns": [
-        "^@zerly/"
-      ],
-      "enabled": false
+      "enabled": false,
+      "matchPackageNames": ["/^@zerly//"]
     },
     {
       "groupName": "Major updates",
-      "matchUpdateTypes": [
-        "major"
-      ],
+      "matchUpdateTypes": ["major"],
       "automerge": false,
-      "labels": [
-        "dependencies",
-        "major-update"
-      ]
+      "labels": ["dependencies", "major-update"]
     },
     {
       "groupName": "Other dependencies",
-      "matchUpdateTypes": [
-        "minor",
-        "patch"
-      ],
-      "excludePackagePatterns": [
-        "^@nestjs/",
-        "^nestjs-",
-        "^@nestia/",
-        "^@nx/",
-        "^nx$",
-        "^jest",
-        "^eslint",
-        "^prettier"
+      "matchUpdateTypes": ["minor", "patch"],
+      "matchPackageNames": [
+        "!/^@nestjs//",
+        "!/^nestjs-/",
+        "!/^@nestia//",
+        "!/^@nx//",
+        "!/^nx$/",
+        "!/^jest/",
+        "!/^eslint/",
+        "!/^prettier/"
       ]
     }
   ]
