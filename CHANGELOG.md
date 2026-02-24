@@ -1,3 +1,20 @@
+## 0.5.4 (2026-02-24)
+
+### Chores
+
+- **dependencies:** update multiple dependencies in `pnpm-lock.yaml` to latest versions ([5169ace](https://github.com/HorizonRepublic/zerly/commit/5169ace))
+- **dependencies:** add tslib to libs/microservice/package.json ([265fd63](https://github.com/HorizonRepublic/zerly/commit/265fd63))
+- **dependencies:** update ([0b09047](https://github.com/HorizonRepublic/zerly/commit/0b09047))
+- **deps:** Update dependency eslint to v9.39.3 ([#130](https://github.com/HorizonRepublic/zerly/pull/130))
+- **deps:** Update Other dependencies ([#129](https://github.com/HorizonRepublic/zerly/pull/129))
+- **project:** migrate from `workspace:*` dependencies to fixed versions and switch libs/microservice to TSC ([4291850](https://github.com/HorizonRepublic/zerly/commit/4291850))
+- **project:** migrate from `workspace:*` deps ([#145](https://github.com/HorizonRepublic/zerly/pull/145))
+- **release:** dev -> main ([#146](https://github.com/HorizonRepublic/zerly/pull/146))
+
+### ❤️ Thank You
+
+- Kyrylo Lytvynov @themaiby
+
 ## 0.5.3 (2026-02-24)
 
 ### Chores
