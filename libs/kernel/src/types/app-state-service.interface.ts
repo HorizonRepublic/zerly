@@ -1,4 +1,4 @@
-import { INestApplication } from '@nestjs/common';
+import { NestFastifyApplication } from '@nestjs/platform-fastify';
 
 import { Observable } from 'rxjs';
 
@@ -154,4 +154,6 @@ export interface IPrioritizedCallback {
  *
  * @since 1.0.0
  */
-export type IStateCallback = (app: INestApplication) => Observable<void> | Promise<void> | void;
+export type IStateCallback = (
+  app: NestFastifyApplication,
+) => Observable<void> | Promise<void> | void;

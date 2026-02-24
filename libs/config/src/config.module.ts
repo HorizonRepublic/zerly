@@ -9,7 +9,7 @@ export class ConfigModule {
   public static forRoot(load: ConfigModuleOptions['load'] = []): DynamicModule {
     return {
       module: ConfigModule,
-      global: false,
+      global: true,
       imports: [
         BaseConfigModule.forRoot({
           cache: true,

@@ -24,7 +24,6 @@
         "updateBuildableProjectDepsInPackageJson": true
       }
     },
-
     "link": {
       "dependsOn": ["build"],
       "executor": "nx:run-commands",
@@ -32,7 +31,6 @@
         "command": "pnpm tsc-alias -p tsconfig.base.json --outDir dist"
       }
     },
-
     "nx-release-publish": {
       "options": {
         "packageRoot": "dist/{projectRoot}"

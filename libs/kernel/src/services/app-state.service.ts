@@ -63,7 +63,7 @@ export class AppStateService implements IAppStateService {
 
   public setState$(state: AppState): Observable<void> {
     this.state = state;
-    this.logger.log(`State changed to: ${state}`);
+    this.logger.debug(`State changed to: ${state}`);
 
     const callbacks = this.getCallbacksForState(state);
 

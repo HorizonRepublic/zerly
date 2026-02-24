@@ -90,7 +90,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
     // Logging Strategy:
     // 5xx errors are critical and should be logged with stack traces.
-    // 4xx errors are client-side issues and are logged as warnings to reduce noise.
+    // 4xx errors are client-side issues and are skipped
     if (httpStatus >= 500) {
       this.logger.error({
         msg: 'HTTP Server Error',
@@ -99,13 +99,6 @@ export class AllExceptionsFilter implements ExceptionFilter {
           method: httpAdapter.getRequestMethod(req),
           url: httpAdapter.getRequestUrl(req),
         },
-      });
-    } else {
-      this.logger.warn({
-        msg: 'HTTP Client Error',
-        statusCode: httpStatus,
-        path: responseBody.path,
-        error: exception instanceof Error ? exception.message : exception,
       });
     }
 

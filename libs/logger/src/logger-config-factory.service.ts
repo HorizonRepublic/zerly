@@ -55,6 +55,22 @@ export class LoggerConfigFactory {
 
     const developmentConfig: Partial<LoggerOptions> = !isProduction
       ? {
+          hooks: {
+            // silent route explorer logs to redefine it
+            logMethod(inputArgs: unknown[], method: (...args: unknown[]) => void): void {
+              if (inputArgs.length >= 1) {
+                const arg = inputArgs[0];
+
+                if (arg && typeof arg === 'object' && !Array.isArray(arg) && 'context' in arg) {
+                  const context = (arg as Record<string, unknown>)['context'];
+
+                  if (context === 'RouterExplorer' || context === 'RoutesResolver') return;
+                }
+              }
+
+              method.apply(this, inputArgs);
+            },
+          },
           transport: {
             target: 'pino-pretty',
             options: {

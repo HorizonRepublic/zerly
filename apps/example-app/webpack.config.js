@@ -9,7 +9,7 @@ module.exports = composePlugins(
     skipTypeChecking: false,
   }),
   (config) => {
-    config.cache = { type: 'filesystem' };
+    config.cache = { type: 'memory' };
     config.module = config.module || {};
     config.module.rules = config.module.rules || [];
 

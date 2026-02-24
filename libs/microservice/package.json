@@ -33,6 +33,7 @@
     "@nestjs/common": "^11.1.12",
     "@nestjs/microservices": "^11.1.12",
     "@zerly/core": "workspace:*",
+    "@zerly/kernel": "workspace:*",
     "nats": "^2.29.3",
     "rxjs": "^7.8.2"
   }

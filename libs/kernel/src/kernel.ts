@@ -1,8 +1,8 @@
 import 'reflect-metadata';
-import { INestApplication, Logger, NestApplicationOptions, Type } from '@nestjs/common';
+import { Logger, NestApplicationOptions, Type } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
-import { FastifyAdapter } from '@nestjs/platform-fastify';
+import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
 
 import { CommandFactory } from 'nest-commander';
 import { CommandFactoryRunOptions } from 'nest-commander/src/command-factory.interface';
@@ -22,11 +22,12 @@ import {
 
 import { APP_CONFIG, AppState, IAppConfig } from '@zerly/config';
 
+import { AppMode } from './enum/app-mode.enum';
 import { HeaderKeys } from './enum/header-keys.enum';
 import { genReqId } from './helpers/trace-id.helper';
 import { KernelModule } from './kernel.module';
 import { APP_REF_SERVICE, APP_STATE_SERVICE } from './tokens';
-import { IAppRefService, IAppStateService } from './types';
+import { IAppRefService, IAppStateService, IKernelInitOptions } from './types';
 
 /**
  * The Kernel is the core entry point of the application.
@@ -88,6 +89,7 @@ export class Kernel {
    * State Initialization -> Event Listening -> HTTP Server Start.
    *
    * @param {Type<unknown>} appModule - The root module of the application (usually AppModule).
+   * @param options
    * @returns {Observable<Kernel>} An observable that emits the initialized Kernel instance.
    *
    * @example
@@ -95,13 +97,22 @@ export class Kernel {
    * import { Kernel } from '@zerly/kernel';
    * import { AppModule } from './app/app.module';
    *
-   * Kernel.init(AppModule).subscribe();
+   * Kernel.init(AppModule);
    * ```
    */
-  public static init(appModule: Type<unknown>): Observable<Kernel> {
-    if (process.argv.includes('--cli')) {
-      return this.standalone(appModule);
-    }
+  public static init(
+    appModule: Type<unknown>,
+    options: IKernelInitOptions = {},
+  ): Observable<Kernel> {
+    const opts: IKernelInitOptions = {
+      // default options
+      mode: AppMode.Server,
+
+      // override defaults with user-provided options
+      ...options,
+    };
+
+    if (opts.mode === AppMode.Cli) return this.standalone(appModule);
 
     const kernel = (this.instance ??= new Kernel());
 
@@ -135,7 +146,7 @@ export class Kernel {
    * Kernel.standalone(WorkerModule).subscribe();
    * ```
    */
-  public static standalone(appModule: Type<unknown>): Observable<Kernel> {
+  private static standalone(appModule: Type<unknown>): Observable<Kernel> {
     const kernel = new Kernel();
 
     // Standalone does not share the global bootstrapResult$ to allow multiple contexts if needed
@@ -179,6 +190,7 @@ export class Kernel {
       keepAliveTimeout: 65000, // 65 sec
       disableRequestLogging: true,
       exposeHeadRoutes: true,
+      forceCloseConnections: false,
       routerOptions: {
         ignoreDuplicateSlashes: true,
         ignoreTrailingSlash: true,
@@ -187,9 +199,14 @@ export class Kernel {
     });
 
     return from(
-      NestFactory.create(KernelModule.forServe(appModule), adapter, this.defaultOptions),
+      NestFactory.create<NestFastifyApplication>(
+        KernelModule.forServe(appModule),
+        adapter,
+        this.defaultOptions,
+      ),
     ).pipe(
       tap((app) => {
+        app.enableShutdownHooks();
         this.registerKernelServices(app);
       }),
       mergeMap(() => this.appState.setState$(AppState.Created)),
@@ -234,7 +251,7 @@ export class Kernel {
    * @private
    * @param {any} app - The NestJS application instance.
    */
-  private registerKernelServices(app: INestApplication): void {
+  private registerKernelServices(app: NestFastifyApplication): void {
     this.appRef = app.get(APP_REF_SERVICE);
     this.appState = app.get(APP_STATE_SERVICE);
     this.appRef.set(app);

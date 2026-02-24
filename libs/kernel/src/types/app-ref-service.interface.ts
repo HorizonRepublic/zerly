@@ -1,7 +1,7 @@
-import { INestApplication } from '@nestjs/common';
+import { NestFastifyApplication } from '@nestjs/platform-fastify';
 
 export interface IAppRefService {
-  get(): INestApplication;
+  get(): NestFastifyApplication;
 
-  set(app: INestApplication): this;
+  set(app: NestFastifyApplication): this;
 }

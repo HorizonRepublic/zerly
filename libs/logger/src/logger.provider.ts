@@ -1,4 +1,4 @@
-import { INestApplication, Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 
 import { Logger } from 'nestjs-pino';
 
@@ -12,14 +12,10 @@ export class LoggerProvider {
     private readonly appStateService: IAppStateService,
   ) {
     this.appStateService.onCreated((app) => {
-      this.registerLogger(app);
+      const logger = app.get(Logger);
+
+      app.useLogger(logger);
+      app.flushLogs();
     }, LoadPriority.Logger);
-  }
-
-  protected registerLogger(app: INestApplication): void {
-    const logger = app.get(Logger);
-
-    app.useLogger(logger);
-    app.flushLogs();
   }
 }
