@@ -1,4 +1,4 @@
-import { ENV_METADATA_KEY } from '../const';
+import { ENV_METADATA_KEY } from '../tokens';
 import { EnumType, EnvTypeConstructor, IEnvFieldMetadata, IEnvOptions } from '../types';
 
 /**
@@ -21,7 +21,7 @@ import { EnumType, EnvTypeConstructor, IEnvFieldMetadata, IEnvOptions } from '..
  * }
  * ```
  */
-// eslint-disable-next-line @typescript-eslint/naming-convention
+
 export const Env =
   <TType extends EnumType | EnvTypeConstructor = typeof String>(
     key: string,

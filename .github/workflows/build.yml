@@ -2,7 +2,7 @@ name: Build
 
 on:
   push:
-    branches: [dev]
+    branches: [ dev ]
     paths:
       - 'libs/**'
       - 'package.json'
@@ -10,7 +10,7 @@ on:
       - 'nx.json'
       - '.github/workflows/**'
   pull_request:
-    branches: [main, dev]
+    branches: [ main, dev ]
     paths:
       - 'libs/**'
       - 'package.json'
@@ -42,14 +42,14 @@ jobs:
           fetch-depth: 0
 
       - name: Restore pnpm cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.pnpm-store
           key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
           restore-keys: ${{ runner.os }}-pnpm-
 
       - name: Restore Nx cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: .nx/cache
           key: ${{ runner.os }}-nx-${{ github.sha }}
@@ -58,7 +58,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 25
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -69,14 +69,18 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Lint
-        run: pnpm nx run-many -t lint -p libs/* --parallel=5
+      - name: Derive appropriate SHAs for base and head for `nx affected` commands
+        uses: nrwl/nx-set-shas@v4
 
+      - name: Lint
+        run: pnpm nx affected -t lint --parallel=4
+      
+      # Temporarily disabled due to no tests :)
       # - name: Test
       #   run: pnpm nx run-many -t test -p libs/* --parallel=5
 
-      - name: Build
-        run: pnpm nx run-many -t build -p libs/* --parallel=3
+      - name: Build affected
+        run: pnpm nx affected -t build --parallel=4
 
       - name: Show build artifacts
         run: |

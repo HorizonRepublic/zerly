@@ -1,5 +1,6 @@
 import { DynamicModule, Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+
 import { LoggerModule as PinoModule } from 'nestjs-pino';
 import { Params } from 'nestjs-pino/params';
 
@@ -7,7 +8,7 @@ import { LoggerConfigFactory } from './logger-config-factory.service';
 import { LoggerProvider } from './logger.provider';
 
 @Module({})
-export class NestKitLoggerModule {
+export class LoggerModule {
   public static forRoot(): DynamicModule {
     return {
       exports: [],
@@ -20,7 +21,7 @@ export class NestKitLoggerModule {
           useFactory: (configFactory: LoggerConfigFactory): Params => configFactory.get(),
         }),
       ],
-      module: NestKitLoggerModule,
+      module: LoggerModule,
       providers: [LoggerProvider],
     };
   }

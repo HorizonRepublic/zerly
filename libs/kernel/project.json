@@ -20,7 +20,8 @@
         "tsConfig": "libs/kernel/tsconfig.lib.json",
         "packageJson": "libs/kernel/package.json",
         "main": "libs/kernel/src/index.ts",
-        "assets": ["libs/kernel/*.md"]
+        "assets": ["libs/kernel/*.md"],
+        "updateBuildableProjectDepsInPackageJson": true
       }
     },
     "nx-release-publish": {

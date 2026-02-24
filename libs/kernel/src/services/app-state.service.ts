@@ -1,12 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import {
-  APP_REF_SERVICE,
-  AppState,
-  IAppRefService,
-  IAppStateService,
-  IPrioritizedCallback,
-  IStateCallback,
-} from '@nestkit-x/core';
+
 import {
   catchError,
   concatMap,
@@ -18,6 +11,11 @@ import {
   of,
   toArray,
 } from 'rxjs';
+
+import { AppState } from '@zerly/config';
+
+import { APP_REF_SERVICE } from '../tokens';
+import { IAppRefService, IAppStateService, IPrioritizedCallback, IStateCallback } from '../types';
 
 /**
  * Default implementation of IAppStateService.
@@ -65,7 +63,7 @@ export class AppStateService implements IAppStateService {
 
   public setState$(state: AppState): Observable<void> {
     this.state = state;
-    this.logger.log(`State changed to: ${state}`);
+    this.logger.debug(`State changed to: ${state}`);
 
     const callbacks = this.getCallbacksForState(state);
 

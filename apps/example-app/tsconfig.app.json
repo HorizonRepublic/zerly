@@ -1,21 +1,34 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
-    "outDir": "../../dist/out-tsc",
+    "outDir": "../../dist/apps/example-app",
+    "tsBuildInfoFile": "../../dist/apps/example-app/.tsbuildinfo",
+    "incremental": true,
     "module": "commonjs",
     "types": ["node"],
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true,
     "target": "ESNext",
     "plugins": [
-      { "transform": "typia/lib/transform" },
+      {
+        "transform": "typia/lib/transform"
+      },
       {
         "transform": "@nestia/core/lib/transform",
         "validate": "validate",
         "stringify": "assert"
+      },
+      {
+        "transform": "@nestia/sdk/lib/transform"
       }
     ]
   },
-  "include": ["src/**/*.ts"],
-  "exclude": ["jest.config.ts", "src/**/*.spec.ts", "src/**/*.test.ts"]
+  "include": [
+    "src/**/*.ts"
+  ],
+  "exclude": [
+    "jest.config.ts",
+    "src/**/*.spec.ts",
+    "src/**/*.test.ts"
+  ]
 }

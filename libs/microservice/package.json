@@ -1,14 +1,14 @@
 {
-  "name": "@nestkit-x/microservice",
+  "name": "@zerly/microservice",
   "version": "0.0.1",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/HorizonRepublic/nestkit-x.git",
+    "url": "git+https://github.com/HorizonRepublic/zerly.git",
     "directory": "libs/core"
   },
-  "homepage": "https://github.com/HorizonRepublic/nestkit-x/blob/main/libs/microservice/README.md",
+  "homepage": "https://github.com/HorizonRepublic/zerly/blob/main/libs/microservice/README.md",
   "bugs": {
-    "url": "https://github.com/HorizonRepublic/nestkit-x/issues"
+    "url": "https://github.com/HorizonRepublic/zerly/issues"
   },
   "publishConfig": {
     "access": "public"
@@ -16,7 +16,7 @@
   "keywords": [
     "nestjs",
     "typescript",
-    "nestkit-x",
+    "zerly",
     "framework",
     "library"
   ],
@@ -29,12 +29,12 @@
   "main": "./src/index.js",
   "types": "./src/index.d.ts",
   "dependencies": {
-    "tslib": "^2.3.0",
-    "@nestkit-x/core": "*",
-    "@nestjs/common": "^11.1.9",
     "@horizon-republic/nestjs-jetstream": "^1.0.6",
-    "rxjs": "^7.8.2",
-    "@nestjs/microservices": "^11.1.9",
-    "nats": "^2.29.3"
+    "@nestjs/common": "^11.1.12",
+    "@nestjs/microservices": "^11.1.12",
+    "@zerly/core": "workspace:*",
+    "@zerly/kernel": "workspace:*",
+    "nats": "^2.29.3",
+    "rxjs": "^7.8.2"
   }
 }

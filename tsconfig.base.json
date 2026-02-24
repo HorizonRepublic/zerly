@@ -15,12 +15,14 @@
     "baseUrl": ".",
     "useDefineForClassFields": true,
     "paths": {
-      "@nestkit-x/config": ["libs/config/src/index.ts"],
-      "@nestkit-x/core": ["libs/core/src/index.ts"],
-      "@nestkit-x/kernel": ["libs/kernel/src/index.ts"],
-      "@nestkit-x/logger": ["libs/logger/src/index.ts"],
-      "@nestkit-x/microservice": ["libs/microservice/src/index.ts"],
-      "@nestkit-x/swagger": ["libs/swagger/src/index.ts"]
+      "@zerly/core": ["libs/core/src/index.ts"],
+      "@zerly/kernel": ["libs/kernel/src/index.ts"],
+      "@zerly/config": ["libs/config/src/index.ts"],
+      "@zerly/logger": ["libs/logger/src/index.ts"],
+      "@zerly/microservice": ["libs/microservice/src/index.ts"],
+      "@zerly/swagger": ["libs/swagger/src/index.ts"],
+      "@zerly/auth-module": ["libs/modules/auth/src/index.ts"],
+      "@zerly/db": ["libs/db/src/index.ts"]
     },
     "noImplicitAny": true,
     "strict": true,

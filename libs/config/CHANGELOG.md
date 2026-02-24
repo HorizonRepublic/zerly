@@ -6,7 +6,7 @@ This release contains no new changes.
 
 ### Features
 
-- **config:** freeze config output in `ConfigBuilder` ([1afbdec](https://github.com/HorizonRepublic/nestkit-x/commit/1afbdec))
+- **config:** freeze config output in `ConfigBuilder` ([1afbdec](https://github.com/HorizonRepublic/zerly/commit/1afbdec))
 
 ### ❤️ Thank You
 
@@ -16,7 +16,7 @@ This release contains no new changes.
 
 ### Features
 
-- **config:** remove `load` option and restrict config usage to service-only imports ([da76617](https://github.com/HorizonRepublic/nestkit-x/commit/da76617))
+- **config:** remove `load` option and restrict config usage to service-only imports ([da76617](https://github.com/HorizonRepublic/zerly/commit/da76617))
 
 ### ❤️ Thank You
 
@@ -26,8 +26,8 @@ This release contains no new changes.
 
 ### Features
 
-- **config:** export ConfigFactory type ([af76cd0](https://github.com/HorizonRepublic/nestkit-x/commit/af76cd0))
-- **config:** refactor type definitions for ConfigFactory and ConfigFactoryKeyHost ([fd124ec](https://github.com/HorizonRepublic/nestkit-x/commit/fd124ec))
+- **config:** export ConfigFactory type ([af76cd0](https://github.com/HorizonRepublic/zerly/commit/af76cd0))
+- **config:** refactor type definitions for ConfigFactory and ConfigFactoryKeyHost ([fd124ec](https://github.com/HorizonRepublic/zerly/commit/fd124ec))
 
 ### ❤️ Thank You
 
@@ -37,7 +37,7 @@ This release contains no new changes.
 
 ### Documentation
 
-- **config:** fix README badge formatting ([e425ac1](https://github.com/HorizonRepublic/nestkit-x/commit/e425ac1))
+- **config:** fix README badge formatting ([e425ac1](https://github.com/HorizonRepublic/zerly/commit/e425ac1))
 
 ### ❤️ Thank You
 
@@ -47,11 +47,11 @@ This release contains no new changes.
 
 ### Documentation
 
-- **config:** update README with detailed usage guide, features, and examples ([a3f737b](https://github.com/HorizonRepublic/nestkit-x/commit/a3f737b))
+- **config:** update README with detailed usage guide, features, and examples ([a3f737b](https://github.com/HorizonRepublic/zerly/commit/a3f737b))
 
 ### Chores
 
-- **deps:** update dependencies and repository metadata for config module ([916b1b5](https://github.com/HorizonRepublic/nestkit-x/commit/916b1b5))
+- **deps:** update dependencies and repository metadata for config module ([916b1b5](https://github.com/HorizonRepublic/zerly/commit/916b1b5))
 
 ### ❤️ Thank You
 
@@ -61,7 +61,7 @@ This release contains no new changes.
 
 ### Features
 
-- **config:** enhance configuration module with dynamic load support and update app module ([2bab7f9](https://github.com/HorizonRepublic/nestkit-x/commit/2bab7f9))
+- **config:** enhance configuration module with dynamic load support and update app module ([2bab7f9](https://github.com/HorizonRepublic/zerly/commit/2bab7f9))
 
 ### ❤️ Thank You
 
@@ -71,7 +71,7 @@ This release contains no new changes.
 
 ### Chores
 
-- **package.json:** update repository metadata, add keywords, and enhance library configuration ([84bee73](https://github.com/HorizonRepublic/nestkit-x/commit/84bee73))
+- **package.json:** update repository metadata, add keywords, and enhance library configuration ([84bee73](https://github.com/HorizonRepublic/zerly/commit/84bee73))
 
 ### ❤️ Thank You
 
@@ -89,4 +89,4 @@ This release contains no new changes.
 
 ### Chores
 
-- **config:** lint ([76b5d33](https://github.com/HorizonRepublic/nestkit-x/commit/76b5d33))
+- **config:** lint ([76b5d33](https://github.com/HorizonRepublic/zerly/commit/76b5d33))

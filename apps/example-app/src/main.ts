@@ -1,5 +1,5 @@
-import { NestKitKernel } from '@nestkit-x/kernel';
+import { AppMode, Kernel } from '@zerly/kernel';
 
 import { AppModule } from './app/app.module';
 
-NestKitKernel.init(AppModule);
+Kernel.init(AppModule, { mode: AppMode.Server });

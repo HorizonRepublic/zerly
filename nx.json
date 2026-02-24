@@ -3,6 +3,9 @@
   "cli": {
     "packageManager": "pnpm"
   },
+  "tui": {
+    "enabled": false
+  },
   "plugins": [
     {
       "plugin": "@nx/webpack/plugin",
@@ -29,25 +32,35 @@
   ],
   "targetDefaults": {
     "@nx/js:tsc": {
-      "cache": true,
+      "cache": false,
       "dependsOn": ["^build"],
       "inputs": ["default", "^default"]
+    },
+    "nx-release-publish": {
+      "options": {
+        "packageRoot": "dist/{projectRoot}"
+      }
     }
   },
   "release": {
-    "projects": ["libs/*"],
+    "projects": ["libs/*", "libs/modules/*"],
     "projectsRelationship": "fixed",
-
     "releaseTag": {
       "pattern": "v{version}",
       "requireSemver": true
     },
-
     "version": {
       "preVersionCommand": "pnpm dlx nx run-many -t build",
-      "conventionalCommits": true
+      "preserveLocalDependencyProtocols": false,
+      "conventionalCommits": true,
+      "manifestRootsToUpdate": [
+        "{projectRoot}",
+        {
+          "path": "dist/{projectRoot}",
+          "preserveLocalDependencyProtocols": false
+        }
+      ]
     },
-
     "changelog": {
       "workspaceChangelog": {
         "file": "CHANGELOG.md",
@@ -79,7 +92,6 @@
         }
       }
     },
-
     "conventionalCommits": {
       "types": {
         "feat": {

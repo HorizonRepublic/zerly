@@ -11,7 +11,7 @@ export default [
     rules: {
       ...nestjsTyped.configs.flatRecommended[1].rules,
       ...nestjsTyped.configs.flatNoSwagger[0].rules,
-      '@darraghor/nestjs-typed/sort-module-metadata-arrays': ['warn', { locale: 'en-US' }],
+      '@darraghor/nestjs-typed/sort-module-metadata-arrays': 'off',
     },
   },
 ];

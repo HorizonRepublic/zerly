@@ -20,7 +20,8 @@
         "tsConfig": "libs/logger/tsconfig.lib.json",
         "packageJson": "libs/logger/package.json",
         "main": "libs/logger/src/index.ts",
-        "assets": ["libs/logger/*.md"]
+        "assets": ["libs/logger/*.md"],
+        "updateBuildableProjectDepsInPackageJson": true
       }
     },
     "nx-release-publish": {

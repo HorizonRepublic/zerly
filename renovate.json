@@ -1,31 +1,102 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["config:recommended"],
-  "automerge": true,
-  "labels": ["dependencies"],
-  "dependencyDashboard": true,
+  "extends": [
+    "config:recommended",
+    ":disableRateLimiting",
+    ":semanticCommits"
+  ],
+  "baseBranches": [
+    "dev"
+  ],
   "commitMessagePrefix": "deps():",
+  "branchPrefix": "renovate/",
+  "labels": [
+    "dependencies",
+    "renovate"
+  ],
+  "addLabels": [
+    "automated-pr"
+  ],
+  "dependencyDashboard": true,
+  "osvVulnerabilityAlerts": true,
+  "assignees": [
+    "@themaiby"
+  ],
+  "reviewers": [
+    "@themaiby"
+  ],
+  "automerge": true,
   "automergeStrategy": "squash",
   "rebaseWhen": "conflicted",
-  "baseBranches": ["dev"],
-  "branchPrefix": "renovate/",
-  "osvVulnerabilityAlerts": true,
-  "assignees": ["@themaiby"],
-  "reviewers": ["@themaiby"],
-  "addLabels": ["automated-pr"],
   "packageRules": [
     {
-      "enabled": true,
-      "matchPackageNames": ["^@nestkit-x/", "^@nx/", "^nx"]
+      "groupName": "NestJS ecosystem",
+      "matchPackagePatterns": [
+        "^@nestjs/",
+        "^nestjs-",
+        "^@nestia/"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch"
+      ]
     },
     {
-      "groupName": "minor and patch dependencies",
-      "matchUpdateTypes": ["minor", "patch"],
-      "groupSlug": "all-minor-patch"
+      "matchPackagePatterns": [
+        "^@nx/",
+        "^nx$",
+        "^@nrwl/"
+      ],
+      "enabled": false
     },
     {
-      "groupName": "major dependencies",
-      "matchUpdateTypes": ["major"]
+      "groupName": "Testing and Linting",
+      "matchPackagePatterns": [
+        "^jest",
+        "^@types/jest",
+        "^eslint",
+        "^prettier",
+        "^@swc/"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch"
+      ]
+    },
+    {
+      "groupName": "Internal packages",
+      "matchPackagePatterns": [
+        "^@zerly/"
+      ],
+      "enabled": false
+    },
+    {
+      "groupName": "Major updates",
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "automerge": false,
+      "labels": [
+        "dependencies",
+        "major-update"
+      ]
+    },
+    {
+      "groupName": "Other dependencies",
+      "matchUpdateTypes": [
+        "minor",
+        "patch"
+      ],
+      "excludePackagePatterns": [
+        "^@nestjs/",
+        "^nestjs-",
+        "^@nestia/",
+        "^@nx/",
+        "^nx$",
+        "^jest",
+        "^eslint",
+        "^prettier"
+      ]
     }
   ]
 }

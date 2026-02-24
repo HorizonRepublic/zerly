@@ -30,7 +30,7 @@ This release contains no new changes.
 
 ### Chores
 
-- **package.json:** update repository metadata, add keywords, and enhance library configuration ([84bee73](https://github.com/HorizonRepublic/nestkit-x/commit/84bee73))
+- **package.json:** update repository metadata, add keywords, and enhance library configuration ([84bee73](https://github.com/HorizonRepublic/zerly/commit/84bee73))
 
 ### ❤️ Thank You
 
@@ -40,7 +40,7 @@ This release contains no new changes.
 
 ### Features
 
-- **kernel:** add standalone bootstrap support for NestKitKernel ([4216903](https://github.com/HorizonRepublic/nestkit-x/commit/4216903))
+- **kernel:** add standalone bootstrap support for ZerlyKernel ([4216903](https://github.com/HorizonRepublic/zerly/commit/4216903))
 
 ### ❤️ Thank You
 
@@ -50,7 +50,7 @@ This release contains no new changes.
 
 ### Documentation
 
-- **kernel:** update README with installation, usage, features, and license information ([08bf073](https://github.com/HorizonRepublic/nestkit-x/commit/08bf073))
+- **kernel:** update README with installation, usage, features, and license information ([08bf073](https://github.com/HorizonRepublic/zerly/commit/08bf073))
 
 ## 0.0.2 (2025-12-04)
 

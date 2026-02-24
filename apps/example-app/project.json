@@ -1,48 +1,84 @@
 {
-  "name": "nestkit-x-app",
+  "name": "example-app",
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
   "sourceRoot": "apps/example-app/src",
   "projectType": "application",
   "tags": [],
   "targets": {
     "build": {
-      "executor": "@nx/js:tsc",
+      "executor": "@nx/webpack:webpack",
+      "deleteOutputPath": false,
+      "outputs": [
+        "{options.outputPath}"
+      ],
+      "defaultConfiguration": "development",
       "options": {
+        "target": "node",
         "outputPath": "dist/apps/example-app",
         "main": "apps/example-app/src/main.ts",
         "tsConfig": "apps/example-app/tsconfig.app.json",
-        "assets": [
-          {
-            "input": "src/assets",
-            "glob": "**/*",
-            "output": "assets"
-          }
-        ]
+        "webpackConfig": "apps/example-app/webpack.config.js",
+        "externalDependencies": "all",
+        "sourceMap": true,
       },
       "configurations": {
-        "production": {
-          "sourceMap": false
-        },
         "development": {
-          "watch": true
+          "optimization": false,
+          "extractLicenses": false,
+          "inspect": false
+        },
+        "production": {
+          "optimization": false,
+          "extractLicenses": true,
+          "inspect": false
         }
       }
     },
+    "postbuild": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "npx tsc-alias -p apps/example-app/tsconfig.app.json --outDir dist/apps/example-app"
+      },
+      "dependsOn": [
+        "build"
+      ]
+    },
     "serve": {
+      "executor": "nx:noop",
+      "dependsOn": [
+        "serve:bun"
+      ]
+    },
+    "serve:bun": {
+      "executor": "nx:run-commands",
+      "defaultConfiguration": "development",
+      "options": {
+        "cwd": "{workspaceRoot}",
+        "parallel": true,
+        "commands": [
+          "nx build example-app --configuration=development --watch",
+          "rm -f dist/apps/example-app/main.js && while [ ! -f dist/apps/example-app/main.js ]; do sleep 0.2; done && sleep 0.5 && bun --watch dist/apps/example-app/main.js"
+        ]
+      }
+    },
+    "serve:node": {
       "executor": "@nx/js:node",
       "defaultConfiguration": "development",
-      "dependsOn": ["build"],
+      "dependsOn": [
+        "build"
+      ],
       "options": {
-        "buildTarget": "nestkit-x-app:build",
+        "buildTarget": "example-app:build",
         "runBuildTargetDependencies": false
       },
       "configurations": {
         "development": {
           "runtimeArgs": [],
-          "buildTarget": "nestkit-x-app:build:development"
+          "buildTarget": "example-app:build:development",
+          "watch": true
         },
         "production": {
-          "buildTarget": "nestkit-x-app:build:production"
+          "buildTarget": "example-app:build:production"
         }
       }
     },

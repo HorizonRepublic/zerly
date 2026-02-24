@@ -1,13 +1,18 @@
-# NestKit-X
+# Zerly
+
+# Zerly
+
+[![CI](https://github.com/HorizonRepublic/zerly/actions/workflows/build.yml/badge.svg)](https://github.com/HorizonRepublic/zerly/actions/workflows/build.yml)
+[![NPM Version](https://img.shields.io/npm/v/@zerly/core?style=flat-square)](https://www.npmjs.com/package/@zerly/core)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Conventional Commits](https://img.shields.io/badge/Conventional%20Commits-1.0.0-%23FE5196?logo=conventionalcommits&logoColor=white)](https://conventionalcommits.org)
 
 Performant modules kit for NestJS that eliminates boilerplate code and provides seamless integration between
 modules.
 
-## Libs (unbound)
+### Readme in WIP
 
-- [JetStream Transport](./libs/jetstream-transport-x)
-
-## Libs (bound to Kit)
+## Libs in kit
 
 - [Kernel](./libs/kernel)
 - [Config](./libs/config)
@@ -16,10 +21,7 @@ modules.
 - [Compression](./libs/compression)
 - [Swagger](./libs/swagger)
 
-## Why NestKit-X?
+### See also
 
-- **Zero Boilerplate**: No more massive `main.ts` files
-- **One-Line Bootstrap**: Start applications instantly
-- **Dependency Injection Everything**: Configure through DI patterns
-- **Pre-integrated Ecosystem**: Modules work together out of the box
-- **Microservice Ready**: Build services without domain dependencies
+- [JetStream Transport](./libs/jetstream-transport-x)
+

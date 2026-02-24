@@ -1,44 +1,33 @@
 import { DynamicModule, Module } from '@nestjs/common';
-import { ConfigFactory, ConfigModule } from '@nestjs/config';
-import { Environment } from '@nestkit-x/core';
+import { ConfigFactory, ConfigModule as BaseConfigModule } from '@nestjs/config';
+import { ConfigModuleOptions } from '@nestjs/config/dist/interfaces/config-module-options.interface';
 
-import { CONFIG_MODULE_OPTIONS } from './const';
 import { EnvExampleProvider } from './providers/env-example.provider';
-import { IConfigModuleOptions } from './types/config-module.options';
 
 @Module({})
-export class NestKitConfigModule {
-  public static forRoot(
-    options: IConfigModuleOptions = {
-      exampleGenerationEnv: Environment.Local,
-    },
-  ): DynamicModule {
+export class ConfigModule {
+  public static forRoot(load: ConfigModuleOptions['load'] = []): DynamicModule {
     return {
-      global: false,
+      module: ConfigModule,
+      global: true,
       imports: [
-        ConfigModule.forRoot({
+        BaseConfigModule.forRoot({
           cache: true,
           isGlobal: true,
           expandVariables: true,
+          load,
         }),
       ],
-      module: NestKitConfigModule,
-      providers: [
-        {
-          provide: CONFIG_MODULE_OPTIONS,
-          useValue: options,
-        },
-        EnvExampleProvider,
-      ],
-      exports: [ConfigModule],
+      providers: [EnvExampleProvider],
+      exports: [BaseConfigModule],
     };
   }
 
   public static forFeature(config: ConfigFactory): DynamicModule {
     return {
-      module: NestKitConfigModule,
-      imports: [ConfigModule.forFeature(config)],
-      exports: [ConfigModule],
+      module: ConfigModule,
+      imports: [BaseConfigModule.forFeature(config)],
+      exports: [BaseConfigModule],
     };
   }
 }

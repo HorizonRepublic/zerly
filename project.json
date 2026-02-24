@@ -1,5 +1,5 @@
 {
-  "name": "nestkit-x",
+  "name": "zerly",
   "$schema": "node_modules/nx/schemas/project-schema.json",
   "includedScripts": [],
   "targets": {

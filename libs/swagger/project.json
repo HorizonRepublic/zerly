@@ -20,7 +20,8 @@
         "tsConfig": "libs/swagger/tsconfig.lib.json",
         "packageJson": "libs/swagger/package.json",
         "main": "libs/swagger/src/index.ts",
-        "assets": ["libs/swagger/*.md"]
+        "assets": ["libs/swagger/*.md"],
+        "updateBuildableProjectDepsInPackageJson": true
       }
     },
     "nx-release-publish": {

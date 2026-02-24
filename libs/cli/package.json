@@ -1,0 +1,14 @@
+{
+  "name": "@zerly/cli",
+  "version": "0.0.1",
+  "type": "commonjs",
+  "bin": {
+    "zerly": "./src/bin.js"
+  },
+  "dependencies": {
+    "tslib": "^2.3.0",
+    "@zerly/kernel": "workspace:*",
+    "@nestjs/common": "^11.1.12",
+    "nest-commander": "^3.20.1"
+  }
+}

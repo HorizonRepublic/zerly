@@ -1,4 +1,4 @@
-import { ServiceToken } from '@nestkit-x/core';
+import { ServiceToken } from '@zerly/core';
 
 export const MICROSERVICE_SERVER_PROVIDER = Symbol(
   'MICROSERVICE_SERVER_PROVIDER',

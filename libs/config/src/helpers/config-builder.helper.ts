@@ -1,9 +1,9 @@
 import 'reflect-metadata';
-import { Type } from '@nestjs/common';
+import { Logger, Type } from '@nestjs/common';
 import { registerAs } from '@nestjs/config';
 import { RuntimeException } from '@nestjs/core/errors/exceptions';
 
-import { ENV_METADATA_KEY } from '../const';
+import { ENV_METADATA_KEY } from '../tokens';
 import { EnumType, EnvTypeConstructor, IEnvFieldMetadata } from '../types';
 import { ConfigFactory, ConfigFactoryKeyHost } from '../types/config-factory.type';
 
@@ -19,6 +19,7 @@ import { ConfigFactory, ConfigFactoryKeyHost } from '../types/config-factory.typ
  * ```
  */
 export class ConfigBuilder<T extends object> {
+  private readonly logger = new Logger(ConfigBuilder.name);
   private validator?: (config: T) => T;
 
   private constructor(
@@ -49,16 +50,24 @@ export class ConfigBuilder<T extends object> {
    * @returns NestJS ConfigFactory with proper typing.
    *
    * @example
-   * ```typescript
+   * ```TypeScript
    * .build()
    * ```
    */
 
   public build(): ConfigFactory & ConfigFactoryKeyHost<T> {
     const instance = this.initializeConfig(this.configClass);
-    const finalConfig = this.validator ? this.validator(instance) : instance;
 
-    return registerAs(this.token, () => Object.freeze(finalConfig));
+    try {
+      const finalConfig = this.validator ? this.validator(instance) : instance;
+
+      return registerAs(this.token, () => Object.freeze(finalConfig));
+    } catch (error) {
+      this.logger.error(`Validation failed for configuration object:`);
+      this.logger.error((error as Error).message);
+
+      process.exit(1);
+    }
   }
 
   /**
@@ -68,7 +77,7 @@ export class ConfigBuilder<T extends object> {
    * @returns ConfigBuilder instance for chaining.
    *
    * @example
-   * ```typescript
+   * ```TypeScript
    * .validate(typia.assertEquals<IAppConfig>)
    * .validate(validateSync) // class-validator
    * .validate(config => schema.parse(config)) // zod
@@ -114,23 +123,28 @@ export class ConfigBuilder<T extends object> {
    *
    * @param configClass Configuration class constructor.
    * @returns Fully initialized configuration instance.
-   * @throws {RuntimeException} If required environment variables are missing or invalid.
+   * @throws {never} Calls process.exit(1) If required environment variables are missing or invalid.
    * @example -
    */
   private initializeConfig(configClass: new () => T): T {
     const instance = new configClass();
     const metadata: IEnvFieldMetadata[] = Reflect.getMetadata(ENV_METADATA_KEY, instance) ?? [];
+    const errors: string[] = [];
 
     for (const { key, options, propertyKey } of metadata) {
       const value = process.env[key];
-
-      if (value === undefined && options.default !== undefined) {
-        Reflect.set(instance, propertyKey, options.default);
-        continue;
-      }
+      const classValue = Reflect.get(instance, propertyKey) as unknown;
 
       if (value === undefined) {
-        throw new RuntimeException(`Missing required environment variable: ${key}`);
+        if (options.default !== undefined) {
+          Reflect.set(instance, propertyKey, options.default);
+          continue;
+        }
+
+        if (classValue !== undefined) continue;
+
+        errors.push(`Missing required environment variable: ${key}`);
+        continue;
       }
 
       try {
@@ -138,8 +152,18 @@ export class ConfigBuilder<T extends object> {
 
         Reflect.set(instance, propertyKey, convertedValue);
       } catch (error) {
-        throw new RuntimeException(`Invalid value for ${key}: ${(error as Error).message}`);
+        errors.push(`Invalid value for ${key}: ${(error as Error).message}`);
       }
+    }
+
+    if (errors.length > 0) {
+      this.logger.error('Configuration initialization failed:');
+
+      errors.forEach((error) => {
+        this.logger.error(`- ${error}`);
+      });
+
+      process.exit(1);
     }
 
     return instance;

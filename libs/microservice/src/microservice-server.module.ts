@@ -1,15 +1,16 @@
 import { DynamicModule, Module } from '@nestjs/common';
 
+import { JetstreamServerModule } from '@horizon-republic/nestjs-jetstream';
+
 import { MICROSERVICE_OPTIONS } from './const';
 import { MicroserviceServerProvider } from './providers/microservice-server.provider';
 import { IMicroserviceModuleOptions } from './types/microservice-module.options';
-import { JetstreamServerModule } from '@horizon-republic/nestjs-jetstream';
 
 @Module({})
-export class NestKitMicroserviceServerModule {
+export class MicroserviceServerModule {
   public static forRoot(options: IMicroserviceModuleOptions): DynamicModule {
     return {
-      module: NestKitMicroserviceServerModule,
+      module: MicroserviceServerModule,
       imports: [JetstreamServerModule.forRoot(options)],
       providers: [
         {
@@ -25,7 +26,7 @@ export class NestKitMicroserviceServerModule {
   // todo: make really async
   public forRootAsync(options: IMicroserviceModuleOptions): DynamicModule {
     return {
-      module: NestKitMicroserviceServerModule,
+      module: MicroserviceServerModule,
       imports: [
         JetstreamServerModule.forRootAsync({
           name: options.name,

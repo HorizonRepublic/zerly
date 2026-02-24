@@ -1,13 +1,14 @@
 {
-  "name": "@nestkit-x/core",
+  "name": "@zerly/core",
+  "version": "0.0.1",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/HorizonRepublic/nestkit-x.git",
+    "url": "git+https://github.com/HorizonRepublic/zerly.git",
     "directory": "libs/core"
   },
-  "homepage": "https://github.com/HorizonRepublic/nestkit-x/blob/main/libs/core/README.md",
+  "homepage": "https://github.com/HorizonRepublic/zerly/blob/main/libs/core/README.md",
   "bugs": {
-    "url": "https://github.com/HorizonRepublic/nestkit-x/issues"
+    "url": "https://github.com/HorizonRepublic/zerly/issues"
   },
   "publishConfig": {
     "access": "public"
@@ -15,7 +16,7 @@
   "keywords": [
     "nestjs",
     "typescript",
-    "nestkit-x",
+    "zerly",
     "framework",
     "library"
   ],
@@ -28,11 +29,11 @@
   "main": "./src/index.js",
   "types": "./src/index.d.ts",
   "dependencies": {
-    "tslib": "^2.3.0"
+    "tslib": "^2.8.1",
+    "typia": "^11.0.1"
   },
-  "peerDependencies": {
-    "typia": "^9.0.0",
-    "rxjs": "^7.8.0",
-    "@nestjs/common": "^11.1.0"
+  "peerDependencies": {},
+  "engines": {
+    "node": ">= 20"
   }
 }

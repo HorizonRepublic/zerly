@@ -6,6 +6,8 @@ import sonarjs from 'eslint-plugin-sonarjs';
 import unusedImports from 'eslint-plugin-unused-imports';
 import jsoncParser from 'jsonc-eslint-parser';
 import tseslint from 'typescript-eslint';
+import importPlugin from 'eslint-plugin-import-x';
+
 
 export default [
   // Base configurations from Nx and TypeScript
@@ -33,6 +35,7 @@ export default [
       '**/.nx/**',
       '**/tmp/**',
       '**/.docusaurus/**',
+      '**/webpack.config.js',
     ],
   },
 
@@ -46,7 +49,16 @@ export default [
       '@nx': nx,
     },
     rules: {
-      '@nx/dependency-checks': 'error',
+      '@nx/dependency-checks': [
+        'error',
+        {
+          ignoredDependencies: ['typia'],
+          buildTargets: ['build'],
+          checkMissingDependencies: true,
+          checkObsoleteDependencies: true,
+          checkVersionMismatches: true,
+        },
+      ],
     },
   },
 
@@ -58,6 +70,7 @@ export default [
       'prefer-arrow': preferArrowPlugin,
       prettier: eslintPluginPrettier,
       'unused-imports': unusedImports,
+      'import-x': importPlugin,
     },
     rules: {
       '@nx/dependency-checks': [
@@ -117,7 +130,54 @@ export default [
       // General code quality
       'no-console': ['warn', { allow: ['warn', 'error'] }],
       'no-debugger': 'error',
-      'no-duplicate-imports': 'error',
+      'import-x/order': [
+        'error',
+        {
+          groups: [
+            'builtin', // Node.js built-ins (fs, path, etc.)
+            'external', // npm packages (@nestjs/*, typia, rxjs, etc.)
+            'internal', // Workspace aliases (@nestkit-x/*, @zerly/*)
+            'parent', // Parent imports (../)
+            'sibling', // Sibling imports (./)
+            'index', // Index imports (./)
+            'type', // Type-only imports
+          ],
+          pathGroups: [
+            {
+              pattern: '@nestjs/**',
+              group: 'external',
+              position: 'before',
+            },
+            {
+              pattern: '@nestia/**',
+              group: 'external',
+              position: 'before',
+            },
+            {
+              pattern: '@nestkit-x/**',
+              group: 'internal',
+              position: 'before',
+            },
+            {
+              pattern: '@zerly/**',
+              group: 'internal',
+              position: 'before',
+            },
+          ],
+          pathGroupsExcludedImportTypes: ['builtin', 'type'],
+          'newlines-between': 'always',
+          alphabetize: {
+            order: 'asc',
+            caseInsensitive: true,
+          },
+        },
+      ],
+      'import-x/newline-after-import': ['error', { count: 1 }],
+      'import-x/no-duplicates': 'error',
+
+      // Remove the base no-duplicate-imports since import-x/no-duplicates replaces it
+      'no-duplicate-imports': 'off',
+
       'no-multiple-empty-lines': ['error', { max: 1, maxBOF: 0, maxEOF: 1 }],
       'no-useless-constructor': 'error',
       'no-useless-return': 'error',
@@ -220,21 +280,63 @@ export default [
       '@typescript-eslint/method-signature-style': ['error', 'method'],
       '@typescript-eslint/naming-convention': [
         'error',
+        // 1. Constants (UPPER_CASE), standard variables (camelCase), or "Enum-as-Const" (PascalCase)
         {
+          selector: 'variable',
+          modifiers: ['const'],
+          format: ['UPPER_CASE', 'camelCase', 'PascalCase'],
+          // Allow prefixes/suffixes for special tokens
           filter: {
             match: true,
-            regex: '^[A-Z][A-Z0-9_]*(_TOKEN|_KEY|_CONFIG)?$',
+            regex:
+              '^[A-Z][A-Z0-9_]*(_TOKEN|_KEY|_CONFIG)?$|^[a-z][a-zA-Z0-9]*$|^[A-Z][a-zA-Z0-9]*$',
           },
-          format: ['UPPER_CASE', 'camelCase'],
-          modifiers: ['const'],
-          selector: 'variable',
         },
-        { format: ['camelCase'], selector: 'variableLike' },
-        { format: ['camelCase'], selector: 'memberLike' },
-        { format: ['PascalCase'], selector: 'typeLike' },
-        { format: ['PascalCase'], selector: 'enumMember' },
-        { format: ['PascalCase'], prefix: ['I'], selector: 'interface' },
-        { format: ['PascalCase'], selector: 'typeAlias' },
+        // 2. Other variables (non-const) - only camelCase
+        {
+          selector: 'variable',
+          format: ['camelCase'],
+        },
+        // 3. Functions and parameters - camelCase
+        {
+          selector: 'function',
+          format: ['camelCase'],
+        },
+        {
+          selector: 'parameter',
+          format: ['camelCase'],
+          leadingUnderscore: 'allow', // Allow _unusedParam
+        },
+        // 4. Classes, interfaces, types, enums - PascalCase
+        {
+          selector: 'typeLike',
+          format: ['PascalCase'],
+        },
+        {
+          selector: 'enumMember',
+          format: ['PascalCase', 'UPPER_CASE'],
+        },
+        {
+          selector: 'interface',
+          format: ['PascalCase'],
+          prefix: ['I'], // Require "I" prefix
+        },
+        // 5. Object properties - allow everything (for HTTP headers, enum-objects, etc.)
+        {
+          selector: 'objectLiteralProperty',
+          format: null,
+        },
+        // 6. Class methods and accessors - camelCase
+        {
+          selector: 'memberLike',
+          modifiers: ['private'],
+          format: ['camelCase'],
+          leadingUnderscore: 'allow', // Private members allow leading underscore
+        },
+        {
+          selector: 'memberLike',
+          format: ['camelCase'],
+        },
       ],
       '@typescript-eslint/no-confusing-void-expression': 'error',
       '@typescript-eslint/no-explicit-any': 'error',
@@ -249,6 +351,7 @@ export default [
       '@typescript-eslint/prefer-readonly': 'error',
       '@typescript-eslint/prefer-string-starts-ends-with': 'error',
       '@typescript-eslint/switch-exhaustiveness-check': 'error',
+      '@typescript-eslint/no-empty-function': 'off',
 
       camelcase: 'off',
 

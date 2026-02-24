@@ -30,7 +30,7 @@ This release contains no new changes.
 
 ### Chores
 
-- **package.json:** update repository metadata, add keywords, and enhance library configuration ([84bee73](https://github.com/HorizonRepublic/nestkit-x/commit/84bee73))
+- **package.json:** update repository metadata, add keywords, and enhance library configuration ([84bee73](https://github.com/HorizonRepublic/zerly/commit/84bee73))
 
 ### ❤️ Thank You
 

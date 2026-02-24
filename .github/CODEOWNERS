@@ -1,0 +1,11 @@
+# This file is used to define code owners for the repository.
+# GitHub will automatically request reviews from these users.
+
+# Default owner for everything
+*       @themaiby
+
+# Specific owners for CI/CD workflows
+.github/workflows/   @themaiby
+
+# Specific owners for critical libs
+# libs/core/         @themaiby @senior-dev
