@@ -1,3 +1,19 @@
+## 0.6.0 (2026-02-25)
+
+### Features
+
+- **swagger:** add static `forRoot` method to `SwaggerModule` ([7b0b6fc](https://github.com/HorizonRepublic/zerly/commit/7b0b6fc))
+- **swagger:** add static forRoot method to SwaggerModule ([#165](https://github.com/HorizonRepublic/zerly/pull/165))
+
+### Chores
+
+- **ci:** changelog fix ([#164](https://github.com/HorizonRepublic/zerly/pull/164))
+- **sync:** back-sync main ([2aab87e](https://github.com/HorizonRepublic/zerly/commit/2aab87e))
+
+### ❤️ Thank You
+
+- Kyrylo Lytvynov @themaiby
+
 ## 0.5.6 (2026-02-25)
 
 ### Bug Fixes
