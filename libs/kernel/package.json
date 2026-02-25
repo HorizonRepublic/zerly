@@ -36,7 +36,7 @@
     "nest-commander": "^3.20.1",
     "@fastify/compress": "^8.3.1",
     "@fastify/helmet": "^13.0.2",
-    "@zerly/config": "0.0.1"
+    "@zerly/config": "0.5.4"
   },
   "peerDependencies": {
     "@nestjs/common": ">= 11.0.0",
