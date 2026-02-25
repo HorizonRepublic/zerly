@@ -1,0 +1,95 @@
+name: Prepare Release
+
+on:
+  workflow_dispatch:
+
+jobs:
+  prepare:
+    name: Bump version, generate changelog, open PR
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Validate branch
+        run: |
+          if [ "${{ github.ref_name }}" != "dev" ]; then
+            echo "❌ This workflow must be run from the dev branch (current: ${{ github.ref_name }})"
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_TOKEN }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Get pnpm store path
+        run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+
+      - name: Cache pnpm store
+        uses: actions/cache@v5
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: ${{ runner.os }}-pnpm-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Configure git
+        run: |
+          git config user.name "Release Bot"
+          git config user.email "release-bot@users.noreply.github.com"
+
+      - name: Bump version
+        run: pnpm nx release version --git-commit=false --git-tag=false
+
+      - name: Generate changelog
+        run: pnpm nx release changelog --git-commit=false --git-tag=false --create-release=false
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+
+      - name: Get new version
+        id: version
+        run: echo "version=$(node -p "require('./libs/core/package.json').version")" >> $GITHUB_OUTPUT
+
+      - name: Create release branch and commit
+        run: |
+          git checkout -b release/${{ steps.version.outputs.version }}
+          git add .
+          git commit -m "chore(release): publish ${{ steps.version.outputs.version }}"
+          git push origin release/${{ steps.version.outputs.version }}
+
+      - name: Open PR
+        run: |
+          gh pr create \
+            --title "chore(release): publish ${{ steps.version.outputs.version }}" \
+            --body "## What
+
+          Release v${{ steps.version.outputs.version }}
+
+          ## Changes
+
+          See [CHANGELOG.md](CHANGELOG.md) for the full list of changes.
+
+          ## Type
+
+          - [x] chore / ci / docs" \
+            --base main \
+            --head release/${{ steps.version.outputs.version }}
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
