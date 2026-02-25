@@ -49,11 +49,18 @@ jobs:
       id-token: write
 
     steps:
+      - name: Generate token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
       - name: Checkout
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          token: ${{ secrets.RELEASE_TOKEN }}
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -101,7 +108,7 @@ jobs:
             --notes-file /tmp/release-notes.md \
             --target main
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
 
       - name: Publish to npm
         run: pnpm nx release publish
@@ -113,7 +120,7 @@ jobs:
         run: |
           git fetch origin
           git checkout dev
-          git rebase origin/main
-          git push origin dev --force-with-lease
+          git merge origin/main --no-ff -m "chore(sync): back-sync main after v${{ needs.check.outputs.version }}"
+          git push origin dev
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}

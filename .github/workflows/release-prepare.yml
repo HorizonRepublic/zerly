@@ -13,12 +13,19 @@ jobs:
       pull-requests: write
 
     steps:
+      - name: Generate token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
       - name: Checkout dev
         uses: actions/checkout@v6
         with:
           ref: dev
           fetch-depth: 0
-          token: ${{ secrets.RELEASE_TOKEN }}
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -59,7 +66,7 @@ jobs:
       - name: Generate changelog
         run: pnpm nx release changelog ${{ steps.version.outputs.version }} --git-commit=false --git-tag=false
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
 
       - name: Create release branch and commit
         run: |
@@ -86,4 +93,4 @@ jobs:
             --base main \
             --head release/${{ steps.version.outputs.version }}
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
