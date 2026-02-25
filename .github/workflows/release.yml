@@ -95,7 +95,7 @@ jobs:
 
       - name: Create GitHub release
         run: |
-          awk '/^## \[/{if(found) exit; found=1} found' CHANGELOG.md > /tmp/release-notes.md
+          awk '/^## /{if(found) exit; found=1} found' CHANGELOG.md > /tmp/release-notes.md
           gh release create "v${{ needs.check.outputs.version }}" \
             --title "v${{ needs.check.outputs.version }}" \
             --notes-file /tmp/release-notes.md \
@@ -109,31 +109,11 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           NPM_CONFIG_PROVENANCE: true
 
-      - name: Open back-sync PR
-        id: back-sync-pr
+      - name: Back-sync dev from main
         run: |
-          PR_URL=$(gh pr create \
-            --title "chore(sync): back-sync main after v${{ needs.check.outputs.version }}" \
-            --body "## What
-
-          Automatic back-sync of release v${{ needs.check.outputs.version }} from main into dev.
-
-          ## Changes
-
-          - Version bump to v${{ needs.check.outputs.version }}
-          - Updated CHANGELOG.md files
-
-          ## Type
-
-          - [x] chore / ci / docs" \
-            --base dev \
-            --head main 2>/dev/null || echo "")
-          echo "pr_url=$PR_URL" >> $GITHUB_OUTPUT
-        env:
-          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
-
-      - name: Auto-merge back-sync PR
-        if: steps.back-sync-pr.outputs.pr_url != ''
-        run: gh pr merge --squash --auto "${{ steps.back-sync-pr.outputs.pr_url }}"
+          git fetch origin
+          git checkout dev
+          git rebase origin/main
+          git push origin dev --force-with-lease
         env:
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
