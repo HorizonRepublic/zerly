@@ -110,4 +110,19 @@ Uses [Conventional Commits](https://www.conventionalcommits.org/) enforced by co
 - `fix(scope): ...` → patch bump
 - `chore|refactor|perf|docs|...` → patch bump
 
-PRs should target the `dev` branch, not `main`.
+## Pull Requests
+
+PRs target `dev` branch. `dev → main` is the release gate.
+
+**Title** must follow Conventional Commits with a scope — enforced by `lint-pr.yml`:
+```
+type(scope): short description
+```
+
+**Description** follows `.github/pull_request_template.md`:
+- **What** — what changed and why
+- **Changes** — bullet list of key changes
+- **Type** — check the appropriate checkbox
+- **Notes** — optional: breaking changes, follow-ups
+
+Do not add "Generated with Claude Code" or any AI attribution to PR descriptions.
