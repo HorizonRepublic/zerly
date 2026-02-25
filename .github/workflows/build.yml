@@ -9,11 +9,6 @@ on:
       - 'pnpm-lock.yaml'
       - 'nx.json'
       - '.github/workflows/**'
-  workflow_call:
-    outputs:
-      build-success:
-        description: Build success status
-        value: ${{ jobs.build.outputs.success }}
 
 concurrency:
   group: build-${{ github.ref }}
@@ -21,11 +16,8 @@ concurrency:
 
 jobs:
   build:
-    name: Build and test (libs/*)
+    name: Build and lint
     runs-on: ubuntu-latest
-    if: >
-      github.event_name == 'workflow_call' ||
-      !contains(github.event.head_commit.message, 'chore(release): publish')
     outputs:
       success: ${{ steps.mark.outputs.success }}
 
@@ -65,17 +57,14 @@ jobs:
       - name: Lint
         run: pnpm nx affected -t lint --parallel=4
 
-      # Temporarily disabled due to no tests :)
       # - name: Test
-      #   run: pnpm nx run-many -t test -p libs/* --parallel=5
+      #   run: pnpm nx affected -t test --parallel=5
 
-      - name: Build affected
+      - name: Build
         run: pnpm nx affected -t build --parallel=4
 
       - name: Show build artifacts
-        run: |
-          echo "Built packages:"
-          ls -R dist | head
+        run: ls -R dist | head
 
       - name: Mark success
         id: mark
