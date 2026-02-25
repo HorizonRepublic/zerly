@@ -32,5 +32,6 @@
     "@nestjs/common": "^11.1.12",
     "nest-commander": "^3.20.1",
     "@zerly/kernel": "0.0.1"
-  }
+  },
+  "version": "0.5.4"
 }
