@@ -1,6 +1,6 @@
 {
   "name": "@zerly/microservice",
-  "version": "0.5.6",
+  "version": "0.6.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/HorizonRepublic/zerly.git",
@@ -34,7 +34,7 @@
     "@nestjs/microservices": "^11.1.12",
     "nats": "^2.29.3",
     "rxjs": "^7.8.2",
-    "@zerly/kernel": "0.5.6",
+    "@zerly/kernel": "0.6.0",
     "tslib": "^2.8.1"
   }
 }
