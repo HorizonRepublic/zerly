@@ -13,16 +13,10 @@ jobs:
       pull-requests: write
 
     steps:
-      - name: Validate branch
-        run: |
-          if [ "${{ github.ref_name }}" != "dev" ]; then
-            echo "❌ This workflow must be run from the dev branch (current: ${{ github.ref_name }})"
-            exit 1
-          fi
-
-      - name: Checkout
+      - name: Checkout dev
         uses: actions/checkout@v6
         with:
+          ref: dev
           fetch-depth: 0
           token: ${{ secrets.RELEASE_TOKEN }}
 
