@@ -1,3 +1,31 @@
+## 0.5.6 (2026-02-25)
+
+### Bug Fixes
+
+- **ci:** fix release changelog generation and GitHub release notes ([#157](https://github.com/HorizonRepublic/zerly/pull/157))
+- **ci:** adjust version retrieval order in release-prepare workflow ([#161](https://github.com/HorizonRepublic/zerly/pull/161))
+
+### Chores
+
+- **ci:** add CLAUDE.md and optimize CI/CD pipeline ([a74adf7](https://github.com/HorizonRepublic/zerly/commit/a74adf7))
+- **ci:** bootstrap Release PR pipeline ([#155](https://github.com/HorizonRepublic/zerly/pull/155))
+- **cli:** update package.json metadata (repository, homepage, keywords, etc.) ([#147](https://github.com/HorizonRepublic/zerly/pull/147))
+- **dependencies:** update packages metadata ([#148](https://github.com/HorizonRepublic/zerly/pull/148))
+- **deps:** Update dependency @darraghor/eslint-plugin-nestjs-typed to v7.1.23 ([#150](https://github.com/HorizonRepublic/zerly/pull/150))
+- **deps:** sync source package.json versions to 0.5.4 ([#154](https://github.com/HorizonRepublic/zerly/pull/154))
+- **deps:** Update dependency verdaccio to v6.2.8 ([#159](https://github.com/HorizonRepublic/zerly/pull/159), [#156](https://github.com/HorizonRepublic/zerly/issues/156), [#157](https://github.com/HorizonRepublic/zerly/issues/157))
+- **repo:** back-sync main ([#158](https://github.com/HorizonRepublic/zerly/pull/158))
+
+### CI/CD
+
+- **release:** implement Release PR pattern ([#152](https://github.com/HorizonRepublic/zerly/pull/152))
+- **release:** always checkout dev in release-prepare workflow ([#153](https://github.com/HorizonRepublic/zerly/pull/153))
+
+### ❤️ Thank You
+
+- Kyrylo Lytvynov @themaiby
+- Release Bot @release-bot
+
 ## 0.5.5 (2026-02-24)
 
 ### Chores

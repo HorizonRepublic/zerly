@@ -1,6 +1,6 @@
 {
   "name": "@zerly/kernel",
-  "version": "0.5.4",
+  "version": "0.5.6",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/HorizonRepublic/zerly.git",
@@ -36,7 +36,7 @@
     "nest-commander": "^3.20.1",
     "@fastify/compress": "^8.3.1",
     "@fastify/helmet": "^13.0.2",
-    "@zerly/config": "0.5.4"
+    "@zerly/config": "0.5.6"
   },
   "peerDependencies": {
     "@nestjs/common": ">= 11.0.0",
