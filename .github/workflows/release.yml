@@ -10,11 +10,38 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  release:
-    name: Version, changelog, tag, push, publish
+  check:
+    name: Check if release needed
     runs-on: ubuntu-latest
+    outputs:
+      skip: ${{ steps.check.outputs.skip }}
+      version: ${{ steps.check.outputs.version }}
 
-    if: "!contains(github.event.head_commit.message, 'docs(changelog):')"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Check version vs last tag
+        id: check
+        run: |
+          CURRENT=$(node -p "require('./libs/core/package.json').version")
+          LAST=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          echo "version=$CURRENT" >> $GITHUB_OUTPUT
+          if [ "v$CURRENT" = "$LAST" ]; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+            echo "Version v$CURRENT already released, skipping"
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+            echo "Will release v$CURRENT (last tag: $LAST)"
+          fi
+
+  release:
+    name: Build, publish, tag, back-sync
+    runs-on: ubuntu-latest
+    needs: check
+    if: needs.check.outputs.skip == 'false'
 
     permissions:
       contents: write
@@ -22,11 +49,11 @@ jobs:
       id-token: write
 
     steps:
-      - name: Checkout main
+      - name: Checkout
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.RELEASE_TOKEN }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -53,18 +80,59 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Configure git user for release commits
+      - name: Configure git
         run: |
           git config user.name "Release Bot"
           git config user.email "release-bot@users.noreply.github.com"
 
-      - name: Run nx release (version + changelog + git)
-        run: pnpm nx release --skip-publish
+      - name: Build
+        run: pnpm nx run-many -t build --parallel=4
+
+      - name: Create git tag
+        run: |
+          git tag "v${{ needs.check.outputs.version }}"
+          git push origin "v${{ needs.check.outputs.version }}"
+
+      - name: Create GitHub release
+        run: |
+          gh release create "v${{ needs.check.outputs.version }}" \
+            --title "v${{ needs.check.outputs.version }}" \
+            --generate-notes \
+            --target main
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Publish packages to npm
+      - name: Publish to npm
         run: pnpm nx release publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           NPM_CONFIG_PROVENANCE: true
+
+      - name: Open back-sync PR
+        id: back-sync-pr
+        run: |
+          PR_URL=$(gh pr create \
+            --title "chore(sync): back-sync main after v${{ needs.check.outputs.version }}" \
+            --body "## What
+
+          Automatic back-sync of release v${{ needs.check.outputs.version }} from main into dev.
+
+          ## Changes
+
+          - Version bump to v${{ needs.check.outputs.version }}
+          - Updated CHANGELOG.md files
+
+          ## Type
+
+          - [x] chore / ci / docs" \
+            --base dev \
+            --head main 2>/dev/null || echo "")
+          echo "pr_url=$PR_URL" >> $GITHUB_OUTPUT
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+
+      - name: Auto-merge back-sync PR
+        if: steps.back-sync-pr.outputs.pr_url != ''
+        run: gh pr merge --squash --auto "${{ steps.back-sync-pr.outputs.pr_url }}"
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
