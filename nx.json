@@ -50,15 +50,8 @@
       "requireSemver": true
     },
     "version": {
-      "preVersionCommand": "pnpm nx run-many -t build",
       "conventionalCommits": true,
-      "manifestRootsToUpdate": [
-        "{projectRoot}",
-        {
-          "path": "dist/{projectRoot}",
-          "preserveLocalDependencyProtocols": false
-        }
-      ]
+      "manifestRootsToUpdate": ["{projectRoot}"]
     },
     "changelog": {
       "workspaceChangelog": {
