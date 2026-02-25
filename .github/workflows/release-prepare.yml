@@ -52,6 +52,11 @@ jobs:
       - name: Bump version
         run: pnpm nx release version --git-commit=false --git-tag=false
 
+      - name: Generate changelog
+        run: pnpm nx release changelog --git-commit=false --git-tag=false
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+
       - name: Get new version
         id: version
         run: echo "version=$(node -p "require('./libs/core/package.json').version")" >> $GITHUB_OUTPUT
