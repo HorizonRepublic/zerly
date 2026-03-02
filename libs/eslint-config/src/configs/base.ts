@@ -59,8 +59,6 @@ export const baseConfig: Linter.Config = {
     // Naming conventions
     camelcase: ['error', { ignoreDestructuring: false, properties: 'never' }],
 
-    complexity: ['warn', 10],
-
     // Import ordering and deduplication
     'import-x/newline-after-import': ['error', { count: 1 }],
     'import-x/no-duplicates': 'error',
@@ -93,7 +91,6 @@ export const baseConfig: Linter.Config = {
     ],
 
     'max-depth': ['warn', 4],
-    'max-params': ['warn', 4],
 
     // General code quality
     'no-alert': 'error',

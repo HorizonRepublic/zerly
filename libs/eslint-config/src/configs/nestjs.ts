@@ -32,7 +32,7 @@ const jestOverride: Linter.Config = {
  * ```
  */
 export const defineNestjsConfig = (options: ITypescriptConfigOptions): Linter.Config[] => [
-  ...tseslint.configs.recommended,
+  ...tseslint.configs.strict,
   sonarjsConfig,
   ignoresConfig,
   baseConfig,

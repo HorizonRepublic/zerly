@@ -93,7 +93,7 @@ jobs:
           git config user.email "release-bot@users.noreply.github.com"
 
       - name: Build
-        run: pnpm nx run-many -t build --parallel=4
+        run: pnpm nx run-many -t build --parallel=10
 
       - name: Create git tag
         run: |
