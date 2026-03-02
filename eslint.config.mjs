@@ -25,7 +25,6 @@ export default [
     files: ['**/*.{js,jsx,ts,tsx}'],
     rules: {
       ...sonarjs.configs.recommended.rules,
-      // Disable TODO tag rule - TODOs are meant to be done later
       'sonarjs/todo-tag': 'off',
     },
   },
