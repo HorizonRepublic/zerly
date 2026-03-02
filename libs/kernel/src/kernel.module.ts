@@ -2,7 +2,6 @@ import { DynamicModule, Module, Provider, Type } from '@nestjs/common';
 import { DiscoveryService, MetadataScanner } from '@nestjs/core';
 
 import { ConfigModule } from '@zerly/config';
-import { ErrorsModule } from '@zerly/errors';
 
 import { appConfig } from './config/app.config';
 import { KernelProvider } from './providers/kernel.provider';
@@ -21,7 +20,7 @@ export class KernelModule {
   public static forServe(appModule: Type<unknown>): DynamicModule {
     return {
       global: true,
-      imports: [ErrorsModule.forRoot(), ConfigModule.forRoot([appConfig]), appModule],
+      imports: [ConfigModule.forRoot([appConfig]), appModule],
       exports: [APP_REF_SERVICE, APP_STATE_SERVICE],
       module: KernelModule,
       providers: [
