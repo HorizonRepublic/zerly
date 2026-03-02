@@ -8,9 +8,25 @@ import { ConfigService } from '@nestjs/config';
 
 import { catchError, defer, EMPTY, from, map, Observable, of, switchMap, tap } from 'rxjs';
 
-import { APP_CONFIG, ENV_METADATA_KEY } from '../tokens/index';
+import { APP_CONFIG, ENV_METADATA_KEY } from '../tokens';
 import { EnumType, EnvTypeConstructor, IAppConfig, IEnvFieldMetadata } from '../types';
 
+/**
+ * Automatically generates a `.env.example` file on module init by scanning all
+ * registered configurations for `@Env()` decorated fields.
+ *
+ * Generation is skipped unless `AppConfig.generateEnvExample` is `true`.
+ * The file is written only when its content has changed (SHA-256 comparison),
+ * so repeated restarts in development do not cause unnecessary disk writes.
+ *
+ * @example
+ * ```
+ * # -- app
+ * APP_PORT="3000"
+ * APP_SECRET=""        # REQUIRED. JWT signing secret.
+ * APP_ENV="production" # App environment. Possible values: development, production
+ * ```
+ */
 @Injectable()
 export class EnvExampleProvider implements OnModuleInit {
   private static readonly header = `###
@@ -24,6 +40,7 @@ export class EnvExampleProvider implements OnModuleInit {
 
   public constructor(private readonly configService: ConfigService) {}
 
+  /** Triggers `.env.example` generation. Errors are caught and logged as warnings. */
   public onModuleInit(): void {
     this.generateEnvironmentExample()
       .pipe(
@@ -37,6 +54,13 @@ export class EnvExampleProvider implements OnModuleInit {
       .subscribe();
   }
 
+  /**
+   * Core generation pipeline.
+   *
+   * Reads all config instances from `ConfigService.internalConfig` (both symbol-keyed
+   * and string-keyed), extracts `@Env()` metadata from each, and writes the result
+   * to `<appRoot>/.env.example`.
+   */
   private generateEnvironmentExample(): Observable<void> {
     return defer(() => {
       let appConfig: IAppConfig | undefined;
@@ -99,6 +123,17 @@ export class EnvExampleProvider implements OnModuleInit {
     });
   }
 
+  /**
+   * Formats a list of `@Env()` fields into aligned `KEY="value"  # comment` lines.
+   *
+   * Declaration widths are padded to the longest entry so inline comments line up.
+   * Comment parts order: `REQUIRED` → `description` → `comment` → enum values → default.
+   *
+   * @param fields - `@Env()` metadata collected from the config class.
+   * @param instance - Frozen config instance used as a value fallback.
+   * @returns Array of formatted env lines, one per field.
+   * @example -
+   */
   private formatEnvVariables(
     fields: IEnvFieldMetadata[],
     instance: Record<string, unknown>,
@@ -128,12 +163,30 @@ export class EnvExampleProvider implements OnModuleInit {
     );
   }
 
+  /**
+   * Resolves the display value for a field in priority order:
+   * `example` → `default` → runtime fallback from the config instance.
+   *
+   * @param opts - Field options from the `@Env()` decorator.
+   * @param fallback - Current value on the config instance.
+   * @returns String representation of the resolved value, or `""` if none.
+   * @example -
+   */
   private resolveValue(opts: IEnvFieldMetadata['options'], fallback: unknown): string {
     if (opts.example !== undefined) return String(opts.example);
     if (opts.default !== undefined) return String(opts.default);
+
     return fallback != null && fallback !== '' ? String(fallback) : '';
   }
 
+  /**
+   * Returns a `(Default: X)` annotation only when both `example` and `default` are
+   * defined — i.e. the displayed value differs from the actual default.
+   *
+   * @param opts - Field options from the `@Env()` decorator.
+   * @returns Comment fragment or `undefined`.
+   * @example -
+   */
   private defaultComment(opts: IEnvFieldMetadata['options']): string | undefined {
     if (opts.example !== undefined && opts.default !== undefined) {
       return `(Default: ${opts.default})`;
@@ -142,6 +195,14 @@ export class EnvExampleProvider implements OnModuleInit {
     return undefined;
   }
 
+  /**
+   * Builds a `Possible values: a, b, c` comment from an enum type.
+   * Numeric reverse-mappings (TypeScript `const enum` artifacts) are deduplicated.
+   *
+   * @param type - Enum object or primitive constructor passed to `@Env({ type })`.
+   * @returns Comment fragment or `undefined` if `type` is not an enum.
+   * @example -
+   */
   private enumComment(type?: EnumType | EnvTypeConstructor): string | undefined {
     if (!type || typeof type !== 'object') return undefined;
 
@@ -152,6 +213,15 @@ export class EnvExampleProvider implements OnModuleInit {
     return unique.length ? `Possible values: ${unique.join(', ')}` : undefined;
   }
 
+  /**
+   * Resolves the project root directory by inspecting `process.argv[1]`.
+   *
+   * Strips known build output directories (`dist/`, `build/`, `.next/`) to find
+   * the source root. Falls back to {@link fallbackRoot} if heuristics fail.
+   *
+   * @returns Absolute path to the application root.
+   * @example -
+   */
   private resolveAppRoot(): string {
     const entryPath = process.argv[1];
 
@@ -174,6 +244,13 @@ export class EnvExampleProvider implements OnModuleInit {
     return this.fallbackRoot();
   }
 
+  /**
+   * Secondary root resolution strategy: uses `AppConfig.name` to locate the app
+   * directory inside an Nx monorepo (`apps/<name>`) or a standalone project root.
+   *
+   * @returns Absolute path to the application root, or `process.cwd()` as a last resort.
+   * @example -
+   */
   private fallbackRoot(): string {
     try {
       const appConfig = this.configService.get<IAppConfig>(APP_CONFIG);
@@ -194,6 +271,13 @@ export class EnvExampleProvider implements OnModuleInit {
     return process.cwd();
   }
 
+  /**
+   * Returns `true` if `dirPath` exists and contains at least one of
+   * `package.json`, `project.json`, or `tsconfig.json`.
+   *
+   * @param dirPath - Absolute path to check.
+   * @example -
+   */
   private isValidProjectDir(dirPath: string): boolean {
     return (
       existsSync(dirPath) &&
@@ -203,6 +287,17 @@ export class EnvExampleProvider implements OnModuleInit {
     );
   }
 
+  /**
+   * Writes `content` to `filePath` only when the SHA-256 hash differs from the
+   * existing file, avoiding unnecessary writes on repeated restarts.
+   *
+   * Parent directories are created recursively if they do not exist.
+   *
+   * @param filePath - Destination file path.
+   * @param content - New file content.
+   * @returns Observable that completes after a successful write, or `EMPTY` when unchanged.
+   * @example -
+   */
   private writeIfChanged$(filePath: string, content: string): Observable<void> {
     const newHash = createHash('sha256').update(content, 'utf8').digest('hex');
 
