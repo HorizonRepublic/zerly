@@ -9,7 +9,6 @@ import { ConfigFactory, ConfigFactoryKeyHost } from '../types/config-factory.typ
 
 /**
  * Builder class for fluent configuration creation.
- *
  * @example
  * ```TypeScript
  * export const appConfig = ConfigBuilder
@@ -29,11 +28,9 @@ export class ConfigBuilder<T extends object> {
 
   /**
    * Creates a configuration builder from a configuration class and token.
-   *
    * @param configClass Configuration class constructor.
    * @param token Unique string or symbol token for dependency injection.
    * @returns ConfigBuilder instance for chaining.
-   *
    * @example
    * ```TypeScript
    * ConfigBuilder.from(AppConfig, APP_CONFIG)
@@ -49,9 +46,7 @@ export class ConfigBuilder<T extends object> {
 
   /**
    * Builds the final configuration factory.
-   *
    * @returns NestJS ConfigFactory with proper typing.
-   *
    * @example
    * ```TypeScript
    * .build()
@@ -75,10 +70,8 @@ export class ConfigBuilder<T extends object> {
 
   /**
    * Adds validation to the configuration.
-   *
    * @param validator Function that validates and potentially transforms the config.
    * @returns ConfigBuilder instance for chaining.
-   *
    * @example
    * ```TypeScript
    * .validate(typia.assertEquals<IAppConfig>)
@@ -93,7 +86,6 @@ export class ConfigBuilder<T extends object> {
 
   /**
    * Converts environment variable string to the appropriate type.
-   *
    * @param value The string value from process.env.
    * @param type The constructor type or enum to convert to.
    * @returns The converted value as string, number, or boolean.
@@ -123,7 +115,6 @@ export class ConfigBuilder<T extends object> {
 
   /**
    * Internal method to initialize configuration from environment variables.
-   *
    * @param configClass Configuration class constructor.
    * @returns Fully initialized configuration instance.
    * @throws {never} Calls process.exit(1) If required environment variables are missing or invalid.

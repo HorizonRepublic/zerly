@@ -5,7 +5,7 @@
   "repository": "https://github.com/HorizonRepublic/nestkit-x.git",
   "scripts": {
     "prepare": "husky && ts-patch install && typia patch",
-    "lint": "nx run-many -t lint --parallel=5 --fix",
+    "lint": "nx run-many -t lint --parallel=10 --fix",
     "build:local": "npx tsc -p apps/example-app/tsconfig.app.json && npx tsc-alias -p apps/example-app/tsconfig.app.json",
     "cli": "pnpm dlx @zerly/cli --registry http://localhost:4873",
     "zerly": "node dist/libs/cli/src/bin.js"
@@ -85,6 +85,7 @@
     "@nestjs/config": "^4.0.3",
     "@nestjs/core": "^11.1.13",
     "@nestjs/microservices": "^11.1.13",
+    "@nestjs/platform-express": "^11.0.0",
     "@nestjs/platform-fastify": "^11.1.13",
     "axios": "^1.13.5",
     "fastify": "^5.7.4",

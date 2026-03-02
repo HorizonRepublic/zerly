@@ -55,13 +55,13 @@ jobs:
         uses: nrwl/nx-set-shas@v4
 
       - name: Lint
-        run: pnpm nx affected -t lint --parallel=4
+        run: pnpm nx affected -t lint --parallel=10
 
       # - name: Test
       #   run: pnpm nx affected -t test --parallel=5
 
       - name: Build
-        run: pnpm nx affected -t build --parallel=4
+        run: pnpm nx affected -t build --parallel=10
 
       - name: Show build artifacts
         run: ls -R dist | head
