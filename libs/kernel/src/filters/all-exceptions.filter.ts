@@ -1,4 +1,4 @@
-import { IncomingMessage } from 'http';
+import { IncomingMessage } from 'node:http';
 
 import {
   ArgumentsHost,
@@ -43,7 +43,6 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
   /**
    * Catches exceptions and delegates handling based on the execution context type.
-   *
    * @param exception - The thrown exception object.
    * @param host - ArgumentsHost providing access to the execution context (HTTP, RPC, etc.).
    * @returns void for HTTP (response sent directly), or Observable for RPC (re-thrown).
@@ -111,7 +110,6 @@ export class AllExceptionsFilter implements ExceptionFilter {
    * - Logs the error with RPC-specific context (payload data).
    * - Re-throws the exception to allow the underlying transport layer (e.g., NATS, Redis)
    *   to handle the error propagation to the caller.
-   *
    * @returns An Observable that errors out, propagating the exception.
    */
   private handleRpc(exception: unknown, host: ArgumentsHost): Observable<unknown> {

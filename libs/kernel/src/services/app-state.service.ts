@@ -22,7 +22,6 @@ import { IAppRefService, IAppStateService, IPrioritizedCallback, IStateCallback 
  *
  * Uses priority-sorted arrays to manage callbacks and RxJS streams
  * for sequential execution with error handling.
- *
  * @internal
  * @example - See IAppStateService
  */

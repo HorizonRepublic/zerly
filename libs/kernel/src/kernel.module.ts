@@ -16,7 +16,6 @@ import { IAppRefService, IAppStateService } from './types';
 export class KernelModule {
   /**
    * Used for serving HTTP applications
-   *
    * @param appModule
    */
   public static forServe(appModule: Type<unknown>): DynamicModule {
@@ -51,7 +50,6 @@ export class KernelModule {
 
   /**
    * Used for standalone applications
-   *
    * @param appModule
    */
   public static forStandalone(appModule: Type<unknown>): DynamicModule {

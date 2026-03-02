@@ -1,8 +1,11 @@
 import nx from '@nx/eslint-plugin';
 import eslintConfigPrettier from 'eslint-config-prettier';
+import jsdoc from 'eslint-plugin-jsdoc';
 import preferArrowPlugin from 'eslint-plugin-prefer-arrow';
 import eslintPluginPrettier from 'eslint-plugin-prettier';
 import rxjsX from 'eslint-plugin-rxjs-x';
+import security from 'eslint-plugin-security';
+import noSecrets from 'eslint-plugin-no-secrets';
 import sonarjs from 'eslint-plugin-sonarjs';
 import unicorn from 'eslint-plugin-unicorn';
 import unusedImports from 'eslint-plugin-unused-imports';
@@ -76,6 +79,8 @@ export default [
       'import-x': importPlugin,
       unicorn,
       'rxjs-x': rxjsX,
+      security,
+      'no-secrets': noSecrets,
     },
     rules: {
       // Nx-specific rules
@@ -216,6 +221,25 @@ export default [
       'unicorn/no-typeof-undefined': 'error',
       'unicorn/no-useless-promise-resolve-reject': 'error',
       'unicorn/prefer-export-from': ['error', { ignoreUsedVariables: true }],
+
+      // Security — catch common backend vulnerabilities
+      'security/detect-unsafe-regex': 'error',
+      'security/detect-eval-with-expression': 'error',
+      'security/detect-bidi-characters': 'error',
+      'security/detect-new-buffer': 'warn',
+      'security/detect-buffer-noassert': 'warn',
+      'security/detect-possible-timing-attacks': 'warn',
+      'security/detect-pseudoRandomBytes': 'warn',
+      // Too noisy / not applicable for NestJS+TypeScript
+      'security/detect-object-injection': 'off',
+      'security/detect-non-literal-fs-filename': 'off',
+      'security/detect-non-literal-require': 'off',
+      'security/detect-non-literal-regexp': 'off',
+      'security/detect-no-csrf-before-method-override': 'off',
+      'security/detect-child-process': 'off',
+
+      // Prevent accidentally committed secrets (API keys, tokens, etc.)
+      'no-secrets/no-secrets': ['error', { tolerance: 4.5 }],
     },
   },
 
@@ -344,6 +368,10 @@ export default [
         },
       ],
       '@typescript-eslint/no-confusing-void-expression': 'error',
+
+      // Warn on usage of APIs marked @deprecated in TSDoc/JSDoc
+      '@typescript-eslint/no-deprecated': 'warn',
+
       '@typescript-eslint/no-explicit-any': 'error',
 
       // Catch unhandled promises — critical for NestJS async lifecycle methods
@@ -407,6 +435,54 @@ export default [
       'rxjs-x/no-internal': 'error',
       'rxjs-x/no-ignored-error': 'warn',
       'rxjs-x/no-floating-observables': 'warn',
+    },
+  },
+
+  // JSDoc validation for TypeScript files
+  // Only validates existing JSDoc — does not require it everywhere.
+  // TypeScript handles types, so no @param/@returns type annotations needed.
+  {
+    ...jsdoc.configs['flat/recommended-typescript'],
+    files: ['**/*.ts', '**/*.tsx'],
+    rules: {
+      ...jsdoc.configs['flat/recommended-typescript'].rules,
+
+      // --- Formatting & correctness (keep active) ---
+      'jsdoc/check-access': 'warn',
+      'jsdoc/check-alignment': 'warn',
+      'jsdoc/check-param-names': 'warn',
+      'jsdoc/check-tag-names': ['warn', { definedTags: ['final'] }],
+      'jsdoc/empty-tags': 'warn',
+      'jsdoc/multiline-blocks': 'warn',
+      'jsdoc/no-multi-asterisks': 'warn',
+      'jsdoc/tag-lines': 'warn',
+
+      // TypeScript handles types — never duplicate them in JSDoc
+      'jsdoc/no-types': 'error',
+      'jsdoc/no-defaults': 'warn',
+
+      // --- Do not require JSDoc on every declaration ---
+      // JSDoc is encouraged, not mandatory
+      'jsdoc/require-jsdoc': 'off',
+      'jsdoc/require-param': 'off',
+      'jsdoc/require-param-description': 'off',
+      'jsdoc/require-returns': 'off',
+      'jsdoc/require-returns-description': 'off',
+      'jsdoc/require-property': 'off',
+      'jsdoc/require-property-description': 'off',
+      'jsdoc/require-yields': 'off',
+      'jsdoc/require-yields-check': 'off',
+      'jsdoc/require-yields-type': 'off',
+      'jsdoc/require-throws-type': 'off',
+      'jsdoc/require-next-type': 'off',
+      'jsdoc/check-types': 'off',
+      'jsdoc/check-values': 'off',
+      'jsdoc/valid-types': 'off',
+
+      // TypeScript type-system rules handled by @typescript-eslint
+      'jsdoc/ts-no-empty-object-type': 'off',
+      'jsdoc/reject-any-type': 'off',
+      'jsdoc/reject-function-type': 'off',
     },
   },
 
