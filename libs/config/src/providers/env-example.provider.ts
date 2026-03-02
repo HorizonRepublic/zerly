@@ -8,22 +8,12 @@ import { ConfigService } from '@nestjs/config';
 
 import { catchError, defer, EMPTY, from, map, Observable, of, switchMap, tap } from 'rxjs';
 
-import { ENV_METADATA_KEY } from '../tokens';
-import { APP_CONFIG } from '../tokens/index';
+import { APP_CONFIG, ENV_METADATA_KEY } from '../tokens/index';
 import { EnumType, EnvTypeConstructor, IAppConfig, IEnvFieldMetadata } from '../types';
-
-interface IFormattedLine {
-  declaration: string;
-  comment?: string;
-}
 
 @Injectable()
 export class EnvExampleProvider implements OnModuleInit {
-  private static readonly fileEncoding = 'utf8' as const;
-  private static readonly fileExtension = '.env.example' as const;
-  private static readonly hashAlgorithm = 'sha256' as const;
-
-  private static readonly templateHeader = `###
+  private static readonly header = `###
 #
 # This file is auto-generated based on all registered configurations.
 # Do not edit it manually.
@@ -35,7 +25,6 @@ export class EnvExampleProvider implements OnModuleInit {
   public constructor(private readonly configService: ConfigService) {}
 
   public onModuleInit(): void {
-    // Fire-and-forget subscription to not block application bootstrap
     this.generateEnvironmentExample()
       .pipe(
         catchError((error) => {
@@ -50,182 +39,100 @@ export class EnvExampleProvider implements OnModuleInit {
 
   private generateEnvironmentExample(): Observable<void> {
     return defer(() => {
+      let appConfig: IAppConfig | undefined;
+
       try {
-        const appConfig = this.configService.get<IAppConfig>(APP_CONFIG);
-
-        if (!appConfig) {
-          this.logger.debug('AppConfig not found, skipping .env.example generation.');
-          return of(null);
-        }
-
-        return of(appConfig);
+        appConfig = this.configService.get<IAppConfig>(APP_CONFIG);
       } catch {
         this.logger.warn('Error retrieving AppConfig during env generation.');
-        return of(null);
+        return EMPTY;
       }
-    }).pipe(
-      switchMap((appConfig) => {
-        if (!appConfig?.generateEnvExample) {
-          return EMPTY;
+
+      if (!appConfig?.generateEnvExample) {
+        if (!appConfig) {
+          this.logger.debug('AppConfig not found, skipping .env.example generation.');
         }
 
-        const configSections = this.extractConfigurationSections();
+        return EMPTY;
+      }
 
-        if (configSections.length === 0) {
-          this.logger.debug('No configurations with @Env decorators found.');
-          return EMPTY;
-        }
+      const configs = // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (this.configService as any)['internalConfig'] as Record<symbol, any> | undefined;
 
-        const templateContent = this.buildTemplate(configSections);
-        const outputPath = this.buildOutputPath();
+      if (!configs) return EMPTY;
 
-        return this.processFileGeneration(outputPath, templateContent).pipe(
-          tap(() => {
-            this.logger.log(`Environment example generated: ${outputPath}`);
-          }),
-        );
-      }),
-    );
+      const configSections = Object.getOwnPropertySymbols(configs)
+        .map((symbol) => {
+          const title = symbol.description;
+          const instance = configs[symbol];
+
+          if (!instance || !title) return undefined;
+
+          const fields: IEnvFieldMetadata[] = Reflect.getMetadata(ENV_METADATA_KEY, instance) ?? [];
+
+          if (!fields.length) return undefined;
+
+          return `# -- ${title}\n${this.formatEnvVariables(fields, instance).join('\n')}`;
+        })
+        .filter((s): s is string => Boolean(s));
+
+      if (configSections.length === 0) {
+        this.logger.debug('No configurations with @Env decorators found.');
+        return EMPTY;
+      }
+
+      const templateContent = `${EnvExampleProvider.header}\n\n${configSections.join('\n\n')}\n`;
+      const outputPath = join(this.resolveAppRoot(), '.env.example');
+
+      return this.writeIfChanged$(outputPath, templateContent).pipe(
+        tap(() => {
+          this.logger.log(`Environment example generated: ${outputPath}`);
+        }),
+      );
+    });
   }
 
-  // --- Core Logic ---
-
-  private extractConfigurationSections(): string[] {
-    const internalConfigs = this.getInternalConfigurations();
-
-    if (!internalConfigs) return [];
-
-    const configSymbols = Object.getOwnPropertySymbols(internalConfigs);
-
-    return configSymbols
-      .map((symbol) => this.processConfigurationSymbol(symbol, internalConfigs))
-      .filter((section): section is string => Boolean(section));
-  }
-
-  private processConfigurationSymbol(
-    symbolKey: symbol,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    configs: Record<symbol, any>,
-  ): string | undefined {
-    const configTitle = symbolKey.description;
-    const configInstance = configs[symbolKey];
-
-    if (!configInstance || !configTitle) return undefined;
-
-    const envFields = this.extractEnvFields(configInstance);
-
-    if (!envFields.length) return undefined;
-
-    const sectionVariables = this.formatEnvironmentVariables(envFields, configInstance);
-
-    return this.formatConfigurationSection(configTitle, sectionVariables);
-  }
-
-  private formatEnvironmentVariables(
-    envFields: IEnvFieldMetadata[],
-    configInstance: Record<string, unknown>,
+  private formatEnvVariables(
+    fields: IEnvFieldMetadata[],
+    instance: Record<string, unknown>,
   ): string[] {
-    const lines = envFields.map(({ key, options, propertyKey }) => {
-      const instanceValue = configInstance[propertyKey as string];
-
-      const value = this.determineVariableValue(options, instanceValue);
-
-      const defaultValueForComment = options.default ?? instanceValue;
-
-      const commentsParts = [
+    const lines = fields.map(({ key, options, propertyKey }) => {
+      const fallback = instance[propertyKey as string];
+      const decl = `${key}="${this.resolveValue(options, fallback)}"`;
+      const parts = [
         options.comment,
-        this.extractEnumComment(options.type),
-        this.extractDefaultComment(defaultValueForComment),
+        this.enumComment(options.type),
+        this.defaultComment(options.default ?? fallback),
       ].filter(Boolean);
 
-      const combinedComment = commentsParts.length > 0 ? commentsParts.join('. ') : undefined;
-
-      return this.prepareLineData(key, value, combinedComment);
+      return { decl, comment: parts.length > 0 ? parts.join('. ') : undefined };
     });
 
-    const maxDeclLength = lines.reduce((max, line) => Math.max(max, line.declaration.length), 0);
+    const maxLen = lines.reduce((m, l) => Math.max(m, l.decl.length), 0);
 
-    return lines.map(({ declaration, comment }) => {
-      if (!comment) return declaration;
-      return `${declaration.padEnd(maxDeclLength + 1)}# ${comment}`;
-    });
+    return lines.map(({ decl, comment }) =>
+      comment ? `${decl.padEnd(maxLen + 1)}# ${comment}` : decl,
+    );
   }
 
-  // --- Values & Comments ---
-
-  private determineVariableValue(
-    options: IEnvFieldMetadata['options'],
-    instanceValue: unknown,
-  ): string {
-    // Priority 1: Example value provided in decorator
-    if (options.example !== undefined) return String(options.example);
-
-    // Priority 2: Default value provided in decorator
-    if (options.default !== undefined) return String(options.default);
-
-    // Priority 3: Runtime value (fallback, potentially dirty from .env)
-    if (this.isValidValue(instanceValue)) return String(instanceValue);
-
-    return '';
+  private resolveValue(opts: IEnvFieldMetadata['options'], fallback: unknown): string {
+    if (opts.example !== undefined) return String(opts.example);
+    if (opts.default !== undefined) return String(opts.default);
+    return fallback != null && fallback !== '' ? String(fallback) : '';
   }
 
-  private extractDefaultComment(value: unknown): string | undefined {
-    if (this.isValidValue(value)) return `(Default: ${value})`;
-    return undefined;
+  private defaultComment(value: unknown): string | undefined {
+    return value != null && value !== '' ? `(Default: ${value})` : undefined;
   }
 
-  private isValidValue(value: unknown): boolean {
-    return value !== undefined && value !== null && value !== '';
-  }
-
-  private extractEnumComment(type?: EnumType | EnvTypeConstructor): string | undefined {
+  private enumComment(type?: EnumType | EnvTypeConstructor): string | undefined {
     if (!type || typeof type !== 'object') return undefined;
 
-    const values = Object.values(type).filter(
-      (v) => typeof v === 'string' || typeof v === 'number',
-    );
-    const uniqueValues = [...new Set(values)];
+    const unique = [
+      ...new Set(Object.values(type).filter((v) => typeof v === 'string' || typeof v === 'number')),
+    ];
 
-    if (!uniqueValues.length) return undefined;
-    return `Possible values: ${uniqueValues.join(', ')}`;
-  }
-
-  // --- Helpers ---
-
-  private extractEnvFields(instance: object): IEnvFieldMetadata[] {
-    return Reflect.getMetadata(ENV_METADATA_KEY, instance) ?? [];
-  }
-
-  private getInternalConfigurations(): Record<symbol, unknown> | undefined {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return (this.configService as any)['internalConfig'];
-  }
-
-  private prepareLineData(key: string, value: string, comment?: string): IFormattedLine {
-    const declaration = `${key}="${value}"`;
-
-    if (comment) {
-      return { declaration, comment };
-    }
-
-    return { declaration };
-  }
-
-  private formatConfigurationSection(title: string, lines: string[]): string {
-    return `# -- ${title}\n${lines.join('\n')}`;
-  }
-
-  private buildTemplate(sections: string[]): string {
-    return `${EnvExampleProvider.templateHeader}\n\n${sections.join('\n\n')}\n`;
-  }
-
-  // --- File System & Paths ---
-
-  private buildOutputPath(): string {
-    const fileName = EnvExampleProvider.fileExtension;
-    const appRoot = this.resolveAppRoot();
-
-    return join(appRoot, fileName);
+    return unique.length ? `Possible values: ${unique.join(', ')}` : undefined;
   }
 
   private resolveAppRoot(): string {
@@ -240,31 +147,28 @@ export class EnvExampleProvider implements OnModuleInit {
       if (normalizedPath.includes(buildDir)) {
         const potentialSourcePath = normalizedPath.replace(buildDir, sep);
         const potentialRoot = resolve(dirname(potentialSourcePath));
-
         const appRoot = resolve(potentialRoot, '..');
 
-        if (this.isValidProjectDirectory(appRoot)) return appRoot;
-        if (this.isValidProjectDirectory(potentialRoot)) return potentialRoot;
+        if (this.isValidProjectDir(appRoot)) return appRoot;
+        if (this.isValidProjectDir(potentialRoot)) return potentialRoot;
       }
     }
 
-    return this.resolveFallbackRoot();
+    return this.fallbackRoot();
   }
 
-  private resolveFallbackRoot(): string {
+  private fallbackRoot(): string {
     try {
       const appConfig = this.configService.get<IAppConfig>(APP_CONFIG);
 
       if (appConfig?.name) {
-        // Check standard monorepo structure: root/apps/<name>
-        const monorepoPath = join(process.cwd(), 'apps', appConfig.name);
+        const mono = join(process.cwd(), 'apps', appConfig.name);
 
-        if (this.isValidProjectDirectory(monorepoPath)) return monorepoPath;
+        if (this.isValidProjectDir(mono)) return mono;
 
-        // Check if the app is in the root (standalone) or other structure
-        const rootPath = join(process.cwd(), appConfig.name);
+        const root = join(process.cwd(), appConfig.name);
 
-        if (this.isValidProjectDirectory(rootPath)) return rootPath;
+        if (this.isValidProjectDir(root)) return root;
       }
     } catch {
       // ignore
@@ -273,7 +177,7 @@ export class EnvExampleProvider implements OnModuleInit {
     return process.cwd();
   }
 
-  private isValidProjectDirectory(dirPath: string): boolean {
+  private isValidProjectDir(dirPath: string): boolean {
     return (
       existsSync(dirPath) &&
       (existsSync(join(dirPath, 'package.json')) ||
@@ -282,49 +186,19 @@ export class EnvExampleProvider implements OnModuleInit {
     );
   }
 
-  // --- IO Operations ---
+  private writeIfChanged$(filePath: string, content: string): Observable<void> {
+    const newHash = createHash('sha256').update(content, 'utf8').digest('hex');
 
-  private processFileGeneration(outputPath: string, templateContent: string): Observable<void> {
-    return this.shouldUpdateFile$(outputPath, templateContent).pipe(
-      switchMap((shouldUpdate) => {
-        if (!shouldUpdate) return EMPTY;
-        return this.writeExampleFile$(outputPath, templateContent);
+    return from(fs.readFile(filePath, { encoding: 'utf8' })).pipe(
+      map((existing) => createHash('sha256').update(existing, 'utf8').digest('hex')),
+      catchError(() => of(null)),
+      switchMap((existingHash) => {
+        if (newHash === existingHash) return EMPTY;
+
+        return from(fs.mkdir(dirname(filePath), { recursive: true })).pipe(
+          switchMap(() => from(fs.writeFile(filePath, content, { encoding: 'utf8' }))),
+        );
       }),
     );
-  }
-
-  private shouldUpdateFile$(filePath: string, newContent: string): Observable<boolean> {
-    const newContentHash = this.generateContentHash(newContent);
-
-    return this.readExistingFileHash$(filePath).pipe(
-      map((existingHash) => newContentHash !== existingHash),
-    );
-  }
-
-  private readExistingFileHash$(filePath: string): Observable<string | null> {
-    return from(fs.readFile(filePath, { encoding: EnvExampleProvider.fileEncoding })).pipe(
-      map((content) => this.generateContentHash(content)),
-      catchError(() => of(null)),
-    );
-  }
-
-  private writeExampleFile$(filePath: string, content: string): Observable<void> {
-    return this.ensureDirectoryExists$(filePath).pipe(
-      switchMap(() =>
-        from(fs.writeFile(filePath, content, { encoding: EnvExampleProvider.fileEncoding })),
-      ),
-    );
-  }
-
-  private ensureDirectoryExists$(filePath: string): Observable<void> {
-    const dir = dirname(filePath);
-
-    return from(fs.mkdir(dir, { recursive: true })).pipe(map(() => void 0));
-  }
-
-  private generateContentHash(content: string): string {
-    return createHash(EnvExampleProvider.hashAlgorithm)
-      .update(content, EnvExampleProvider.fileEncoding)
-      .digest('hex');
   }
 }
