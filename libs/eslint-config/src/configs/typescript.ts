@@ -114,6 +114,8 @@ export const typescriptConfig = (options: ITypescriptConfigOptions): Linter.Conf
       },
       { selector: 'memberLike', format: ['camelCase'] },
     ],
+    'max-params': 'off',
+
     '@typescript-eslint/no-confusing-void-expression': 'error',
 
     // Warn on usage of APIs marked @deprecated in TSDoc/JSDoc
@@ -154,6 +156,14 @@ export const typescriptConfig = (options: ITypescriptConfigOptions): Linter.Conf
 
     '@typescript-eslint/switch-exhaustiveness-check': 'error',
     '@typescript-eslint/no-empty-function': 'off',
+    '@typescript-eslint/no-invalid-void-type': 'off',
+
+    // NestJS uses empty @Module() classes, static-only utility classes (ConfigBuilder etc.),
+    // and decorated classes as a core pattern — allow all three
+    '@typescript-eslint/no-extraneous-class': [
+      'error',
+      { allowEmpty: true, allowWithDecorator: true, allowStaticOnly: true },
+    ],
 
     // catch (err) in RxJS callbacks should be typed as unknown, not implicit any
     '@typescript-eslint/use-unknown-in-catch-callback-variable': 'error',
@@ -161,8 +171,15 @@ export const typescriptConfig = (options: ITypescriptConfigOptions): Linter.Conf
     // Disable base rules replaced by TS-aware equivalents
     camelcase: 'off',
     'no-duplicate-imports': 'off',
+    'no-shadow': 'off',
     'no-unused-vars': 'off',
     'no-useless-constructor': 'off',
+
+    // Prevent variable shadowing — catches subtle bugs in nested scopes and callbacks
+    '@typescript-eslint/no-shadow': 'error',
+
+    // Reject with proper Error objects, not strings or arbitrary values
+    '@typescript-eslint/prefer-promise-reject-errors': 'error',
 
     'unused-imports/no-unused-imports': 'error',
     'unused-imports/no-unused-vars': [
