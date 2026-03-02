@@ -1,10 +1,10 @@
 import { DynamicModule, Module, Provider, Type } from '@nestjs/common';
-import { APP_FILTER, DiscoveryService, MetadataScanner } from '@nestjs/core';
+import { DiscoveryService, MetadataScanner } from '@nestjs/core';
 
 import { ConfigModule } from '@zerly/config';
+import { ErrorsModule } from '@zerly/errors';
 
 import { appConfig } from './config/app.config';
-import { AllExceptionsFilter } from './filters/all-exceptions.filter';
 import { KernelProvider } from './providers/kernel.provider';
 import { RoutesInspectorProvider } from './providers/routes-inspector.provider';
 import { AppRefService } from './services/app-ref.service';
@@ -21,7 +21,7 @@ export class KernelModule {
   public static forServe(appModule: Type<unknown>): DynamicModule {
     return {
       global: true,
-      imports: [ConfigModule.forRoot([appConfig]), appModule],
+      imports: [ErrorsModule.forRoot(), ConfigModule.forRoot([appConfig]), appModule],
       exports: [APP_REF_SERVICE, APP_STATE_SERVICE],
       module: KernelModule,
       providers: [
@@ -34,10 +34,6 @@ export class KernelModule {
           provide: APP_REF_SERVICE,
           useClass: AppRefService,
         } satisfies Provider<IAppRefService>,
-        {
-          provide: APP_FILTER,
-          useClass: AllExceptionsFilter,
-        },
 
         DiscoveryService,
         MetadataScanner,

@@ -23,7 +23,8 @@
       "@zerly/swagger": ["libs/swagger/src/index.ts"],
       "@zerly/auth-module": ["libs/modules/auth/src/index.ts"],
       "@zerly/db": ["libs/db/src/index.ts"],
-      "@zerly/eslint-config": ["libs/eslint-config/src/index.ts"]
+      "@zerly/eslint-config": ["libs/eslint-config/src/index.ts"],
+      "@zerly/errors": ["libs/errors/src/index.ts"]
     },
     "noImplicitAny": true,
     "strict": true,
