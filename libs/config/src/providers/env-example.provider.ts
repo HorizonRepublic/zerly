@@ -132,7 +132,6 @@ export class EnvExampleProvider implements OnModuleInit {
    * @param fields - `@Env()` metadata collected from the config class.
    * @param instance - Frozen config instance used as a value fallback.
    * @returns Array of formatted env lines, one per field.
-   * @example -
    */
   private formatEnvVariables(
     fields: IEnvFieldMetadata[],
@@ -170,7 +169,6 @@ export class EnvExampleProvider implements OnModuleInit {
    * @param opts - Field options from the `@Env()` decorator.
    * @param fallback - Current value on the config instance.
    * @returns String representation of the resolved value, or `""` if none.
-   * @example -
    */
   private resolveValue(opts: IEnvFieldMetadata['options'], fallback: unknown): string {
     if (opts.example !== undefined) return String(opts.example);
@@ -185,7 +183,6 @@ export class EnvExampleProvider implements OnModuleInit {
    *
    * @param opts - Field options from the `@Env()` decorator.
    * @returns Comment fragment or `undefined`.
-   * @example -
    */
   private defaultComment(opts: IEnvFieldMetadata['options']): string | undefined {
     if (opts.example !== undefined && opts.default !== undefined) {
@@ -201,7 +198,6 @@ export class EnvExampleProvider implements OnModuleInit {
    *
    * @param type - Enum object or primitive constructor passed to `@Env({ type })`.
    * @returns Comment fragment or `undefined` if `type` is not an enum.
-   * @example -
    */
   private enumComment(type?: EnumType | EnvTypeConstructor): string | undefined {
     if (!type || typeof type !== 'object') return undefined;
@@ -220,7 +216,6 @@ export class EnvExampleProvider implements OnModuleInit {
    * the source root. Falls back to {@link fallbackRoot} if heuristics fail.
    *
    * @returns Absolute path to the application root.
-   * @example -
    */
   private resolveAppRoot(): string {
     const entryPath = process.argv[1];
@@ -249,7 +244,6 @@ export class EnvExampleProvider implements OnModuleInit {
    * directory inside an Nx monorepo (`apps/<name>`) or a standalone project root.
    *
    * @returns Absolute path to the application root, or `process.cwd()` as a last resort.
-   * @example -
    */
   private fallbackRoot(): string {
     try {
@@ -276,7 +270,6 @@ export class EnvExampleProvider implements OnModuleInit {
    * `package.json`, `project.json`, or `tsconfig.json`.
    *
    * @param dirPath - Absolute path to check.
-   * @example -
    */
   private isValidProjectDir(dirPath: string): boolean {
     return (
@@ -296,7 +289,6 @@ export class EnvExampleProvider implements OnModuleInit {
    * @param filePath - Destination file path.
    * @param content - New file content.
    * @returns Observable that completes after a successful write, or `EMPTY` when unchanged.
-   * @example -
    */
   private writeIfChanged$(filePath: string, content: string): Observable<void> {
     const newHash = createHash('sha256').update(content, 'utf8').digest('hex');
