@@ -61,7 +61,8 @@
           "authors": true,
           "commitReferences": true,
           "versionTitleDate": true,
-          "mapAuthorsToGitHubUsernames": true
+          "mapAuthorsToGitHubUsernames": true,
+          "includeBody": true
         },
         "git": {
           "commit": true,
