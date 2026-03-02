@@ -57,14 +57,21 @@ export class EnvExampleProvider implements OnModuleInit {
       }
 
       const configs = // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (this.configService as any)['internalConfig'] as Record<symbol, any> | undefined;
+        (this.configService as any)['internalConfig'] as Record<string | symbol, any> | undefined;
 
       if (!configs) return EMPTY;
 
-      const configSections = Object.getOwnPropertySymbols(configs)
-        .map((symbol) => {
-          const title = symbol.description;
-          const instance = configs[symbol];
+      const symbolKeys = Object.getOwnPropertySymbols(configs).map((k) => ({
+        key: k as string | symbol,
+        title: k.description,
+      }));
+      const stringKeys = Object.keys(configs).map((k) => ({ key: k as string | symbol, title: k }));
+      const allKeys = [...symbolKeys, ...stringKeys];
+
+      const configSections = allKeys
+        .map(({ key, title }) => {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const instance = (configs as any)[key];
 
           if (!instance || !title) return undefined;
 
@@ -98,11 +105,17 @@ export class EnvExampleProvider implements OnModuleInit {
   ): string[] {
     const lines = fields.map(({ key, options, propertyKey }) => {
       const fallback = instance[propertyKey as string];
+      const isRequired =
+        options.default === undefined &&
+        options.example === undefined &&
+        (fallback == null || fallback === '');
       const decl = `${key}="${this.resolveValue(options, fallback)}"`;
       const parts = [
+        isRequired ? 'REQUIRED' : undefined,
+        options.description,
         options.comment,
         this.enumComment(options.type),
-        this.defaultComment(options.default ?? fallback),
+        this.defaultComment(options),
       ].filter(Boolean);
 
       return { decl, comment: parts.length > 0 ? parts.join('. ') : undefined };
@@ -121,8 +134,12 @@ export class EnvExampleProvider implements OnModuleInit {
     return fallback != null && fallback !== '' ? String(fallback) : '';
   }
 
-  private defaultComment(value: unknown): string | undefined {
-    return value != null && value !== '' ? `(Default: ${value})` : undefined;
+  private defaultComment(opts: IEnvFieldMetadata['options']): string | undefined {
+    if (opts.example !== undefined && opts.default !== undefined) {
+      return `(Default: ${opts.default})`;
+    }
+
+    return undefined;
   }
 
   private enumComment(type?: EnumType | EnvTypeConstructor): string | undefined {
