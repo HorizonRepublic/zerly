@@ -26,12 +26,10 @@ export interface IAppStateService {
    * - Database connections
    * - Cache warming
    * - Service configuration.
-   *
    * @param cb Function returning sync/async operation or Observable.
    * @param priority Execution priority (lower numbers = higher priority)
    * Default: 0
    * Range: -Infinity to +Infinity.
-   *
    * @example
    * ```TypeScript
    * // High priority (executes first)
@@ -55,12 +53,10 @@ export interface IAppStateService {
    * - Logging ready status
    * - Notifying external services
    * - Starting background jobs.
-   *
    * @param cb Function returning sync/async operation or Observable.
    * @param priority Execution priority (lower numbers = higher priority)
    * Default: 0
    * Range: -Infinity to +Infinity.
-   *
    * @example
    * ```TypeScript
    * // Critical check (executes first)
@@ -82,7 +78,6 @@ export interface IAppStateService {
    * Callbacks are executed sequentially, waiting for each to complete
    * before proceeding to the next. If any callback fails, the error
    * is logged but execution continues.
-   *
    * @internal
    * @param state New application state.
    * @returns Observable that completes when all callbacks finish.
@@ -116,14 +111,11 @@ export interface IPrioritizedCallback {
  * - `void` for synchronous operations
  * - `Promise<void>` for asynchronous operations
  * - `Observable<void>` for reactive operations.
- *
  * @param app The NestJS application instance, fully configured and ready for use.
- *
  * @returns One of:
  * - `void` - For immediate synchronous execution
  * - `Promise<void>` - For asynchronous operations (async/await compatible)
  * - `Observable<void>` - For reactive programming patterns using RxJS.
- *
  * @example
  * ```TypeScript
  * // Synchronous callback
@@ -148,10 +140,8 @@ export interface IPrioritizedCallback {
  * appStateService.onCreated(syncCallback);
  * appStateService.onListening(asyncCallback, -10); // High priority
  * ```
- *
  * @see IAppStateService - Service that uses these callbacks
  * @see AppState - Application states during which callbacks execute
- *
  * @since 1.0.0
  */
 export type IStateCallback = (

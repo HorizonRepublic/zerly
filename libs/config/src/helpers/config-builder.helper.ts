@@ -24,14 +24,14 @@ export class ConfigBuilder<T extends object> {
 
   private constructor(
     private readonly configClass: Type<T>,
-    private readonly token: symbol,
+    private readonly token: string | symbol,
   ) {}
 
   /**
    * Creates a configuration builder from a configuration class and token.
    *
    * @param configClass Configuration class constructor.
-   * @param token Unique symbol token for dependency injection.
+   * @param token Unique string or symbol token for dependency injection.
    * @returns ConfigBuilder instance for chaining.
    *
    * @example
@@ -40,7 +40,10 @@ export class ConfigBuilder<T extends object> {
    * ConfigBuilder.from(DatabaseConfig, DATABASE_CONFIG)
    * ```
    */
-  public static from<T extends object>(configClass: Type<T>, token: symbol): ConfigBuilder<T> {
+  public static from<T extends object>(
+    configClass: Type<T>,
+    token: string | symbol,
+  ): ConfigBuilder<T> {
     return new ConfigBuilder(configClass, token);
   }
 

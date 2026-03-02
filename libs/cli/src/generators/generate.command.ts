@@ -12,7 +12,9 @@ import { GenDockerComposeCommand } from './sub/gen-docker-compose.command';
   ],
 })
 export class GenerateCommand extends CommandRunner {
-  public async run(): Promise<void> {
+  public run(): Promise<void> {
     console.log('Please specify a resource to generate. Example: zerly g docker');
+
+    return Promise.resolve();
   }
 }
