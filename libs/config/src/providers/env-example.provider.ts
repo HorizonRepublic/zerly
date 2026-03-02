@@ -1,7 +1,7 @@
-import { createHash } from 'crypto';
-import { existsSync } from 'fs';
-import * as fs from 'fs/promises';
-import { dirname, join, normalize, resolve, sep } from 'path';
+import { createHash } from 'node:crypto';
+import { existsSync } from 'node:fs';
+import * as fs from 'node:fs/promises';
+import { dirname, join, normalize, resolve, sep } from 'node:path';
 
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';

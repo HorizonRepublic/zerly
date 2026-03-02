@@ -2,16 +2,16 @@ import nx from '@nx/eslint-plugin';
 import eslintConfigPrettier from 'eslint-config-prettier';
 import preferArrowPlugin from 'eslint-plugin-prefer-arrow';
 import eslintPluginPrettier from 'eslint-plugin-prettier';
+import rxjsX from 'eslint-plugin-rxjs-x';
 import sonarjs from 'eslint-plugin-sonarjs';
+import unicorn from 'eslint-plugin-unicorn';
 import unusedImports from 'eslint-plugin-unused-imports';
 import jsoncParser from 'jsonc-eslint-parser';
 import tseslint from 'typescript-eslint';
 import importPlugin from 'eslint-plugin-import-x';
 
-
 export default [
   // Base configurations from Nx and TypeScript
-  eslintConfigPrettier,
   ...nx.configs['flat/base'],
   ...nx.configs['flat/typescript'],
   ...nx.configs['flat/javascript'],
@@ -59,7 +59,7 @@ export default [
           checkVersionMismatches: true,
           ignoredFiles: ['{projectRoot}/eslint.config.{js,cjs,mjs,ts,cts,mts}'],
           useLocalPathsForWorkspaceDependencies: true,
-          peerDepsVersionStrategy: 'workspace', // or 'workspace' to use workspace:* for peer dependencies
+          peerDepsVersionStrategy: 'workspace',
         },
       ],
     },
@@ -74,6 +74,8 @@ export default [
       prettier: eslintPluginPrettier,
       'unused-imports': unusedImports,
       'import-x': importPlugin,
+      unicorn,
+      'rxjs-x': rxjsX,
     },
     rules: {
       // Nx-specific rules
@@ -91,35 +93,14 @@ export default [
         },
       ],
 
-      'array-bracket-spacing': ['error', 'never'],
-
-      'arrow-spacing': 'error',
       // Naming conventions
       camelcase: ['error', { ignoreDestructuring: false, properties: 'never' }],
 
-      'comma-dangle': ['error', 'always-multiline'],
       complexity: ['warn', 10],
-      // Function structure rules
-      'function-call-argument-newline': ['error', 'consistent'],
-      'lines-between-class-members': [
-        'error',
-        {
-          enforce: [
-            { blankLine: 'always', next: 'method', prev: 'method' },
-            { blankLine: 'always', next: 'method', prev: 'field' },
-          ],
-        },
-        {
-          exceptAfterSingleLine: true,
-        },
-      ],
-      'max-depth': ['warn', 4],
 
-      'max-params': ['warn', 4],
-      'no-alert': 'error',
-      // General code quality
-      'no-console': ['warn', { allow: ['warn', 'error'] }],
-      'no-debugger': 'error',
+      // Import ordering and deduplication
+      'import-x/newline-after-import': ['error', { count: 1 }],
+      'import-x/no-duplicates': 'error',
       'import-x/order': [
         'error',
         {
@@ -162,17 +143,36 @@ export default [
           },
         },
       ],
-      'import-x/newline-after-import': ['error', { count: 1 }],
-      'import-x/no-duplicates': 'error',
+
+      // Function structure rules
+      'lines-between-class-members': [
+        'error',
+        {
+          enforce: [
+            { blankLine: 'always', next: 'method', prev: 'method' },
+            { blankLine: 'always', next: 'method', prev: 'field' },
+          ],
+        },
+        {
+          exceptAfterSingleLine: true,
+        },
+      ],
+
+      'max-depth': ['warn', 4],
+      'max-params': ['warn', 4],
+
+      // General code quality
+      'no-alert': 'error',
+      'no-console': ['warn', { allow: ['warn', 'error'] }],
+      'no-debugger': 'error',
 
       // Remove the base no-duplicate-imports since import-x/no-duplicates replaces it
       'no-duplicate-imports': 'off',
 
-      'no-multiple-empty-lines': ['error', { max: 1, maxBOF: 0, maxEOF: 1 }],
       'no-useless-constructor': 'error',
       'no-useless-return': 'error',
       'no-var': 'error',
-      'object-curly-spacing': ['error', 'always'],
+
       // Code formatting & padding
       'padding-line-between-statements': [
         'error',
@@ -185,6 +185,7 @@ export default [
         { blankLine: 'always', next: 'export', prev: '*' },
         { blankLine: 'always', next: '*', prev: 'block-like' },
       ],
+
       'prefer-arrow-callback': 'error',
 
       // Prefer arrow functions
@@ -196,11 +197,25 @@ export default [
           singleReturnOnly: false,
         },
       ],
+
       'prefer-const': 'error',
       'prefer-template': 'error',
+
       // Prettier integration
-      'prettier/prettier': ['error'],
-      'template-curly-spacing': ['error', 'never'],
+      'prettier/prettier': 'error',
+
+      // Node.js — prefer explicit node: protocol for builtins
+      'unicorn/prefer-node-protocol': 'error',
+
+      // Error handling quality
+      'unicorn/error-message': 'error',
+      'unicorn/throw-new-error': 'error',
+      'unicorn/prefer-optional-catch-binding': 'error',
+
+      // Cleaner code patterns
+      'unicorn/no-typeof-undefined': 'error',
+      'unicorn/no-useless-promise-resolve-reject': 'error',
+      'unicorn/prefer-export-from': ['error', { ignoreUsedVariables: true }],
     },
   },
 
@@ -330,28 +345,49 @@ export default [
       ],
       '@typescript-eslint/no-confusing-void-expression': 'error',
       '@typescript-eslint/no-explicit-any': 'error',
+
+      // Catch unhandled promises — critical for NestJS async lifecycle methods
+      '@typescript-eslint/no-floating-promises': ['error', { ignoreVoid: true, ignoreIIFE: true }],
+
+      // Catch async functions passed where sync is expected (e.g. void callbacks)
+      '@typescript-eslint/no-misused-promises': 'error',
+
       '@typescript-eslint/no-namespace': 'off',
       '@typescript-eslint/no-non-null-assertion': 'error',
       '@typescript-eslint/no-redundant-type-constituents': 'error',
+
+      // Flags `foo as Foo` when foo is already Foo — catches redundant casts
+      '@typescript-eslint/no-unnecessary-type-assertion': 'error',
+
       '@typescript-eslint/no-unnecessary-condition': 'error',
       '@typescript-eslint/no-unused-vars': 'off',
+
+      // TS-aware replacement for the base no-useless-constructor (disabled below)
+      '@typescript-eslint/no-useless-constructor': 'error',
+
       '@typescript-eslint/no-useless-empty-export': 'error',
       '@typescript-eslint/prefer-nullish-coalescing': 'error',
       '@typescript-eslint/prefer-optional-chain': 'error',
       '@typescript-eslint/prefer-readonly': 'error',
       '@typescript-eslint/prefer-string-starts-ends-with': 'error',
+
+      // In try/catch, `return await` is required — otherwise rejections escape the block
+      '@typescript-eslint/return-await': ['error', 'in-try-catch'],
+
+      // async function without any await is almost always a mistake
+      '@typescript-eslint/require-await': 'error',
+
       '@typescript-eslint/switch-exhaustiveness-check': 'error',
       '@typescript-eslint/no-empty-function': 'off',
 
+      // catch (err) in RxJS callbacks should be typed as unknown, not implicit any
+      '@typescript-eslint/use-unknown-in-catch-callback-variable': 'error',
+
+      // Disable base rules replaced by TS-aware equivalents
       camelcase: 'off',
-
-      // Disable base rules that conflict with TS equivalents
-      'comma-dangle': 'off',
-
       'no-duplicate-imports': 'off',
       'no-unused-vars': 'off',
       'no-useless-constructor': 'off',
-      semi: 'off',
       'unused-imports/no-unused-imports': 'error',
       'unused-imports/no-unused-vars': [
         'error',
@@ -363,6 +399,14 @@ export default [
           varsIgnorePattern: '^_',
         },
       ],
+
+      // RxJS best practices
+      'rxjs-x/no-async-subscribe': 'error',
+      'rxjs-x/no-nested-subscribe': 'error',
+      'rxjs-x/no-unsafe-takeuntil': 'error',
+      'rxjs-x/no-internal': 'error',
+      'rxjs-x/no-ignored-error': 'warn',
+      'rxjs-x/no-floating-observables': 'warn',
     },
   },
 
@@ -374,4 +418,7 @@ export default [
       camelcase: 'off',
     },
   },
+
+  // Must be last — disables ESLint rules that conflict with Prettier formatting
+  eslintConfigPrettier,
 ];
