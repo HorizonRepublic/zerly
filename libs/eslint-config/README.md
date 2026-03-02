@@ -4,18 +4,18 @@ Opinionated [ESLint flat config](https://eslint.org/docs/latest/use/configure/co
 
 ## What's included
 
-| Plugin | Rules |
-|---|---|
-| `typescript-eslint` | Strict type-aware rules, naming conventions, explicit return types |
-| `eslint-plugin-sonarjs` | Code smell detection, cognitive complexity |
-| `eslint-plugin-rxjs-x` | RxJS best practices (no floating observables, no nested subscribes) |
-| `eslint-plugin-unicorn` | Modern JS patterns, `node:` protocol enforcement |
-| `eslint-plugin-security` | Common backend vulnerability patterns |
-| `eslint-plugin-no-secrets` | Accidentally committed credentials detection |
-| `eslint-plugin-import-x` | Import ordering and deduplication |
-| `eslint-plugin-jsdoc` | JSDoc validation (validate existing, not require everywhere) |
-| `eslint-plugin-prettier` | Prettier integration |
-| `eslint-config-prettier` | Disables formatting rules that conflict with Prettier |
+| Plugin                     | Rules                                                               |
+|----------------------------|---------------------------------------------------------------------|
+| `typescript-eslint`        | Strict type-aware rules, naming conventions, explicit return types  |
+| `eslint-plugin-sonarjs`    | Code smell detection, cognitive complexity                          |
+| `eslint-plugin-rxjs-x`     | RxJS best practices (no floating observables, no nested subscribes) |
+| `eslint-plugin-unicorn`    | Modern JS patterns, `node:` protocol enforcement                    |
+| `eslint-plugin-security`   | Common backend vulnerability patterns                               |
+| `eslint-plugin-no-secrets` | Accidentally committed credentials detection                        |
+| `eslint-plugin-import-x`   | Import ordering and deduplication                                   |
+| `eslint-plugin-jsdoc`      | JSDoc validation (validate existing, not require everywhere)        |
+| `eslint-plugin-prettier`   | Prettier integration                                                |
+| `eslint-config-prettier`   | Disables formatting rules that conflict with Prettier               |
 
 ## Installation
 
