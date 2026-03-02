@@ -64,9 +64,9 @@ interface IErrorResponse {
 
 ### Register in the application
 
-When using `@zerly/kernel`, the module is already registered automatically via `KernelModule.forServe()`. No extra setup is needed.
+`@zerly/errors` is **not** registered automatically by `@zerly/kernel`. Import it explicitly in your root module — this lets you choose between `forRoot()` and `forRootAsync()` depending on whether you need an error reporter.
 
-For standalone use:
+> **Note:** Registering `AllExceptionsFilter` replaces the default NestJS error format for **all** exceptions, including built-in `HttpException` subclasses (`NotFoundException`, `BadRequestException`, etc.). Their `message` field is dropped; only `code` + optional `details` are returned.
 
 ```typescript
 import { ErrorsModule } from '@zerly/errors';
