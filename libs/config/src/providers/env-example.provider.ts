@@ -18,7 +18,6 @@ import { EnumType, EnvTypeConstructor, IAppConfig, IEnvFieldMetadata } from '../
  * Generation is skipped unless `AppConfig.generateEnvExample` is `true`.
  * The file is written only when its content has changed (SHA-256 comparison),
  * so repeated restarts in development do not cause unnecessary disk writes.
- *
  * @example
  * ```
  * # -- app
@@ -128,7 +127,6 @@ export class EnvExampleProvider implements OnModuleInit {
    *
    * Declaration widths are padded to the longest entry so inline comments line up.
    * Comment parts order: `REQUIRED` → `description` → `comment` → enum values → default.
-   *
    * @param fields - `@Env()` metadata collected from the config class.
    * @param instance - Frozen config instance used as a value fallback.
    * @returns Array of formatted env lines, one per field.
@@ -165,7 +163,6 @@ export class EnvExampleProvider implements OnModuleInit {
   /**
    * Resolves the display value for a field in priority order:
    * `example` → `default` → runtime fallback from the config instance.
-   *
    * @param opts - Field options from the `@Env()` decorator.
    * @param fallback - Current value on the config instance.
    * @returns String representation of the resolved value, or `""` if none.
@@ -180,7 +177,6 @@ export class EnvExampleProvider implements OnModuleInit {
   /**
    * Returns a `(Default: X)` annotation only when both `example` and `default` are
    * defined — i.e. the displayed value differs from the actual default.
-   *
    * @param opts - Field options from the `@Env()` decorator.
    * @returns Comment fragment or `undefined`.
    */
@@ -195,7 +191,6 @@ export class EnvExampleProvider implements OnModuleInit {
   /**
    * Builds a `Possible values: a, b, c` comment from an enum type.
    * Numeric reverse-mappings (TypeScript `const enum` artifacts) are deduplicated.
-   *
    * @param type - Enum object or primitive constructor passed to `@Env({ type })`.
    * @returns Comment fragment or `undefined` if `type` is not an enum.
    */
@@ -214,7 +209,6 @@ export class EnvExampleProvider implements OnModuleInit {
    *
    * Strips known build output directories (`dist/`, `build/`, `.next/`) to find
    * the source root. Falls back to {@link fallbackRoot} if heuristics fail.
-   *
    * @returns Absolute path to the application root.
    */
   private resolveAppRoot(): string {
@@ -242,7 +236,6 @@ export class EnvExampleProvider implements OnModuleInit {
   /**
    * Secondary root resolution strategy: uses `AppConfig.name` to locate the app
    * directory inside an Nx monorepo (`apps/<name>`) or a standalone project root.
-   *
    * @returns Absolute path to the application root, or `process.cwd()` as a last resort.
    */
   private fallbackRoot(): string {
@@ -268,7 +261,6 @@ export class EnvExampleProvider implements OnModuleInit {
   /**
    * Returns `true` if `dirPath` exists and contains at least one of
    * `package.json`, `project.json`, or `tsconfig.json`.
-   *
    * @param dirPath - Absolute path to check.
    */
   private isValidProjectDir(dirPath: string): boolean {
@@ -285,7 +277,6 @@ export class EnvExampleProvider implements OnModuleInit {
    * existing file, avoiding unnecessary writes on repeated restarts.
    *
    * Parent directories are created recursively if they do not exist.
-   *
    * @param filePath - Destination file path.
    * @param content - New file content.
    * @returns Observable that completes after a successful write, or `EMPTY` when unchanged.
