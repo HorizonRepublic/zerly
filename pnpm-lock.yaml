@@ -113,7 +113,7 @@ importers:
         version: 20.4.3
       '@darraghor/eslint-plugin-nestjs-typed':
         specifier: ^7.1.22
-        version: 7.1.25(@typescript-eslint/parser@8.56.1(eslint@9.39.4(jiti@2.6.1))(typescript@5.9.3))(class-validator@0.14.3)(eslint@9.39.4(jiti@2.6.1))(typescript@5.9.3)
+        version: 7.1.26(@typescript-eslint/parser@8.56.1(eslint@9.39.4(jiti@2.6.1))(typescript@5.9.3))(class-validator@0.14.3)(eslint@9.39.4(jiti@2.6.1))(typescript@5.9.3)
       '@nestia/benchmark':
         specifier: ^10.0.2
         version: 10.0.2
@@ -991,8 +991,8 @@ packages:
     resolution: {integrity: sha512-hauBrOdvu08vOsagkZ/Aju5XuiZx6ldsLfByg1htFeldhex+PeMrYauANzFsMJeAA0+dyPLbDoX2OYuvVoLDkQ==}
     engines: {node: '>= 6'}
 
-  '@darraghor/eslint-plugin-nestjs-typed@7.1.25':
-    resolution: {integrity: sha512-fJe45rLIWJuRZtrmm90B1g9MrQxJUJPxkwvp+GSdST8PHIAjhT5sgsHqIZjCBDK/aP8vySos9ac3s+1i7N9eAA==}
+  '@darraghor/eslint-plugin-nestjs-typed@7.1.26':
+    resolution: {integrity: sha512-r9bQB/G7KLq/ze8zxaCxsn13PauI7dAkoqfEptqtTx4ABKbkFrv/GHYH+IppJG86iFwiGRSGZMdJ5yuAVPKD3A==}
     engines: {node: '>=22.0.0'}
     peerDependencies:
       '@typescript-eslint/parser': ^7.0.0 || ^8.0.0
@@ -9070,7 +9070,7 @@ snapshots:
       tunnel-agent: 0.6.0
       uuid: 8.3.2
 
-  '@darraghor/eslint-plugin-nestjs-typed@7.1.25(@typescript-eslint/parser@8.56.1(eslint@9.39.4(jiti@2.6.1))(typescript@5.9.3))(class-validator@0.14.3)(eslint@9.39.4(jiti@2.6.1))(typescript@5.9.3)':
+  '@darraghor/eslint-plugin-nestjs-typed@7.1.26(@typescript-eslint/parser@8.56.1(eslint@9.39.4(jiti@2.6.1))(typescript@5.9.3))(class-validator@0.14.3)(eslint@9.39.4(jiti@2.6.1))(typescript@5.9.3)':
     dependencies:
       '@typescript-eslint/parser': 8.56.1(eslint@9.39.4(jiti@2.6.1))(typescript@5.9.3)
       '@typescript-eslint/scope-manager': 8.56.1
