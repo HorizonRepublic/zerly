@@ -1,6 +1,6 @@
 {
   "name": "@zerly/eslint-config",
-  "version": "0.0.1",
+  "version": "0.7.0",
   "description": "Opinionated ESLint flat config preset for Zerly projects",
   "license": "MIT",
   "type": "module",
