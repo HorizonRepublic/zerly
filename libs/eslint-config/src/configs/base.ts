@@ -48,8 +48,6 @@ export const baseConfig: Linter.Config = {
     'prefer-arrow': preferArrowPlugin,
     prettier: eslintPluginPrettier,
     'unused-imports': unusedImports,
-    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-    // @ts-expect-error
     'import-x': importPlugin,
     unicorn,
     security,
