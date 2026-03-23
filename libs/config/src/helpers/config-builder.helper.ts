@@ -1,7 +1,6 @@
 import 'reflect-metadata';
 import { Logger, Type } from '@nestjs/common';
 import { registerAs } from '@nestjs/config';
-import { RuntimeException } from '@nestjs/core/errors/exceptions';
 
 import { ENV_METADATA_KEY } from '../tokens';
 import { EnumType, EnvTypeConstructor, IEnvFieldMetadata } from '../types';
@@ -103,7 +102,7 @@ export class ConfigBuilder<T extends object> {
     if (type === Number) {
       const num = Number(value);
 
-      if (isNaN(num)) throw new RuntimeException(`Cannot convert "${value}" to number`);
+      if (isNaN(num)) throw new Error(`Cannot convert "${value}" to number`);
 
       return num;
     }
