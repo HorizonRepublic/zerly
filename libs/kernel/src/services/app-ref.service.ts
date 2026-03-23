@@ -1,5 +1,4 @@
 import { Injectable, Logger } from '@nestjs/common';
-
 import { NestFastifyApplication } from '@nestjs/platform-fastify';
 
 import { IAppRefService } from '../types';
