@@ -5,11 +5,9 @@ import { EnumType, EnvTypeConstructor, IEnvFieldMetadata, IEnvOptions } from '..
  * Property decorator for mapping environment variables to class properties.
  * Stores metadata about the environment variable configuration that will be
  * processed during class initialization.
- *
  * @param key The environment variable name (e.g., 'PORT', 'NODE_ENV').
  * @param options Configuration options including default value, type, etc.
  * @returns PropertyDecorator function.
- *
  * @example
  * ```typescript
  * class Config {

@@ -66,3 +66,6 @@ logs
 # Generated Docusaurus files
 .docusaurus/
 .cache-loader/
+
+# Personal snippets
+.snippets/

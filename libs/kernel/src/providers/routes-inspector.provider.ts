@@ -180,7 +180,7 @@ export class RoutesInspectorProvider {
     const pathMeta = this.reflector.get<string | string[] | undefined>(PATH_METADATA, methodRef);
     const methodId = this.reflector.get<number | undefined>('method', methodRef);
 
-    if (typeof pathMeta === 'undefined' || typeof methodId === 'undefined') {
+    if (pathMeta === undefined || methodId === undefined) {
       return null;
     }
 
@@ -206,7 +206,7 @@ export class RoutesInspectorProvider {
   ): IRouteDefinition | null {
     const pattern = this.reflector.get<object | string | undefined>(PATTERN_METADATA, methodRef);
 
-    if (typeof pattern === 'undefined') {
+    if (pattern === undefined) {
       return null;
     }
 

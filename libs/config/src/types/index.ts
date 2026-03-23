@@ -40,7 +40,6 @@ export interface IEnvFieldMetadata {
 
 /**
  * Configuration options for environment variables.
- *
  * @template TType The type constructor or enum type for the environment variable.
  */
 export interface IEnvOptions<TType extends EnumType | EnvTypeConstructor = typeof String> {
@@ -62,7 +61,6 @@ export interface IEnvOptions<TType extends EnumType | EnvTypeConstructor = typeo
 
 /**
  * Infers the actual type from a constructor type or enum.
- *
  * @template TType The constructor type or enum to infer from.
  */
 export type InferTypeFromConstructor<TType extends EnumType | EnvTypeConstructor> =

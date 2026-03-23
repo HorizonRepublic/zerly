@@ -41,7 +41,6 @@ import { IAppRefService, IAppStateService, IKernelInitOptions } from './types';
  *
  * This class implements the Singleton pattern to ensure only one Kernel instance
  * exists during the application lifecycle.
- *
  * @class
  * @final
  */
@@ -77,7 +76,7 @@ export class Kernel {
 
   /**
    * Private constructor to enforce a Singleton pattern.
-   * Use {@link Kernel.init} or {@link Kernel.standalone} instead.
+   * Use {@link Kernel.init} instead.
    * @private
    */
   private constructor() {}
@@ -87,11 +86,9 @@ export class Kernel {
    *
    * This method handles the full lifecycle: Adapter Resolution -> App Creation ->
    * State Initialization -> Event Listening -> HTTP Server Start.
-   *
-   * @param {Type<unknown>} appModule - The root module of the application (usually AppModule).
+   * @param appModule - The root module of the application (usually AppModule).
    * @param options
-   * @returns {Observable<Kernel>} An observable that emits the initialized Kernel instance.
-   *
+   * @returns An observable that emits the initialized Kernel instance.
    * @example
    * ```typescript
    * import { Kernel } from '@zerly/kernel';
@@ -137,10 +134,8 @@ export class Kernel {
    *
    * Useful for CLI commands, cron jobs, or microservices that do not require
    * an HTTP listener.
-   *
-   * @param {Type<unknown>} appModule - The root module of the application.
-   * @returns {Observable<Kernel>} An observable that emits the initialized Kernel instance.
-   *
+   * @param appModule - The root module of the application.
+   * @returns An observable that emits the initialized Kernel instance.
    * @example
    * ```typescript
    * Kernel.standalone(WorkerModule).subscribe();
@@ -174,10 +169,9 @@ export class Kernel {
    * 4. Update State -> Created
    * 5. Listen on Port
    * 6. Update State -> Listening
-   *
    * @private
-   * @param {Type<unknown>} appModule - The root module.
-   * @returns {Observable<void>} Observable stream of the bootstrap process.
+   * @param appModule - The root module.
+   * @returns Observable stream of the bootstrap process.
    */
   private bootstrap$(appModule: Type<unknown>): Observable<void> {
     const adapter = new FastifyAdapter({
@@ -219,10 +213,9 @@ export class Kernel {
    * Internal bootstrap pipeline for standalone contexts.
    *
    * Uses nest-commander to handle CLI commands.
-   *
    * @private
-   * @param {Type<unknown>} standaloneModule - The root module.
-   * @returns {Observable<void>} Observable stream of the context creation.
+   * @param standaloneModule - The root module.
+   * @returns Observable stream of the context creation.
    */
   private bootstrapStandalone$(standaloneModule: Type<unknown>): Observable<void> {
     return defer(() => {
@@ -247,9 +240,8 @@ export class Kernel {
   /**
    * Extracts and registers core kernel services (AppRef, AppState) from the IoC container.
    * Sets the global application reference.
-   *
    * @private
-   * @param {any} app - The NestJS application instance.
+   * @param app - The NestJS application instance.
    */
   private registerKernelServices(app: NestFastifyApplication): void {
     this.appRef = app.get(APP_REF_SERVICE);
@@ -259,9 +251,8 @@ export class Kernel {
 
   /**
    * Starts the HTTP server based on the configuration.
-   *
    * @private
-   * @returns {Observable<void>} Observable that completes when the server is listening.
+   * @returns Observable that completes when the server is listening.
    */
   private startHttpServer$(): Observable<void> {
     return defer(() => {
@@ -277,10 +268,9 @@ export class Kernel {
   /**
    * Centralized error handler for bootstrap failures.
    * Logs the error and terminates the process with a failure code.
-   *
    * @private
-   * @param {unknown} err - The error object.
-   * @param {string} context - The bootstrap context (e.g., 'Standard', 'Standalone').
+   * @param err - The error object.
+   * @param context - The bootstrap context (e.g., 'Standard', 'Standalone').
    */
   private handleBootstrapError(err: unknown, context: string): void {
     this.logger.error(`🚨 ${context} Kernel bootstrap failed!`);

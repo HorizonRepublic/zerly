@@ -31,7 +31,7 @@ export class MicroserviceServerModule {
         JetstreamServerModule.forRootAsync({
           name: options.name,
           imports: [],
-          useFactory: async () => ({
+          useFactory: () => ({
             name: options.name,
             servers: options.servers,
           }),

@@ -1,0 +1,49 @@
+{
+  "name": "@zerly/errors",
+  "version": "0.7.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/HorizonRepublic/zerly.git",
+    "directory": "libs/errors"
+  },
+  "homepage": "https://github.com/HorizonRepublic/zerly/blob/main/libs/errors/README.md",
+  "bugs": {
+    "url": "https://github.com/HorizonRepublic/zerly/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "nestjs",
+    "typescript",
+    "zerly",
+    "errors",
+    "exception-filter"
+  ],
+  "author": {
+    "name": "Horizon Republic",
+    "url": "https://github.com/HorizonRepublic"
+  },
+  "license": "MIT",
+  "type": "commonjs",
+  "main": "./src/index.js",
+  "types": "./src/index.d.ts",
+  "dependencies": {
+    "@zerly/config": "0.7.0",
+    "tslib": "^2.8.1",
+    "typia": "^11.0.1"
+  },
+  "peerDependencies": {
+    "@nestjs/common": ">= 11.0.0",
+    "@nestjs/config": ">= 4.0.0",
+    "@nestjs/core": ">= 11.0.0",
+    "@nestjs/microservices": ">= 11.0.0",
+    "reflect-metadata": ">= 0.2.0",
+    "rxjs": ">= 7.8.0"
+  },
+  "peerDependenciesMeta": {
+    "@nestjs/microservices": {
+      "optional": true
+    }
+  }
+}
