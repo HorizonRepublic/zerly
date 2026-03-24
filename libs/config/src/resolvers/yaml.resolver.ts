@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { parse } from 'yaml';
 
 import { ConfigFormat } from '../enums/config-format.enum';
+
 import { IConfigResolver } from './config-resolver.interface';
 
 /**
@@ -10,7 +11,6 @@ import { IConfigResolver } from './config-resolver.interface';
  *
  * Parsed YAML content is cached per file path. Files are read synchronously
  * at first access — acceptable for startup-only configuration loading.
- *
  * @example
  * ```typescript
  * const resolver = new YamlResolver('config/app.yaml');

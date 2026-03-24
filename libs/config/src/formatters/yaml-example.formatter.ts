@@ -1,6 +1,7 @@
 import { stringify } from 'yaml';
 
 import { IEnvFieldMetadata } from '../types';
+
 import { IConfigSection, IExampleFormatter } from './example-formatter.interface';
 
 /**
@@ -10,15 +11,15 @@ import { IConfigSection, IExampleFormatter } from './example-formatter.interface
  * including arrays and nested objects.
  */
 export class YamlExampleFormatter implements IExampleFormatter {
-  /** @inheritdoc */
-  public readonly fileName = '.env.example.yaml';
-
   private static readonly header = `###
 #
 # This file is auto-generated based on all registered configurations.
 # Do not edit it manually.
 #
 ###` as const;
+
+  /** @inheritdoc */
+  public readonly fileName = '.env.example.yaml';
 
   /**
    * Formats config sections into a complete `.env.example.yaml` string.
@@ -94,7 +95,9 @@ export class YamlExampleFormatter implements IExampleFormatter {
     let current: Record<string, unknown> = obj;
 
     for (let i = 0; i < segments.length - 1; i++) {
-      const seg = segments[i]!;
+      const seg = segments[i];
+
+      if (seg === undefined) continue;
 
       if (!(seg in current) || typeof current[seg] !== 'object' || current[seg] === null) {
         current[seg] = {};
@@ -103,7 +106,11 @@ export class YamlExampleFormatter implements IExampleFormatter {
       current = current[seg] as Record<string, unknown>;
     }
 
-    current[segments[segments.length - 1]!] = value;
+    const lastSegment = segments[segments.length - 1];
+
+    if (lastSegment !== undefined) {
+      current[lastSegment] = value;
+    }
   }
 
   /**
@@ -121,12 +128,12 @@ export class YamlExampleFormatter implements IExampleFormatter {
 
       if (!comment) continue;
 
-      const leafKey = key.split('.').pop()!;
+      const leafKey = key.split('.').pop();
+
+      if (!leafKey) continue;
+
       // Add comment after the first line containing this key
-      result = result.replace(
-        new RegExp(`^(\\s*${leafKey}:.*)$`, 'm'),
-        `$1 # ${comment}`,
-      );
+      result = result.replace(new RegExp(`^(\\s*${leafKey}:.*)$`, 'm'), `$1 # ${comment}`);
     }
 
     return result;

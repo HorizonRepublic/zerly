@@ -1,5 +1,5 @@
-import { YamlExampleFormatter } from '../formatters/yaml-example.formatter';
 import { IConfigSection } from '../formatters/example-formatter.interface';
+import { YamlExampleFormatter } from '../formatters/yaml-example.formatter';
 
 describe('YamlExampleFormatter', () => {
   const formatter = new YamlExampleFormatter();
@@ -77,7 +77,11 @@ describe('YamlExampleFormatter', () => {
       {
         title: 'app',
         fields: [
-          { key: 'app.name', propertyKey: 'name', options: { default: 'app', description: 'App name' } },
+          {
+            key: 'app.name',
+            propertyKey: 'name',
+            options: { default: 'app', description: 'App name' },
+          },
         ],
         instance: { name: 'app' },
       },
@@ -90,6 +94,7 @@ describe('YamlExampleFormatter', () => {
 
   it('should include auto-generated header', () => {
     const result = formatter.format([]);
+
     expect(result).toContain('auto-generated');
   });
 });

@@ -8,6 +8,7 @@ describe('ConfigRegistry', () => {
 
   it('should store and retrieve resolver', () => {
     const resolver = new EnvResolver();
+
     ConfigRegistry.setResolver(resolver);
     expect(ConfigRegistry.getResolver()).toBe(resolver);
   });
@@ -18,6 +19,7 @@ describe('ConfigRegistry', () => {
 
   it('should store and retrieve file paths by token', () => {
     const token = Symbol('test');
+
     ConfigRegistry.setFilePath(token, '/path/to/config.yaml');
     expect(ConfigRegistry.getFilePath(token)).toBe('/path/to/config.yaml');
   });
@@ -29,6 +31,7 @@ describe('ConfigRegistry', () => {
   it('should clear all state on reset', () => {
     const resolver = new EnvResolver();
     const token = Symbol('test');
+
     ConfigRegistry.setResolver(resolver);
     ConfigRegistry.setFilePath(token, '/path');
     ConfigRegistry.reset();

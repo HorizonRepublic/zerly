@@ -14,7 +14,7 @@ import { IConfigResolver } from './resolvers/config-resolver.interface';
  */
 export class ConfigRegistry {
   private static resolver: IConfigResolver | undefined;
-  private static filePaths = new Map<string | symbol, string>();
+  private static readonly filePaths = new Map<string | symbol, string>();
 
   /**
    * Registers the active config resolver.

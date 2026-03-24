@@ -1,6 +1,7 @@
 import { ConfigFormat } from '../enums/config-format.enum';
-import { IConfigLoadItem } from './config-load-item.interface';
+
 import { ConfigFactory } from './config-factory.type';
+import { IConfigLoadItem } from './config-load-item.interface';
 
 /**
  * Options for `ConfigModule.forRoot()`.
@@ -27,5 +28,5 @@ export interface IConfigModuleOptions {
   readonly path?: string;
 
   /** Config factories to load. Accepts bare `ConfigFactory` or `{ path, config }` objects. */
-  readonly load?: Array<ConfigFactory | IConfigLoadItem>;
+  readonly load?: (ConfigFactory | IConfigLoadItem)[];
 }

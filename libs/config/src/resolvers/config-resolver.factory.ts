@@ -1,4 +1,5 @@
 import { ConfigFormat } from '../enums/config-format.enum';
+
 import { IConfigResolver } from './config-resolver.interface';
 import { EnvResolver } from './env.resolver';
 import { YamlResolver } from './yaml.resolver';

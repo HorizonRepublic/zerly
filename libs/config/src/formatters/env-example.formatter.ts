@@ -1,4 +1,5 @@
 import { EnumType, EnvTypeConstructor, IEnvFieldMetadata } from '../types';
+
 import { IConfigSection, IExampleFormatter } from './example-formatter.interface';
 
 /**
@@ -11,15 +12,15 @@ import { IConfigSection, IExampleFormatter } from './example-formatter.interface
  * ```
  */
 export class EnvExampleFormatter implements IExampleFormatter {
-  /** @inheritdoc */
-  public readonly fileName = '.env.example';
-
   private static readonly header = `###
 #
 # This file is auto-generated based on all registered configurations.
 # Do not edit it manually.
 #
 ###` as const;
+
+  /** @inheritdoc */
+  public readonly fileName = '.env.example';
 
   /**
    * Formats config sections into a complete `.env.example` string.
@@ -44,10 +45,7 @@ export class EnvExampleFormatter implements IExampleFormatter {
    * @param instance - Config class instance for fallback value resolution.
    * @returns Array of formatted lines.
    */
-  private formatFields(
-    fields: IEnvFieldMetadata[],
-    instance: Record<string, unknown>,
-  ): string[] {
+  private formatFields(fields: IEnvFieldMetadata[], instance: Record<string, unknown>): string[] {
     const lines = fields.map(({ key, options, propertyKey }) => {
       const fallback = instance[propertyKey as string];
       const isRequired =

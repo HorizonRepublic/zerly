@@ -20,7 +20,6 @@ export const CONFIG_CLASS_KEY = Symbol('config-class');
  * Uses lazy evaluation: `build()` returns a factory closure that defers
  * value resolution until NestJS DI invokes it. This allows the
  * `ConfigRegistry` resolver to be set up before any values are read.
- *
  * @example
  * ```TypeScript
  * export const appConfig = ConfigBuilder
@@ -61,7 +60,6 @@ export class ConfigBuilder<T extends object> {
    * Returns a `registerAs` factory whose closure defers all resolution
    * to invocation time (lazy). The resolver is obtained from
    * `ConfigRegistry` when the factory is called by NestJS DI.
-   *
    * @returns NestJS ConfigFactory with proper typing.
    * @example
    * ```TypeScript
@@ -76,6 +74,7 @@ export class ConfigBuilder<T extends object> {
 
       try {
         const validated = this.validator ? this.validator(instance) : instance;
+
         return Object.freeze(validated);
       } catch (error) {
         console.error('[ConfigBuilder] Validation failed for configuration object:');
@@ -111,7 +110,6 @@ export class ConfigBuilder<T extends object> {
    *
    * Only called for `ConfigFormat.Dotenv` sources where all raw values
    * are strings. YAML sources return already-typed values and skip this.
-   *
    * @param value The string value from the dotenv resolver.
    * @param type The constructor type or enum to convert to.
    * @returns The converted value.
@@ -138,9 +136,11 @@ export class ConfigBuilder<T extends object> {
     if (type === Array) {
       try {
         const parsed: unknown = JSON.parse(value);
+
         if (!globalThis.Array.isArray(parsed)) {
           throw new Error(`Expected JSON array, got ${typeof parsed}`);
         }
+
         return parsed as unknown[];
       } catch (error) {
         throw new Error(
@@ -155,7 +155,6 @@ export class ConfigBuilder<T extends object> {
   /**
    * Initializes a configuration instance by resolving each decorated field
    * through the provided resolver.
-   *
    * @param configClass Configuration class constructor.
    * @param resolver The active config resolver (env or yaml).
    * @param filePath Optional file path override for YAML resolver.

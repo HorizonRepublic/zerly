@@ -3,7 +3,7 @@ import 'reflect-metadata';
 // Mock @nestjs/config to avoid ESM-only @nestjs/common transitive import.
 // Our mock `registerAs` mirrors the real one: attaches metadata and returns the factory.
 jest.mock('@nestjs/config', () => ({
-  registerAs: (_token: string | symbol, factory: () => unknown) => factory,
+  registerAs: (_token: string | symbol, factory: () => unknown): (() => unknown) => factory,
 }));
 
 import { ConfigRegistry } from '../config.registry';
@@ -16,30 +16,28 @@ const TEST_TOKEN = Symbol('test-config');
 
 class TestConfig {
   @Env('app.host', { default: 'localhost' })
-  host!: string;
+  public host!: string;
 
   @Env('app.port', { type: Number, default: 3000 })
-  port!: number;
+  public port!: number;
 
   @Env('app.debug', { type: Boolean, default: false })
-  debug!: boolean;
+  public debug!: boolean;
 }
 
 class ArrayConfig {
   @Env('app.origins', { type: Array, default: [] })
-  origins!: unknown[];
+  public origins!: unknown[];
 }
 
-function createMockResolver(
+const createMockResolver = (
   data: Record<string, unknown>,
   format: ConfigFormat = ConfigFormat.Yaml,
-): IConfigResolver {
-  return {
-    format,
-    get: (key: string) => data[key],
-    has: (key: string) => key in data,
-  };
-}
+): IConfigResolver => ({
+  format,
+  get: (key: string) => data[key],
+  has: (key: string) => key in data,
+});
 
 describe('ConfigBuilder', () => {
   afterEach(() => {
@@ -50,6 +48,7 @@ describe('ConfigBuilder', () => {
     it('should not call initializeConfig at build() time', () => {
       // build() should return a factory without resolving values
       const factory = ConfigBuilder.from(TestConfig, TEST_TOKEN).build();
+
       expect(typeof factory).toBe('function');
       // No error thrown — resolver not needed yet
     });
@@ -82,7 +81,10 @@ describe('ConfigBuilder', () => {
   describe('dotenv format', () => {
     it('should convert string to number', () => {
       ConfigRegistry.setResolver(
-        createMockResolver({ 'app.host': 'h', 'app.port': '8080', 'app.debug': 'false' }, ConfigFormat.Dotenv),
+        createMockResolver(
+          { 'app.host': 'h', 'app.port': '8080', 'app.debug': 'false' },
+          ConfigFormat.Dotenv,
+        ),
       );
 
       const factory = ConfigBuilder.from(TestConfig, TEST_TOKEN).build();
@@ -107,12 +109,13 @@ describe('ConfigBuilder', () => {
   });
 
   describe('validation', () => {
-    it('should run validator on resolved config', () => {
+    it('should run validator on resolved config', async () => {
       ConfigRegistry.setResolver(createMockResolver({}));
 
       const validator = jest.fn((c: TestConfig) => c);
       const factory = ConfigBuilder.from(TestConfig, TEST_TOKEN).validate(validator).build();
-      factory();
+
+      await factory();
 
       expect(validator).toHaveBeenCalledTimes(1);
     });
@@ -130,7 +133,7 @@ describe('ConfigBuilder', () => {
   });
 
   describe('file path from registry', () => {
-    it('should pass file path from registry to resolver', () => {
+    it('should pass file path from registry to resolver', async () => {
       const mockResolver = createMockResolver({});
       const getSpy = jest.spyOn(mockResolver, 'get');
 
@@ -138,7 +141,8 @@ describe('ConfigBuilder', () => {
       ConfigRegistry.setFilePath(TEST_TOKEN, '/custom/path.yaml');
 
       const factory = ConfigBuilder.from(TestConfig, TEST_TOKEN).build();
-      factory();
+
+      await factory();
 
       // Each @Env field should receive the file path
       expect(getSpy).toHaveBeenCalledWith('app.host', '/custom/path.yaml');

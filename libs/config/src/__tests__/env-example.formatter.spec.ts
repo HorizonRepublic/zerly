@@ -32,9 +32,7 @@ describe('EnvExampleFormatter', () => {
     const sections: IConfigSection[] = [
       {
         title: 'db',
-        fields: [
-          { key: 'DB_HOST', propertyKey: 'host', options: {} },
-        ],
+        fields: [{ key: 'DB_HOST', propertyKey: 'host', options: {} }],
         instance: { host: undefined },
       },
     ];
@@ -46,6 +44,7 @@ describe('EnvExampleFormatter', () => {
 
   it('should include auto-generated header', () => {
     const result = formatter.format([]);
+
     expect(result).toContain('auto-generated');
   });
 });
