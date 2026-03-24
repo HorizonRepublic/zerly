@@ -109,7 +109,7 @@
       "glob": "^13.0.0",
       "inflight": "^1.0.7",
       "multer": "^2.0.0",
-      "fastify": "5.8.2"
+      "fastify": "5.8.4"
     },
     "onlyBuiltDependencies": [
       "@nestjs/core",
