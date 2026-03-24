@@ -31,7 +31,7 @@
     "tslib": "^2.3.0",
     "@nestjs/common": "12.0.0-alpha.2",
     "nest-commander": "^3.20.1",
-    "@zerly/kernel": "0.7.0"
+    "@zerly/kernel": "0.8.0"
   },
-  "version": "0.7.0"
+  "version": "0.8.0"
 }

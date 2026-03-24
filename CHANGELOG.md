@@ -1,3 +1,19 @@
+## 0.8.0 (2026-03-24)
+
+### Features
+
+- **config:** add YAML config support to @zerly/config ([#198](https://github.com/HorizonRepublic/zerly/pull/198))
+
+### Chores
+
+- **deps:** Update Other dependencies ([#194](https://github.com/HorizonRepublic/zerly/pull/194))
+- **deps:** upgrade typia v12, nestia v11, fix logger logLevel ([#200](https://github.com/HorizonRepublic/zerly/pull/200))
+- **eslint-config:** complete package.json metadata ([#175](https://github.com/HorizonRepublic/zerly/pull/175))
+
+### ❤️ Thank You
+
+- Kyrylo Lytvynov @themaiby
+
 ## 0.7.0 (2026-03-23)
 
 ### Features
