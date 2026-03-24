@@ -20,7 +20,7 @@ export class KernelModule {
   public static forServe(appModule: Type<unknown>): DynamicModule {
     return {
       global: true,
-      imports: [ConfigModule.forRoot([appConfig]), appModule],
+      imports: [ConfigModule.forRoot({ load: [appConfig] }), appModule],
       exports: [APP_REF_SERVICE, APP_STATE_SERVICE],
       module: KernelModule,
       providers: [
