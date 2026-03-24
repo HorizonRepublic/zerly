@@ -1,3 +1,50 @@
+## 0.7.0 (2026-03-24)
+
+### Features
+
+- **config:** add YAML config support to @zerly/config ([#198](https://github.com/HorizonRepublic/zerly/pull/198))
+- **errors:** add @zerly/errors library and upgrade to NestJS 12 alpha ([#176](https://github.com/HorizonRepublic/zerly/pull/176))
+- **eslint-config:** add @zerly/eslint-config shared ESLint preset ([#174](https://github.com/HorizonRepublic/zerly/pull/174))
+
+### Bug Fixes
+
+- **lint:** remove unused peer dep and fix import order ([#196](https://github.com/HorizonRepublic/zerly/pull/196))
+
+### Chores
+
+- **config:** refactor config lib and overhaul ESLint setup ([#173](https://github.com/HorizonRepublic/zerly/pull/173))
+- **deps:** Update Other dependencies ([#167](https://github.com/HorizonRepublic/zerly/pull/167))
+- **deps:** Update dependency webpack to v5.105.3 ([#168](https://github.com/HorizonRepublic/zerly/pull/168))
+- **deps:** Update Other dependencies ([#169](https://github.com/HorizonRepublic/zerly/pull/169))
+- **deps:** Update dependency axios to v1.13.6 ([#170](https://github.com/HorizonRepublic/zerly/pull/170))
+- **deps:** Update dependency @types/node to ~24.11.0 ([#171](https://github.com/HorizonRepublic/zerly/pull/171))
+- **deps:** Update Other dependencies ([#172](https://github.com/HorizonRepublic/zerly/pull/172))
+- **deps:** Update NestJS ecosystem to v11.1.15 ([#134](https://github.com/HorizonRepublic/zerly/pull/134))
+- **deps:** Update Other dependencies ([#177](https://github.com/HorizonRepublic/zerly/pull/177))
+- **deps:** Update dependency fastify to v5.8.1 ([#178](https://github.com/HorizonRepublic/zerly/pull/178))
+- **deps:** Update NestJS ecosystem to v11.1.16 ([#179](https://github.com/HorizonRepublic/zerly/pull/179))
+- **deps:** Update Other dependencies ([#180](https://github.com/HorizonRepublic/zerly/pull/180))
+- **deps:** Update dependency eslint-plugin-no-secrets to v2.3.3 ([#181](https://github.com/HorizonRepublic/zerly/pull/181))
+- **deps:** Update dependency eslint to v9.39.4 ([#182](https://github.com/HorizonRepublic/zerly/pull/182))
+- **deps:** Update dependency fastify to v5.8.2 ([#183](https://github.com/HorizonRepublic/zerly/pull/183))
+- **deps:** Update Other dependencies ([#184](https://github.com/HorizonRepublic/zerly/pull/184))
+- **deps:** Update dependency @darraghor/eslint-plugin-nestjs-typed to v7.1.26 ([#185](https://github.com/HorizonRepublic/zerly/pull/185))
+- **deps:** Update dependency typescript-eslint to v8.57.0 ([#186](https://github.com/HorizonRepublic/zerly/pull/186))
+- **deps:** Update Testing and Linting to v30.3.0 ([#187](https://github.com/HorizonRepublic/zerly/pull/187))
+- **deps:** Update dependency nestjs-pino to v4.6.1 ([#188](https://github.com/HorizonRepublic/zerly/pull/188))
+- **deps:** Update Other dependencies ([#189](https://github.com/HorizonRepublic/zerly/pull/189))
+- **deps:** Update Testing and Linting ([#190](https://github.com/HorizonRepublic/zerly/pull/190))
+- **deps:** Update Other dependencies ([#191](https://github.com/HorizonRepublic/zerly/pull/191))
+- **deps:** Update dependency eslint-plugin-rxjs-x to v1.0.1 ([#193](https://github.com/HorizonRepublic/zerly/pull/193))
+- **deps:** Update NestJS ecosystem to v11.1.17 ([#192](https://github.com/HorizonRepublic/zerly/pull/192))
+- **eslint-config:** complete package.json metadata ([#175](https://github.com/HorizonRepublic/zerly/pull/175))
+- **sync:** back-sync main after v0.6.0 ([1c6c382](https://github.com/HorizonRepublic/zerly/commit/1c6c382))
+
+### ❤️ Thank You
+
+- Kyrylo Lytvynov @themaiby
+- Release Bot @release-bot
+
 ## 0.6.0 (2026-02-25)
 
 ### Features
