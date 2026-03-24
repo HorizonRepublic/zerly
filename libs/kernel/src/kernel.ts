@@ -95,6 +95,9 @@ export class Kernel {
    * import { AppModule } from './app/app.module';
    *
    * Kernel.init(AppModule);
+   *
+   * // YAML format
+   * Kernel.init(AppModule, { envFormat: 'yaml' });
    * ```
    */
   public static init(
@@ -115,7 +118,7 @@ export class Kernel {
 
     if (this.bootstrapResult$) return this.bootstrapResult$;
 
-    this.bootstrapResult$ = kernel.bootstrap$(appModule).pipe(
+    this.bootstrapResult$ = kernel.bootstrap$(appModule, opts.envFormat).pipe(
       map(() => kernel),
       shareReplay(1),
     );
@@ -171,9 +174,13 @@ export class Kernel {
    * 6. Update State -> Listening
    * @private
    * @param appModule - The root module.
+   * @param envFormat - Configuration source format.
    * @returns Observable stream of the bootstrap process.
    */
-  private bootstrap$(appModule: Type<unknown>): Observable<void> {
+  private bootstrap$(
+    appModule: Type<unknown>,
+    envFormat?: IKernelInitOptions['envFormat'],
+  ): Observable<void> {
     const adapter = new FastifyAdapter({
       genReqId,
       requestIdHeader: HeaderKeys.TraceId,
@@ -194,7 +201,7 @@ export class Kernel {
 
     return from(
       NestFactory.create<NestFastifyApplication>(
-        KernelModule.forServe(appModule),
+        KernelModule.forServe(appModule, envFormat),
         adapter,
         this.defaultOptions,
       ),

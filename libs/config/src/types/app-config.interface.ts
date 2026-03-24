@@ -16,5 +16,5 @@ export interface IAppConfig {
 
   readonly generateEnvExample: boolean & Default<true>;
 
-  readonly logLever: LevelWithSilent & Default<'info'>;
+  readonly logLevel: LevelWithSilent & Default<'info'>;
 }
