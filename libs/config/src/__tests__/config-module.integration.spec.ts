@@ -323,4 +323,30 @@ describe('ConfigModule integration', () => {
       ).not.toThrow();
     });
   });
+
+  describe('direct injection by token', () => {
+    it('should expose KEY property on factory for @Inject(TOKEN) support', () => {
+      const factory = ConfigBuilder.from(AppConfig, APP_TOKEN).build();
+
+      // registerAs attaches KEY — this is what @nestjs/config uses to register
+      // the config as a DI provider, enabling @Inject(TOKEN) direct injection.
+      expect((factory as unknown as Record<string, unknown>)['KEY']).toBe(APP_TOKEN);
+    });
+
+    it('should produce a callable factory that returns the resolved config', () => {
+      ConfigModule.forRoot({
+        format: ConfigFormat.Yaml,
+        path: FIXTURE_PATH,
+        load: [],
+      });
+
+      const factory = ConfigBuilder.from(AppConfig, APP_TOKEN).build();
+      const result = factory() as AppConfig;
+
+      // Factory returns a frozen, resolved config object — same as what @Inject(TOKEN) would provide.
+      expect(result.name).toBe('test-app');
+      expect(result.port).toBe(3000);
+      expect(Object.isFrozen(result)).toBe(true);
+    });
+  });
 });
