@@ -9,7 +9,9 @@ export type ConstructorToType<T> = T extends typeof String
     ? number
     : T extends typeof Boolean
       ? boolean
-      : never;
+      : T extends typeof Array
+        ? unknown[]
+        : never;
 
 /**
  * Represents an enum-like object with string or number keys and values.
@@ -19,7 +21,7 @@ export type EnumType = Record<number | string, number | string>;
 /**
  * Supported primitive constructor types for environment variable conversion.
  */
-export type EnvTypeConstructor = typeof Boolean | typeof Number | typeof String;
+export type EnvTypeConstructor = typeof Array | typeof Boolean | typeof Number | typeof String;
 
 /**
  * Metadata stored for each environment variable field decorated with Env decorator.
@@ -64,8 +66,10 @@ export interface IEnvOptions<TType extends EnumType | EnvTypeConstructor = typeo
  * @template TType The constructor type or enum to infer from.
  */
 export type InferTypeFromConstructor<TType extends EnumType | EnvTypeConstructor> =
-  TType extends EnumType
-    ? TType[keyof TType]
-    : TType extends EnvTypeConstructor
-      ? ConstructorToType<TType>
-      : never;
+  TType extends typeof Array
+    ? unknown[]
+    : TType extends EnumType
+      ? TType[keyof TType]
+      : TType extends EnvTypeConstructor
+        ? ConstructorToType<TType>
+        : never;

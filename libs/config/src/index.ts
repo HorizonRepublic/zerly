@@ -11,3 +11,7 @@ export * from './tokens';
 export * from './types';
 
 export * from './enums';
+
+export * from './types/config-module-options.interface';
+export * from './types/config-load-item.interface';
+export * from './types/config-feature-options.interface';
