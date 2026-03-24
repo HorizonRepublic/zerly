@@ -1,6 +1,6 @@
 {
   "name": "@zerly/eslint-config",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Opinionated ESLint flat config preset for Zerly / NestJS projects",
   "repository": {
     "type": "git",
