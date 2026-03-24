@@ -1,7 +1,6 @@
 import { createHash } from 'node:crypto';
-import { existsSync } from 'node:fs';
 import * as fs from 'node:fs/promises';
-import { dirname, join, normalize, resolve, sep } from 'node:path';
+import { dirname, join } from 'node:path';
 
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -10,6 +9,7 @@ import { catchError, defer, EMPTY, from, map, Observable, of, switchMap, tap } f
 
 import { EnvExampleFormatter } from '../formatters/env-example.formatter';
 import { IConfigSection } from '../formatters/example-formatter.interface';
+import { resolveAppRoot } from '../helpers/resolve-app-root.helper';
 import { APP_CONFIG, ENV_METADATA_KEY } from '../tokens';
 import { IAppConfig, IEnvFieldMetadata } from '../types';
 
@@ -78,7 +78,7 @@ export class EnvExampleProvider implements OnModuleInit {
       }
 
       const templateContent = this.formatter.format(sections);
-      const outputPath = join(this.resolveAppRoot(), '.env.example');
+      const outputPath = join(resolveAppRoot(), '.env.example');
 
       return this.writeIfChanged$(outputPath, templateContent).pipe(
         tap(() => {
@@ -116,68 +116,6 @@ export class EnvExampleProvider implements OnModuleInit {
         return { title, fields, instance } satisfies IConfigSection;
       })
       .filter((s): s is IConfigSection => Boolean(s));
-  }
-
-  /**
-   * Resolves the project root directory.
-   */
-  private resolveAppRoot(): string {
-    const entryPath = process.argv[1];
-
-    if (!entryPath) return process.cwd();
-
-    const normalizedPath = normalize(entryPath);
-    const buildDirs = [`${sep}dist${sep}`, `${sep}build${sep}`, `${sep}.next${sep}`];
-
-    for (const buildDir of buildDirs) {
-      if (normalizedPath.includes(buildDir)) {
-        const potentialSourcePath = normalizedPath.replace(buildDir, sep);
-        const potentialRoot = resolve(dirname(potentialSourcePath));
-        const appRoot = resolve(potentialRoot, '..');
-
-        if (this.isValidProjectDir(appRoot)) return appRoot;
-        if (this.isValidProjectDir(potentialRoot)) return potentialRoot;
-      }
-    }
-
-    return this.fallbackRoot();
-  }
-
-  /**
-   * Secondary root resolution strategy: uses `AppConfig.name` to locate the app
-   * directory inside an Nx monorepo (`apps/<name>`) or a standalone project root.
-   */
-  private fallbackRoot(): string {
-    try {
-      const appConfig = this.configService.get<IAppConfig>(APP_CONFIG);
-
-      if (appConfig?.name) {
-        const mono = join(process.cwd(), 'apps', appConfig.name);
-
-        if (this.isValidProjectDir(mono)) return mono;
-
-        const root = join(process.cwd(), appConfig.name);
-
-        if (this.isValidProjectDir(root)) return root;
-      }
-    } catch {
-      // ignore
-    }
-
-    return process.cwd();
-  }
-
-  /**
-   * Returns `true` if `dirPath` exists and contains at least one of
-   * `package.json`, `project.json`, or `tsconfig.json`.
-   */
-  private isValidProjectDir(dirPath: string): boolean {
-    return (
-      existsSync(dirPath) &&
-      (existsSync(join(dirPath, 'package.json')) ||
-        existsSync(join(dirPath, 'project.json')) ||
-        existsSync(join(dirPath, 'tsconfig.json')))
-    );
   }
 
   /**

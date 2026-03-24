@@ -4,8 +4,8 @@ import { YamlExampleFormatter } from '../formatters/yaml-example.formatter';
 describe('YamlExampleFormatter', () => {
   const formatter = new YamlExampleFormatter();
 
-  it('should have .env.example.yaml as file name', () => {
-    expect(formatter.fileName).toBe('.env.example.yaml');
+  it('should have env.example.yaml as file name', () => {
+    expect(formatter.fileName).toBe('env.example.yaml');
   });
 
   it('should reconstruct nesting from dot-paths', () => {

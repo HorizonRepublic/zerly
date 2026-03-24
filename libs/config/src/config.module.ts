@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 
 import { DynamicModule, Logger, Module } from '@nestjs/common';
 import { ConfigFactory, ConfigModule as BaseConfigModule } from '@nestjs/config';
@@ -11,6 +11,7 @@ import { EnvExampleFormatter } from './formatters/env-example.formatter';
 import { IConfigSection, IExampleFormatter } from './formatters/example-formatter.interface';
 import { YamlExampleFormatter } from './formatters/yaml-example.formatter';
 import { CONFIG_CLASS_KEY } from './helpers/config-builder.helper';
+import { resolveAppRoot } from './helpers/resolve-app-root.helper';
 import { EnvExampleProvider } from './providers/env-example.provider';
 import { ConfigResolverFactory } from './resolvers/config-resolver.factory';
 import { ENV_METADATA_KEY } from './tokens';
@@ -56,10 +57,12 @@ export class ConfigModule {
    * @returns A global dynamic module.
    */
   public static forRoot(options: IConfigModuleOptions = {}): DynamicModule {
-    const { format = ConfigFormat.Dotenv, path, load = [] } = options;
+    const { format = ConfigFormat.Dotenv, path, load = [], outputDir } = options;
 
-    // 1. Create and register resolver
-    const resolver = ConfigResolverFactory.create(format, path);
+    // 1. Create and register resolver — resolve relative paths against app root
+    const appRoot = resolveAppRoot();
+    const resolvedPath = this.resolveConfigPath(path, format, appRoot);
+    const resolver = ConfigResolverFactory.create(format, resolvedPath);
 
     ConfigRegistry.setResolver(resolver);
 
@@ -68,15 +71,17 @@ export class ConfigModule {
 
     for (const item of load) {
       if (this.isConfigLoadItem(item)) {
-        ConfigRegistry.setFilePath(this.extractToken(item.config), item.path);
+        const itemPath = isAbsolute(item.path) ? item.path : join(appRoot, item.path);
+
+        ConfigRegistry.setFilePath(this.extractToken(item.config), itemPath);
         factories.push(item.config);
       } else {
         factories.push(item);
       }
     }
 
-    // 3. Generate example file (pre-DI, sync)
-    this.generateExample(format, load);
+    // 3. Generate example file (pre-DI, sync) — use appRoot as default output dir
+    this.generateExample(format, load, outputDir ? resolve(process.cwd(), outputDir) : appRoot);
 
     // 4. Delegate to @nestjs/config
     return {
@@ -90,7 +95,7 @@ export class ConfigModule {
           load: factories,
         }),
       ],
-      providers: [EnvExampleProvider],
+      providers: format === ConfigFormat.Dotenv ? [EnvExampleProvider] : [],
       exports: [BaseConfigModule],
     };
   }
@@ -124,6 +129,22 @@ export class ConfigModule {
   }
 
   /**
+   * Resolves the YAML config file path to an absolute path.
+   * Uses `env.yaml` in the app root as default when format is YAML and no path given.
+   */
+  private static resolveConfigPath(
+    path: string | undefined,
+    format: ConfigFormat,
+    appRoot: string,
+  ): string | undefined {
+    if (path) {
+      return isAbsolute(path) ? path : join(appRoot, path);
+    }
+
+    return format === ConfigFormat.Yaml ? join(appRoot, 'env.yaml') : undefined;
+  }
+
+  /**
    * Type guard for `IConfigLoadItem` vs bare `ConfigFactory`.
    */
   private static isConfigLoadItem(item: ConfigFactory | IConfigLoadItem): item is IConfigLoadItem {
@@ -143,10 +164,14 @@ export class ConfigModule {
   /**
    * Generates an example configuration file synchronously before DI resolution.
    * Errors are caught and logged — they never block app startup.
+   * @param format - The config format (determines formatter and file name).
+   * @param load - The load items to extract metadata from.
+   * @param outputDir - Absolute output directory path.
    */
   private static generateExample(
     format: ConfigFormat,
     load: (ConfigFactory | IConfigLoadItem)[],
+    outputDir: string,
   ): void {
     try {
       const formatter: IExampleFormatter =
@@ -157,7 +182,7 @@ export class ConfigModule {
       if (sections.length === 0) return;
 
       const content = formatter.format(sections);
-      const outputPath = join(process.cwd(), formatter.fileName);
+      const outputPath = join(outputDir, formatter.fileName);
 
       // Write only if content changed (SHA-256 comparison)
       if (existsSync(outputPath)) {

@@ -20,7 +20,7 @@ export class ConfigResolverFactory {
   ): IConfigResolver {
     switch (format) {
       case ConfigFormat.Yaml: {
-        return new YamlResolver(defaultPath ?? '');
+        return new YamlResolver(defaultPath ?? 'env.yaml');
       }
 
       case ConfigFormat.Dotenv:

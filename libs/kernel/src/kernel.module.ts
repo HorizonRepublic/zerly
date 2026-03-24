@@ -1,7 +1,7 @@
 import { DynamicModule, Module, Provider, Type } from '@nestjs/common';
 import { DiscoveryService, MetadataScanner } from '@nestjs/core';
 
-import { ConfigModule } from '@zerly/config';
+import { ConfigFormat, ConfigModule } from '@zerly/config';
 
 import { appConfig } from './config/app.config';
 import { KernelProvider } from './providers/kernel.provider';
@@ -14,13 +14,20 @@ import { IAppRefService, IAppStateService } from './types';
 @Module({})
 export class KernelModule {
   /**
-   * Used for serving HTTP applications
-   * @param appModule
+   * Used for serving HTTP applications.
+   * @param appModule - The root application module.
+   * @param format - Configuration source format.
    */
-  public static forServe(appModule: Type<unknown>): DynamicModule {
+  public static forServe(appModule: Type<unknown>, format?: ConfigFormat): DynamicModule {
     return {
       global: true,
-      imports: [ConfigModule.forRoot({ load: [appConfig] }), appModule],
+      imports: [
+        ConfigModule.forRoot({
+          ...(format ? { format } : {}),
+          load: [appConfig],
+        }),
+        appModule,
+      ],
       exports: [APP_REF_SERVICE, APP_STATE_SERVICE],
       module: KernelModule,
       providers: [

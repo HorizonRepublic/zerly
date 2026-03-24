@@ -16,7 +16,7 @@ export interface IConfigSection {
 
 /**
  * Formats configuration metadata into an example file.
- * Implementations produce format-specific output (`.env.example`, `.env.example.yaml`).
+ * Implementations produce format-specific output (`.env.example`, `env.example.yaml`).
  */
 export interface IExampleFormatter {
   /**
@@ -26,6 +26,6 @@ export interface IExampleFormatter {
    */
   format(sections: IConfigSection[]): string;
 
-  /** The output file name (e.g. `.env.example`, `.env.example.yaml`). */
+  /** The output file name (e.g. `.env.example`, `env.example.yaml`). */
   readonly fileName: string;
 }

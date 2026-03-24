@@ -29,4 +29,22 @@ export interface IConfigModuleOptions {
 
   /** Config factories to load. Accepts bare `ConfigFactory` or `{ path, config }` objects. */
   readonly load?: (ConfigFactory | IConfigLoadItem)[];
+
+  /**
+   * Directory where the example config file (`.env.example` or `env.example.yaml`)
+   * will be generated. Useful in monorepo setups to target a specific app directory
+   * instead of the workspace root.
+   *
+   * If not specified, the module attempts to resolve the app root automatically
+   * by inspecting `process.argv[1]` for known build output directories (`dist/`,
+   * `build/`, `.next/`), falling back to `process.cwd()`.
+   * @example
+   * ```typescript
+   * ConfigModule.forRoot({
+   *   outputDir: 'apps/my-app',
+   *   load: [appConfig],
+   * })
+   * ```
+   */
+  readonly outputDir?: string;
 }

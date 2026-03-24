@@ -5,7 +5,7 @@ import { IEnvFieldMetadata } from '../types';
 import { IConfigSection, IExampleFormatter } from './example-formatter.interface';
 
 /**
- * Formats configuration metadata into a `.env.example.yaml` file.
+ * Formats configuration metadata into a `env.example.yaml` file.
  *
  * Reconstructs YAML nesting from dot-path keys and outputs structured data
  * including arrays and nested objects.
@@ -19,17 +19,17 @@ export class YamlExampleFormatter implements IExampleFormatter {
 ###` as const;
 
   /** @inheritdoc */
-  public readonly fileName = '.env.example.yaml';
+  public readonly fileName = 'env.example.yaml';
 
   /**
-   * Formats config sections into a complete `.env.example.yaml` string.
+   * Formats config sections into a complete `env.example.yaml` string.
    * @param sections - Grouped config metadata.
    * @returns The formatted YAML content.
    */
   public format(sections: IConfigSection[]): string {
     const parts: string[] = [];
 
-    for (const { title, fields, instance } of sections) {
+    for (const { fields, instance } of sections) {
       const tree = this.buildTree(fields, instance);
 
       if (Object.keys(tree).length === 0) continue;
@@ -41,7 +41,7 @@ export class YamlExampleFormatter implements IExampleFormatter {
       }).trimEnd();
       const commented = this.addFieldComments(yamlStr, fields);
 
-      parts.push(`# -- ${title}\n${commented}`);
+      parts.push(commented);
     }
 
     return `${YamlExampleFormatter.header}\n\n${parts.join('\n\n')}\n`;

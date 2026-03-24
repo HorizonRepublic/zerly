@@ -223,7 +223,7 @@ describe('ConfigModule integration', () => {
 
       const [filePath] = writeFileSyncSpy.mock.calls[0] as [string, string, string];
 
-      expect(filePath).toContain('.env.example.yaml');
+      expect(filePath).toContain('env.example.yaml');
     });
 
     it('should skip writing if content hash matches existing file', () => {
