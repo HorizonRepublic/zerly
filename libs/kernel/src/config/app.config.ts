@@ -3,36 +3,32 @@ import typia from 'typia';
 import { APP_CONFIG, ConfigBuilder, Env, Environment, IAppConfig, LogLevel } from '@zerly/config';
 
 class AppConfig implements IAppConfig {
-  @Env('APP_NAME', {
+  @Env('application.name', {
     comment: 'kebab-case is recommended',
+    example: 'example-app',
   })
   public readonly name: string = 'example-app';
 
-  @Env('APP_ENV', {
+  @Env('application.env', {
     type: Environment,
     comment: 'App environment',
-    default: Environment.Production,
+    example: Environment.Production,
   })
   public readonly env!: Environment;
 
-  @Env('APP_HOST', {
-    default: '0.0.0.0',
-  })
+  @Env('application.host', { example: '0.0.0.0' })
   public readonly host!: string;
 
-  @Env('APP_PORT', {
-    type: Number,
-    default: 3000,
-  })
+  @Env('application.port', { type: Number, example: 3000 })
   public readonly port!: number;
 
-  @Env('APP_LOG_LEVEL', {
+  @Env('application.log_level', {
     type: LogLevel,
     default: LogLevel.Info,
   })
-  public logLever: LogLevel = LogLevel.Info;
+  public logLevel: LogLevel = LogLevel.Info;
 
-  @Env('APP_GENERATE_ENV_EXAMPLE', {
+  @Env('application.generate_env_example', {
     type: Boolean,
     comment: 'Use false in production',
     default: true,

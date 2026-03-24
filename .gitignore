@@ -22,7 +22,9 @@ yarn.lock
 # env
 /*.env
 /*.env.*
-config.yaml
+!/.env.example
+/env.yaml
+!/env.example.yaml
 
 # Nx
 /.nx/cache
@@ -48,6 +50,7 @@ logs
 .env.development
 .env.test
 .env.production
+env.yaml
 
 # Build
 /build

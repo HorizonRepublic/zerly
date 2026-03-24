@@ -1,13 +1,25 @@
 import 'reflect-metadata';
-import { Logger, Type } from '@nestjs/common';
 import { registerAs } from '@nestjs/config';
 
+import { ConfigRegistry } from '../config.registry';
+import { ConfigFormat } from '../enums/config-format.enum';
+import { IConfigResolver } from '../resolvers/config-resolver.interface';
 import { ENV_METADATA_KEY } from '../tokens';
 import { EnumType, EnvTypeConstructor, IEnvFieldMetadata } from '../types';
 import { ConfigFactory, ConfigFactoryKeyHost } from '../types/config-factory.type';
 
+/** Constructor type equivalent to NestJS `Type<T>`. Avoids ESM-only `@nestjs/common` import. */
+type Type<T = unknown> = new (...args: unknown[]) => T;
+
+/** Symbol used to attach the config class reference to a factory function. */
+export const CONFIG_CLASS_KEY = Symbol('config-class');
+
 /**
  * Builder class for fluent configuration creation.
+ *
+ * Uses lazy evaluation: `build()` returns a factory closure that defers
+ * value resolution until NestJS DI invokes it. This allows the
+ * `ConfigRegistry` resolver to be set up before any values are read.
  * @example
  * ```TypeScript
  * export const appConfig = ConfigBuilder
@@ -17,7 +29,6 @@ import { ConfigFactory, ConfigFactoryKeyHost } from '../types/config-factory.typ
  * ```
  */
 export class ConfigBuilder<T extends object> {
-  private readonly logger = new Logger(ConfigBuilder.name);
   private validator?: (config: T) => T;
 
   private constructor(
@@ -45,26 +56,37 @@ export class ConfigBuilder<T extends object> {
 
   /**
    * Builds the final configuration factory.
+   *
+   * Returns a `registerAs` factory whose closure defers all resolution
+   * to invocation time (lazy). The resolver is obtained from
+   * `ConfigRegistry` when the factory is called by NestJS DI.
    * @returns NestJS ConfigFactory with proper typing.
    * @example
    * ```TypeScript
    * .build()
    * ```
    */
-
   public build(): ConfigFactory & ConfigFactoryKeyHost<T> {
-    const instance = this.initializeConfig(this.configClass);
+    const factory = registerAs(this.token, () => {
+      const resolver = ConfigRegistry.getResolver();
+      const filePath = ConfigRegistry.getFilePath(this.token);
+      const instance = this.initializeConfig(this.configClass, resolver, filePath);
 
-    try {
-      const finalConfig = this.validator ? this.validator(instance) : instance;
+      try {
+        const validated = this.validator ? this.validator(instance) : instance;
 
-      return registerAs(this.token, () => Object.freeze(finalConfig));
-    } catch (error) {
-      this.logger.error(`Validation failed for configuration object:`);
-      this.logger.error((error as Error).message);
+        return Object.freeze(validated);
+      } catch (error) {
+        console.error('[ConfigBuilder] Validation failed for configuration object:');
+        console.error((error as Error).message);
+        process.exit(1);
+      }
+    });
 
-      process.exit(1);
-    }
+    // Attach class reference for example generation (pre-DI metadata scan)
+    (factory as unknown as Record<symbol, unknown>)[CONFIG_CLASS_KEY] = this.configClass;
+
+    return factory;
   }
 
   /**
@@ -84,17 +106,19 @@ export class ConfigBuilder<T extends object> {
   }
 
   /**
-   * Converts environment variable string to the appropriate type.
-   * @param value The string value from process.env.
+   * Converts a dotenv string value to the appropriate runtime type.
+   *
+   * Only called for `ConfigFormat.Dotenv` sources where all raw values
+   * are strings. YAML sources return already-typed values and skip this.
+   * @param value The string value from the dotenv resolver.
    * @param type The constructor type or enum to convert to.
-   * @returns The converted value as string, number, or boolean.
-   * @throws {RuntimeException} - If conversion fails.
-   * @example -
+   * @returns The converted value.
+   * @throws {Error} If conversion fails (e.g. non-numeric string to Number).
    */
   private convertValue(
     value: string,
     type?: EnumType | EnvTypeConstructor,
-  ): boolean | number | string {
+  ): boolean | number | string | unknown[] {
     if (!type || type === String) {
       return value;
     }
@@ -109,26 +133,48 @@ export class ConfigBuilder<T extends object> {
 
     if (type === Boolean) return value === 'true' || value === '1';
 
+    if (type === Array) {
+      try {
+        const parsed: unknown = JSON.parse(value);
+
+        if (!globalThis.Array.isArray(parsed)) {
+          throw new Error(`Expected JSON array, got ${typeof parsed}`);
+        }
+
+        return parsed as unknown[];
+      } catch (error) {
+        throw new Error(
+          `Cannot parse array from env var: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+
     return value;
   }
 
   /**
-   * Internal method to initialize configuration from environment variables.
+   * Initializes a configuration instance by resolving each decorated field
+   * through the provided resolver.
    * @param configClass Configuration class constructor.
+   * @param resolver The active config resolver (env or yaml).
+   * @param filePath Optional file path override for YAML resolver.
    * @returns Fully initialized configuration instance.
-   * @throws {never} Calls process.exit(1) If required environment variables are missing or invalid.
-   * @example -
+   * @throws {never} Calls `process.exit(1)` if required keys are missing or invalid.
    */
-  private initializeConfig(configClass: new () => T): T {
+  private initializeConfig(
+    configClass: new () => T,
+    resolver: IConfigResolver,
+    filePath?: string,
+  ): T {
     const instance = new configClass();
     const metadata: IEnvFieldMetadata[] = Reflect.getMetadata(ENV_METADATA_KEY, instance) ?? [];
     const errors: string[] = [];
 
     for (const { key, options, propertyKey } of metadata) {
-      const value = process.env[key];
+      const rawValue = resolver.get(key, filePath);
       const classValue = Reflect.get(instance, propertyKey) as unknown;
 
-      if (value === undefined) {
+      if (rawValue === undefined) {
         if (options.default !== undefined) {
           Reflect.set(instance, propertyKey, options.default);
           continue;
@@ -136,24 +182,29 @@ export class ConfigBuilder<T extends object> {
 
         if (classValue !== undefined) continue;
 
-        errors.push(`Missing required environment variable: ${key}`);
+        errors.push(`Missing required configuration key: ${key}`);
         continue;
       }
 
       try {
-        const convertedValue = this.convertValue(value, options.type);
+        // In dotenv mode, raw values are strings that need type conversion.
+        // In yaml mode, values are already typed — pass through as-is.
+        const value =
+          resolver.format === ConfigFormat.Dotenv && typeof rawValue === 'string'
+            ? this.convertValue(rawValue, options.type)
+            : rawValue;
 
-        Reflect.set(instance, propertyKey, convertedValue);
+        Reflect.set(instance, propertyKey, value);
       } catch (error) {
         errors.push(`Invalid value for ${key}: ${(error as Error).message}`);
       }
     }
 
     if (errors.length > 0) {
-      this.logger.error('Configuration initialization failed:');
+      console.error('[ConfigBuilder] Configuration initialization failed:');
 
       errors.forEach((error) => {
-        this.logger.error(`- ${error}`);
+        console.error(`  - ${error}`);
       });
 
       process.exit(1);

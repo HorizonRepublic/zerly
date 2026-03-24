@@ -2,366 +2,216 @@
 
 [![npm version](https://img.shields.io/npm/v/@zerly/config.svg)](https://www.npmjs.com/package/@zerly/config)
 
-Enhanced configuration module for NestJS applications with automatic `.env.example` generation based on decorated
-configuration classes.
+Type-safe configuration module for NestJS with support for **dotenv** and **YAML** sources, automatic example file generation, and validation.
 
 ## Installation
 
 ```shell
-npm install @zerly/config
+pnpm add @zerly/config
 ```
 
 ## Features
 
-- Wrapper around `@nestjs/config` with additional functionality
-- Automatic `.env.example` file generation from configuration metadata
-- Type-safe environment variable decorators
-- Support for nested configuration modules
-- Environment-specific example generation
-- Smart content-based file regeneration (only updates when configuration changes)
-- Support for default values and examples in generated files
+- Dual format support: `process.env` (dotenv) and YAML files
+- `@Env()` decorator for declarative config field mapping
+- `ConfigBuilder` with fluent API, lazy evaluation, and custom validation
+- Automatic `.env.example` / `env.example.yaml` generation (pre-DI, survives crashes)
+- Frozen config objects (immutable after creation)
+- Smart app root resolution for monorepo setups (Nx, pnpm workspaces)
+- Full `@nestjs/config` compatibility (`ConfigService.get()` works as usual)
 
 ## Quick Start
 
-### 1. Define Configuration Class
+### 1. Define a config class
 
 ```typescript
 import { Env, ConfigBuilder } from '@zerly/config';
 
-export class DatabaseConfig {
-  @Env('DATABASE_HOST', {
-    description: 'Database server hostname',
-    example: 'localhost',
-    default: 'localhost',
-  })
-  public host!: string;
+const DB_CONFIG = Symbol('db-config');
 
-  @Env('DATABASE_PORT', {
-    description: 'Database server port',
-    example: 5432,
-    type: Number,
-    default: 5432,
-  })
-  public port!: number;
+class DbConfig {
+  @Env('database.host', { default: 'localhost' })
+  host!: string;
 
-  @Env('DATABASE_NAME', {
-    description: 'Database name',
-    example: 'myapp',
-  })
-  public name!: string;
+  @Env('database.port', { type: Number, default: 5432 })
+  port!: number;
 
-  @Env('DATABASE_URL', {
-    description: 'Full database connection string',
-    example: 'postgresql://user:password@localhost:5432/myapp',
-  })
-  public url!: string;
+  @Env('database.name', { description: 'Database name' })
+  name!: string;
 }
 
-export const databaseConfig = ConfigBuilder.from(DatabaseConfig, 'DATABASE_CONFIG')
-  .validate((config) => {
-    // Add custom validation logic here
-    if (!config.url && !config.host) {
-      throw new Error('Either DATABASE_URL or DATABASE_HOST must be provided');
-    }
-    return config;
-  })
+export const dbConfig = ConfigBuilder
+  .from(DbConfig, DB_CONFIG)
+  .validate(myValidator) // typia, zod, or any (config) => config function
   .build();
 ```
 
-### 2. Register in Application Module
+### 2. Register in your module
 
 ```typescript
 import { Module } from '@nestjs/common';
-import { ZerlyConfigModule } from '@zerly/config';
-import { Environment } from '@zerly/core';
-import { databaseConfig } from './configs/database.config';
-import { appConfig } from './configs/app.config';
+import { ConfigModule } from '@zerly/config';
+import { dbConfig } from './configs/db.config';
 
 @Module({
   imports: [
-    ZerlyConfigModule.forRoot({
-      load: [databaseConfig, appConfig],
-      exampleGenerationEnv: Environment.Local,
+    ConfigModule.forRoot({
+      format: 'yaml',           // or omit for dotenv (default)
+      path: 'config/app.yaml',  // default YAML file path (optional)
+      load: [dbConfig],
     }),
   ],
 })
-export class AppModule {
-}
+export class AppModule {}
 ```
 
-For feature modules:
-
-```typescript
-@Module({
-  imports: [ZerlyConfigModule.forFeature(featureConfig)],
-})
-export class FeatureModule {}
-```
-
-### 3. Use Configuration in Services
-
-```typescript
-import { Injectable, Inject } from '@nestjs/common';
-import { DatabaseConfig } from './configs/database.config';
-
-@Injectable()
-export class DatabaseService {
-  constructor(@Inject('DATABASE_CONFIG') private readonly dbConfig: DatabaseConfig) {
-    console.log(`Connecting to ${this.dbConfig.host}:${this.dbConfig.port}`);
-  }
-}
-```
-
-Alternatively, use ConfigService from @nestjs/config:
+### 3. Use in services
 
 ```typescript
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 @Injectable()
-export class DatabaseService {
-  constructor(private readonly configService: ConfigService) {
-    const host = this.configService.get<string>('DATABASE_HOST');
-    const port = this.configService.get<number>('DATABASE_PORT');
+export class DbService {
+  constructor(private readonly config: ConfigService) {
+    const db = this.config.getOrThrow<DbConfig>(DB_CONFIG);
+    console.log(`Connecting to ${db.host}:${db.port}`);
   }
 }
 ```
 
-## API Reference
+## Formats
 
-### `ZerlyConfigModule.forRoot(options)`
+### Dotenv (default)
 
-Registers the configuration module globally with the specified options.
+Reads from `process.env`. Keys are flat env var names:
 
-#### Options
+```typescript
+@Env('DATABASE_PORT', { type: Number, default: 5432 })
+port!: number;
+```
+
+### YAML
+
+Reads from YAML files. Keys are dot-separated paths:
+
+```typescript
+@Env('database.port', { type: Number, default: 5432 })
+port!: number;
+```
+
+```yaml
+# env.yaml
+database:
+  port: 5432
+  host: localhost
+```
+
+The format is set **once** at module level — no mixing within one app.
+
+## API
+
+### `ConfigModule.forRoot(options?)`
+
+Registers configuration globally.
 
 ```typescript
 interface IConfigModuleOptions {
-  /**
-   * Array of configuration factory functions to load.
-   */
-  load?: ConfigFactory[];
+  /** Config format: 'dotenv' (default) or 'yaml'. */
+  format?: ConfigFormat;
 
-  /**
-   * Environment in which .env.example should be generated.
-   * Set to false to disable generation.
-   * @default Environment.Local
-   */
-  exampleGenerationEnv?: Environment | false;
+  /** Default YAML file path. Defaults to 'env.yaml' resolved from app root. */
+  path?: string;
+
+  /** Config factories to load. Accepts ConfigFactory or { path, config } objects. */
+  load?: Array<ConfigFactory | IConfigLoadItem>;
+
+  /** Output directory for example file generation (useful in monorepos). */
+  outputDir?: string;
 }
 ```
 
-### `ZerlyConfigModule.forFeature(config)`
+### `ConfigModule.forFeature(configOrOptions)`
 
-Registers additional configuration for a specific feature module.
+Registers feature-specific configuration.
 
 ```typescript
-@Module({
-  imports: [ZerlyConfigModule.forFeature(featureConfig)],
+// Simple
+ConfigModule.forFeature(notificationsConfig)
+
+// With custom YAML path
+ConfigModule.forFeature({
+  path: 'config/notifications.yaml',
+  config: notificationsConfig,
 })
-export class FeatureModule {}
 ```
 
-### `@Env(key, options?)` Decorator
+### `@Env(key, options?)`
 
-Marks a class property as an environment variable with metadata for documentation generation.
+Property decorator mapping a config field to a key.
 
-#### Parameters
+| Option        | Type                                           | Description                                                  |
+|---------------|------------------------------------------------|--------------------------------------------------------------|
+| `type`        | `String \| Number \| Boolean \| Array \| Enum` | Type conversion (dotenv only; YAML values are already typed) |
+| `default`     | `T`                                            | Fallback value if key is missing                             |
+| `example`     | `T`                                            | Example value for generated files                            |
+| `description` | `string`                                       | Inline comment in generated example                          |
+| `comment`     | `string`                                       | Additional comment                                           |
 
-- `key`: Environment variable name
-- `options`: Configuration options
+### `ConfigBuilder.from(Class, token).validate(fn).build()`
+
+Fluent builder producing a `ConfigFactory` for `@nestjs/config`. Resolution is **lazy** — values are read when NestJS DI invokes the factory, not at import time.
+
+## Per-config YAML paths
+
+Each config can read from its own YAML file:
 
 ```typescript
-interface IEnvOptions<TType = typeof String> {
-  /**
-   * Type constructor for value conversion.
-   * @default String
-   */
-  type?: typeof String | typeof Number | typeof Boolean | EnumType;
-
-  /**
-   * Default value if environment variable is not set.
-   */
-  default?: InferTypeFromConstructor<TType>;
-
-  /**
-   * Example value for .env.example generation.
-   */
-  example?: InferTypeFromConstructor<TType>;
-
-  /**
-   * Human-readable description for documentation.
-   */
-  description?: string;
-}
+ConfigModule.forRoot({
+  format: 'yaml',
+  path: 'config/app.yaml',              // default for configs without own path
+  load: [
+    appConfig,                            // uses default path
+    { path: 'config/db.yaml', config: dbConfig },  // own file
+  ],
+})
 ```
 
-### `ConfigBuilder`
+## Example file generation
 
-Utility class for building configuration factories with validation support.
+On startup, the module generates `.env.example` (dotenv) or `env.example.yaml` (YAML) **synchronously before DI resolution** — so the file exists even if the app crashes on validation.
+
+- Content is written only when the SHA-256 hash changes
+- Errors during generation are logged as warnings, never block startup
+- In dotenv mode, a secondary async pass runs post-DI with resolved runtime values
+
+## Array support
 
 ```typescript
-import { ConfigBuilder } from '@zerly/config';
+// YAML — native arrays
+@Env('database.replicas', {
+  type: Array,
+  example: [{ host: 'replica1', port: 5432 }],
+})
+replicas!: IReplica[];
 
-const configFactory = ConfigBuilder.from<T>(ConfigClass, token)
-  .validate((config: T) => T)
-  .build();
+// Dotenv — JSON string in env var
+// DATABASE_REPLICAS='[{"host":"replica1","port":5432}]'
+@Env('DATABASE_REPLICAS', { type: Array })
+replicas!: IReplica[];
 ```
 
-Example:
+## Monorepo support
+
+In Nx / pnpm workspaces, relative YAML paths and example output are resolved against the **app root** (detected via `process.argv[1]` heuristic), not `process.cwd()`. Override with `outputDir` if needed:
 
 ```typescript
-export const appConfig = ConfigBuilder.from(AppConfig, 'APP_CONFIG')
-  .validate((config) => {
-    if (config.port < 1024) {
-      throw new Error('Port must be greater than 1024');
-    }
-    return config;
-  })
-  .build();
-```
-
-## Generated `.env.example`
-
-The module automatically generates a comprehensive `.env.example` file in `examples/env/{app-name}.env`:
-
-```env
-###
-#
-# This is auto generated file based on all config registered. Do not edit it manually.
-# If some of configs are not presented here, it means that they are not used @Env() decorator or
-# not registered with ConfigBuilder.
-#
-###
-
-# -- database
-DATABASE_HOST="localhost"
-DATABASE_PORT="5432"
-DATABASE_NAME="myapp"
-DATABASE_URL="postgresql://user:password@localhost:5432/myapp"
-
-# -- app
-APP_NAME="my-application"
-APP_PORT="3000"
-NODE_ENV="development"
-```
-
-## Advanced Usage
-
-### Enum Types
-
-```typescript
-enum LogLevel {
-  Debug = 'debug',
-  Info = 'info',
-  Error = 'error',
-}
-
-export class AppConfig {
-  @Env('LOG_LEVEL', {
-    type: LogLevel,
-    example: LogLevel.Info,
-    default: LogLevel.Info,
-  })
-  public logLevel!: LogLevel;
-}
-```
-
-### Boolean Values
-
-```typescript
-export class FeatureConfig {
-  @Env('FEATURE_ENABLED', {
-    type: Boolean,
-    example: true,
-    default: false,
-  })
-  public enabled!: boolean;
-}
-```
-
-### Numeric Values
-
-```typescript
-export class ServerConfig {
-  @Env('MAX_CONNECTIONS', {
-    type: Number,
-    example: 100,
-    default: 50,
-  })
-  public maxConnections!: number;
-}
-```
-
-## Configuration Generation Control
-
-The `.env.example` file is generated only when:
-
-1. The application runs in the specified environment (`exampleGenerationEnv`)
-2. The configuration content has changed (SHA256 hash comparison)
-
-To disable generation entirely:
-
-```typescript
-ZerlyConfigModule.forRoot({
+ConfigModule.forRoot({
+  outputDir: 'apps/my-app',
   load: [appConfig],
-  exampleGenerationEnv: false,
-});
+})
 ```
-
-## Integration with @nestjs/config
-
-This module extends `@nestjs/config` functionality and maintains full compatibility:
-
-- All `@nestjs/config` features are available
-- Use `ConfigService` as usual
-- Support for `.env` file loading
-- Variable expansion with `expandVariables: true` (enabled by default)
-- Configuration validation can be added via ConfigBuilder
-
-## Best Practices
-
-1. **Organize by domain**: Create separate configuration classes for different application domains (database, cache,
-   external services)
-
-2. **Use ConfigBuilder**: Always wrap configurations with ConfigBuilder for better type safety and validation support
-
-3. **Provide examples**: Always set `example` values for better developer experience
-
-4. **Add descriptions**: Document each environment variable with clear descriptions
-
-5. **Type safety**: Use proper types (Number, Boolean, Enum) instead of strings when possible
-
-6. **Validation**: Add validation logic using ConfigBuilder's validate method
-
-7. **Secrets**: Never commit actual `.env` files, only `.env.example`
-
-## Example Application Structure
-
-```
-src/
-├── app.module.ts
-├── configs/
-│   ├── app.config.ts
-│   ├── database.config.ts
-│   ├── cache.config.ts
-│   └── index.ts
-└── modules/
-    └── ...
-
-examples/
-└── env/
-    └── my-app.env  (auto-generated)
-```
-
-## Contributing
-
-Contributions are welcome. Please ensure all tests pass and follow the existing code style.
 
 ## License
 
-MIT © Horizon Republic
-
-```
-
-```
+MIT

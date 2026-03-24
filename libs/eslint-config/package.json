@@ -1,15 +1,40 @@
 {
   "name": "@zerly/eslint-config",
-  "version": "0.7.0",
-  "description": "Opinionated ESLint flat config preset for Zerly projects",
+  "version": "0.8.0",
+  "description": "Opinionated ESLint flat config preset for Zerly / NestJS projects",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/HorizonRepublic/zerly.git",
+    "directory": "libs/eslint-config"
+  },
+  "homepage": "https://github.com/HorizonRepublic/zerly/blob/main/libs/eslint-config/README.md",
+  "bugs": {
+    "url": "https://github.com/HorizonRepublic/zerly/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "nestjs",
+    "typescript",
+    "eslint",
+    "eslint-config",
+    "zerly",
+    "framework",
+    "library"
+  ],
+  "author": {
+    "name": "Horizon Republic",
+    "url": "https://github.com/HorizonRepublic"
+  },
   "license": "MIT",
   "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "main": "./src/index.js",
+  "types": "./src/index.d.ts",
   "exports": {
     ".": {
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "import": "./src/index.js",
+      "types": "./src/index.d.ts"
     }
   },
   "peerDependencies": {

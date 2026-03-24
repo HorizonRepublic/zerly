@@ -1,0 +1,17 @@
+app:
+  name: test-app
+  port: 3000
+  debug: true
+
+database:
+  host: localhost
+  port: 5432
+  replicas:
+    - host: replica1.db.com
+      port: 5432
+    - host: replica2.db.com
+      port: 5433
+
+allowed_origins:
+  - https://app.com
+  - https://admin.app.com

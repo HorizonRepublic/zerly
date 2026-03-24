@@ -1,10 +1,10 @@
 {
   "name": "@zerly/swagger",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/HorizonRepublic/zerly.git",
-    "directory": "libs/core"
+    "directory": "libs/swagger"
   },
   "homepage": "https://github.com/HorizonRepublic/zerly/blob/main/libs/swagger/README.md",
   "bugs": {

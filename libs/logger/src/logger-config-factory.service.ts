@@ -24,7 +24,7 @@ export class LoggerConfigFactory {
     const isProduction = this.config.env === Environment.Production;
 
     const baseConfig: LoggerOptions = {
-      level: isProduction ? 'info' : 'debug',
+      level: this.config.logLevel,
       name: this.config.name,
       redact: {
         censor: REDACTED_MSG,
