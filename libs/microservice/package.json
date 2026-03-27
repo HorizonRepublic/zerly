@@ -29,7 +29,7 @@
   "main": "./src/index.js",
   "types": "./src/index.d.ts",
   "dependencies": {
-    "@horizon-republic/nestjs-jetstream": "^1.0.6",
+    "@horizon-republic/nestjs-jetstream": "^2.0.0",
     "@nestjs/common": "12.0.0-alpha.2",
     "@nestjs/microservices": "12.0.0-alpha.2",
     "nats": "^2.29.3",
