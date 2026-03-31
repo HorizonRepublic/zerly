@@ -200,7 +200,7 @@ importers:
         version: 5.5.5(@types/eslint@9.6.1)(eslint-config-prettier@10.1.8(eslint@9.39.4(jiti@2.6.1)))(eslint@9.39.4(jiti@2.6.1))(prettier@3.8.1)
       eslint-plugin-rxjs-x:
         specifier: ^1.0.0
-        version: 1.0.1(eslint@9.39.4(jiti@2.6.1))(rxjs@7.8.2)(typescript@5.9.3)
+        version: 1.0.2(eslint@9.39.4(jiti@2.6.1))(rxjs@7.8.2)(typescript@5.9.3)
       eslint-plugin-security:
         specifier: ^4.0.0
         version: 4.0.0
@@ -4513,13 +4513,13 @@ packages:
       eslint-config-prettier:
         optional: true
 
-  eslint-plugin-rxjs-x@1.0.1:
-    resolution: {integrity: sha512-qfN3FFwS7F+kpJ2KQotp5z/tbL51c4m7b+lLndeRM4I6G3E0IxVzzmEdrcIyLHwmGSfS1cVN4PsS8HA+ecXZxA==}
+  eslint-plugin-rxjs-x@1.0.2:
+    resolution: {integrity: sha512-2gDid+qSLkeJfxXCMuBpsSt00TSH+skUtIw29Xgb6FHSTSRISRuRid/CtfqD05/7y1PNFxoGg9P90jm5u0FYAA==}
     engines: {node: ^20.19.0 || ^22.13.0 || >=24}
     peerDependencies:
       eslint: ^10.0.1
       rxjs: ^7.2.0
-      typescript: '>=4.8.4 <6.0.0'
+      typescript: '>=4.8.4 <6.1.0'
     peerDependenciesMeta:
       rxjs:
         optional: true
@@ -13583,9 +13583,9 @@ snapshots:
       '@types/eslint': 9.6.1
       eslint-config-prettier: 10.1.8(eslint@9.39.4(jiti@2.6.1))
 
-  eslint-plugin-rxjs-x@1.0.1(eslint@9.39.4(jiti@2.6.1))(rxjs@7.8.2)(typescript@5.9.3):
+  eslint-plugin-rxjs-x@1.0.2(eslint@9.39.4(jiti@2.6.1))(rxjs@7.8.2)(typescript@5.9.3):
     dependencies:
-      '@typescript-eslint/utils': 8.57.1(eslint@9.39.4(jiti@2.6.1))(typescript@5.9.3)
+      '@typescript-eslint/utils': 8.58.0(eslint@9.39.4(jiti@2.6.1))(typescript@5.9.3)
       decamelize: 6.0.1
       eslint: 9.39.4(jiti@2.6.1)
       ts-api-utils: 2.5.0(typescript@5.9.3)
