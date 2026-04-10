@@ -30,6 +30,44 @@ interface IDomainExceptionLike {
 }
 
 /**
+ * Minimal local duck-type of NestJS's `HttpException` family.
+ * @remarks
+ * Recognizes any error exposing `getStatus()` and `getResponse()` methods —
+ * the contract all NestJS built-in HTTP exceptions implement (e.g.
+ * `NotFoundException`, `BadRequestException`, `UnauthorizedException`).
+ *
+ * Duck-typed to keep `@zerly/gateway-sdk` free of a hard value-level import
+ * on `@nestjs/common`, mirroring the `IDomainExceptionLike` pattern used for
+ * `@zerly/errors`. Consumers may throw any `HttpException` subclass from a
+ * handler and the factory extracts status and body without the SDK needing
+ * to reference `@nestjs/common` at runtime.
+ *
+ * Kept file-private by design: exposing it would invite consumers to extend
+ * from it rather than from the real `HttpException` class.
+ */
+interface IHttpExceptionLike {
+  readonly name: string;
+  readonly message: string;
+  readonly stack?: string;
+  getStatus(): number;
+  getResponse(): string | Readonly<Record<string, unknown>>;
+}
+
+/**
+ * Fields the factory projects directly into the top-level envelope and must
+ * therefore strip from the `details` bag to avoid duplication.
+ * @remarks
+ * Centralized as a module-private constant so `extractHttpDetails` and any
+ * future projection logic share the same source of truth. Declared as a
+ * `Set<string>` because membership is the only operation performed on it.
+ */
+const HTTP_RESPONSE_PROJECTED_FIELDS: ReadonlySet<string> = new Set([
+  'message',
+  'error',
+  'statusCode',
+]);
+
+/**
  * Default `IErrorBodyFactory` implementation.
  * @remarks
  * Recognizes `@zerly/errors`' `DomainException` via the `isDomainException`
@@ -40,9 +78,20 @@ interface IDomainExceptionLike {
  * detail is expected to be logged server-side by the exception filter and
  * never travels over the wire.
  *
+ * Also recognizes NestJS's `HttpException` family (`NotFoundException`,
+ * `BadRequestException`, `UnauthorizedException`, etc.) via the duck-typed
+ * `IHttpExceptionLike` contract — any error exposing `getStatus()` and
+ * `getResponse()` is treated as a first-class HTTP exception, with the
+ * status extracted from `getStatus()` and the error code / message / details
+ * extracted from `getResponse()`. This lets consumers throw plain Nest
+ * exceptions without writing a `DomainException` adapter layer. Recognition
+ * order is: `DomainException` first (Zerly-native path), then
+ * `HttpException`, then the generic `500` fallback — so an exception
+ * carrying both markers would be routed through the Zerly branch.
+ *
  * Stack traces are included in the response body only when `isProduction` is
  * `false`. In production, stacks are never exposed over the wire even for
- * recognized `DomainException` values.
+ * recognized `DomainException` or `HttpException` values.
  *
  * Bind a custom implementation against the `GATEWAY_ERROR_BODY_FACTORY`
  * token from `../tokens/gateway-tokens.constant` when integrating with
@@ -72,6 +121,13 @@ export class DefaultErrorBodyFactory implements IErrorBodyFactory {
       };
     }
 
+    if (this.isHttpException(error)) {
+      return {
+        status: error.getStatus(),
+        body: this.buildFromHttpException(error, request),
+      };
+    }
+
     return {
       status: DEFAULT_STATUS_INTERNAL_ERROR,
       body: this.buildFromUnknown(error, request),
@@ -83,6 +139,21 @@ export class DefaultErrorBodyFactory implements IErrorBodyFactory {
       typeof value === 'object' &&
       value !== null &&
       (value as { isDomainException?: unknown }).isDomainException === true
+    );
+  }
+
+  private isHttpException(value: unknown): value is IHttpExceptionLike {
+    if (typeof value !== 'object' || value === null) {
+      return false;
+    }
+
+    const candidate = value as Record<string, unknown>;
+
+    return (
+      typeof candidate['getStatus'] === 'function' &&
+      typeof candidate['getResponse'] === 'function' &&
+      typeof candidate['message'] === 'string' &&
+      typeof candidate['name'] === 'string'
     );
   }
 
@@ -105,6 +176,121 @@ export class DefaultErrorBodyFactory implements IErrorBodyFactory {
     }
 
     return withDetails;
+  }
+
+  private buildFromHttpException(
+    error: IHttpExceptionLike,
+    request: IGatewayRequest,
+  ): IGatewayErrorBody {
+    const response = error.getResponse();
+
+    const base: IGatewayErrorBody = {
+      error: this.extractHttpErrorCode(error, response),
+      message: this.extractHttpMessage(error, response),
+      requestId: request.meta.requestId,
+    };
+
+    const withDetails = this.extractHttpDetails(response, base);
+
+    if (!this.isProduction && error.stack !== undefined) {
+      return { ...withDetails, stack: error.stack };
+    }
+
+    return withDetails;
+  }
+
+  /**
+   * Resolve a stable machine-readable error code for an HttpException.
+   * @remarks
+   * Prefers the `error` field NestJS built-in subclasses populate
+   * (e.g. `NotFoundException` → `{ statusCode: 404, message, error: 'Not Found' }`)
+   * and normalizes it to SCREAMING_SNAKE_CASE so clients can switch on a
+   * stable identifier. When absent — e.g. custom `HttpException` subclasses
+   * that emit only a string response body — falls back to deriving a code
+   * from the exception class name (`CustomHttpException` → `CUSTOM_HTTP_EXCEPTION`).
+   */
+  private extractHttpErrorCode(
+    error: IHttpExceptionLike,
+    response: string | Readonly<Record<string, unknown>>,
+  ): string {
+    if (typeof response === 'object') {
+      const candidate = (response as Record<string, unknown>)['error'];
+
+      if (typeof candidate === 'string') {
+        return candidate.trim().toUpperCase().replace(/\s+/gu, '_');
+      }
+    }
+
+    return error.name
+      .replace(/([A-Z])/gu, '_$1')
+      .replace(/^_/u, '')
+      .toUpperCase();
+  }
+
+  /**
+   * Resolve a human-readable message for an HttpException.
+   * @remarks
+   * Handles the three shapes NestJS produces: a plain string response
+   * (returned verbatim), an object with a `message: string` field (projected
+   * directly), and an object with `message: string[]` — the shape
+   * `ValidationPipe` emits for aggregated class-validator violations. Array
+   * messages are joined with `", "` for wire display; richer clients that
+   * want the original array should read it back from `details` (preserved
+   * intact by `extractHttpDetails`). The `error.message` from the Error
+   * prototype is used as a last resort.
+   */
+  private extractHttpMessage(
+    error: IHttpExceptionLike,
+    response: string | Readonly<Record<string, unknown>>,
+  ): string {
+    if (typeof response === 'string') {
+      return response;
+    }
+
+    const candidate = (response as Record<string, unknown>)['message'];
+
+    if (typeof candidate === 'string') {
+      return candidate;
+    }
+
+    if (Array.isArray(candidate)) {
+      return candidate.map(String).join(', ');
+    }
+
+    return error.message;
+  }
+
+  /**
+   * Project extra response fields into the envelope's `details` bag.
+   * @remarks
+   * Strips `{ message, error, statusCode }` — already projected into the
+   * top-level envelope — so `details` only carries EXTRA context the caller
+   * attached to the response. When no extras remain, the base envelope is
+   * returned unchanged to keep the wire shape minimal and satisfy
+   * `exactOptionalPropertyTypes` (the `details` key must not appear with a
+   * `{}` value).
+   */
+  private extractHttpDetails(
+    response: string | Readonly<Record<string, unknown>>,
+    base: IGatewayErrorBody,
+  ): IGatewayErrorBody {
+    if (typeof response !== 'object') {
+      return base;
+    }
+
+    const extras: Record<string, unknown> = {};
+
+    for (const [key, value] of Object.entries(response)) {
+      if (!HTTP_RESPONSE_PROJECTED_FIELDS.has(key)) {
+        extras[key] = value;
+      }
+    }
+
+    if (Object.keys(extras).length === 0) {
+      return base;
+    }
+
+    return { ...base, details: extras };
   }
 
   private buildFromUnknown(error: unknown, request: IGatewayRequest): IGatewayErrorBody {

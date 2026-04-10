@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 
-import { Controller, Injectable } from '@nestjs/common';
+import { BadRequestException, Controller, Injectable, NotFoundException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { PATTERN_EXTRAS_METADATA } from '@nestjs/microservices/constants';
 import { Test } from '@nestjs/testing';
@@ -416,6 +416,63 @@ describe('@ApiGateway end-to-end flow (integration)', () => {
       expect(reply.body?.message).not.toContain('raw internal detail');
       expect(reply.body?.requestId).toBe('req-err-2');
       expect(typeof reply.body?.stack).toBe('string');
+    });
+
+    /**
+     * Certifies that the duck-typed `IHttpExceptionLike` contract inside
+     * `DefaultErrorBodyFactory` correctly recognizes the REAL
+     * `@nestjs/common` `HttpException` family end-to-end. The unit spec
+     * exercises recognition with a hermetic fixture; this case proves the
+     * same code path also handles the actual class hierarchy Nest ships,
+     * without a hard import dependency leaking into the SDK runtime.
+     */
+    it('serializes a real NestJS NotFoundException into a 404 envelope', () => {
+      const envelope = buildEnvelope(null, {
+        meta: {
+          requestId: 'req-err-3',
+          remoteAddr: '127.0.0.1',
+          receivedAt: Date.now(),
+          timeoutMs: 30_000,
+        },
+      });
+      const host = buildArgumentsHost(envelope);
+      const reply = filter.catch(new NotFoundException('User not found'), host);
+
+      expect(reply.status).toBe(404);
+      expect(reply.headers).toEqual({ 'content-type': 'application/problem+json' });
+      expect(reply.body?.error).toBe('NOT_FOUND');
+      expect(reply.body?.message).toBe('User not found');
+      expect(reply.body?.requestId).toBe('req-err-3');
+    });
+
+    /**
+     * Certifies handling of `BadRequestException` populated with a
+     * `message: string[]` — the shape Nest's `ValidationPipe` produces for
+     * aggregated class-validator violations. The factory must join the
+     * array into a single human-readable string so the wire envelope stays
+     * a flat JSON object (RFC 7807 `detail` is a string, not an array).
+     */
+    it('serializes a NestJS BadRequestException with array message', () => {
+      const envelope = buildEnvelope(null, {
+        meta: {
+          requestId: 'req-err-4',
+          remoteAddr: '127.0.0.1',
+          receivedAt: Date.now(),
+          timeoutMs: 30_000,
+        },
+      });
+      const host = buildArgumentsHost(envelope);
+      const reply = filter.catch(
+        new BadRequestException(['email must be an email', 'age must be a number']),
+        host,
+      );
+
+      expect(reply.status).toBe(400);
+      expect(reply.headers).toEqual({ 'content-type': 'application/problem+json' });
+      expect(reply.body?.error).toBe('BAD_REQUEST');
+      expect(reply.body?.message).toContain('email must be an email');
+      expect(reply.body?.message).toContain('age must be a number');
+      expect(reply.body?.requestId).toBe('req-err-4');
     });
   });
 });
