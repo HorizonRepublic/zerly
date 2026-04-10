@@ -10,3 +10,5 @@ export * from './constants';
 export * from './tokens';
 
 export * from './normalization';
+
+export * from './decorators';
