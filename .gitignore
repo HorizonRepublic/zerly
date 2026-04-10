@@ -72,3 +72,4 @@ env.yaml
 
 # Personal snippets
 .snippets/
+/docs
