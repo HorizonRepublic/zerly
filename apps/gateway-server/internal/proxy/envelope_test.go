@@ -14,9 +14,9 @@ func TestGatewayRequest_ResetClearsAllFields(t *testing.T) {
 		Params: map[string]string{
 			"id": "42",
 		},
-		Query: map[string]any{
-			"include": "profile",
-			"limit":   10,
+		Query: map[string]QueryValue{
+			"include": NewQueryValueString("profile"),
+			"tags":    NewQueryValueStrings([]string{"a", "b"}),
 		},
 		Headers: map[string]string{
 			"content-type": "application/json",
@@ -49,7 +49,7 @@ func TestGatewayRequest_ResetRetainsMapBackingCapacity(t *testing.T) {
 	// case.
 	envelope := &GatewayRequest{
 		Params:  map[string]string{"a": "1"},
-		Query:   map[string]any{"q": "v"},
+		Query:   map[string]QueryValue{"q": NewQueryValueString("v")},
 		Headers: map[string]string{"h": "v"},
 	}
 

@@ -28,7 +28,7 @@ func TestAcquireEnvelope_PreAllocatesMaps(t *testing.T) {
 	// initial capacities.
 	assert.NotPanics(t, func() {
 		envelope.Params["id"] = "42"
-		envelope.Query["q"] = "v"
+		envelope.Query["q"] = NewQueryValueString("v")
 		envelope.Headers["h"] = "v"
 	})
 }

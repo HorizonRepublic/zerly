@@ -26,7 +26,7 @@ type RequestMeta struct {
 	Traceparent string `json:"traceparent,omitempty"`
 	RemoteAddr  string `json:"remoteAddr"`
 	ReceivedAt  int64  `json:"receivedAt"`
-	TimeoutMs   int    `json:"timeoutMs"`
+	TimeoutMs   int64  `json:"timeoutMs"`
 }
 
 // GatewayRequest is the envelope sent from the gateway to Nest over
@@ -42,12 +42,12 @@ type RequestMeta struct {
 // acquireEnvelope and return them with releaseEnvelope after the reply
 // has been fully processed.
 type GatewayRequest struct {
-	Route   RouteContext      `json:"route"`
-	Params  map[string]string `json:"params"`
-	Query   map[string]any    `json:"query"`
-	Headers map[string]string `json:"headers"`
-	Body    json.RawMessage   `json:"body"`
-	Meta    RequestMeta       `json:"meta"`
+	Route   RouteContext          `json:"route"`
+	Params  map[string]string     `json:"params"`
+	Query   map[string]QueryValue `json:"query"`
+	Headers map[string]string     `json:"headers"`
+	Body    json.RawMessage       `json:"body"`
+	Meta    RequestMeta           `json:"meta"`
 }
 
 // GatewayReply is the envelope Nest sends back. Mirror of the

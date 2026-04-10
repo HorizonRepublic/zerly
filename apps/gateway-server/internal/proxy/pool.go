@@ -28,7 +28,7 @@ var envelopePool = sync.Pool{
 	New: func() any {
 		return &GatewayRequest{
 			Params:  make(map[string]string, initialParamsCap),
-			Query:   make(map[string]any, initialQueryCap),
+			Query:   make(map[string]QueryValue, initialQueryCap),
 			Headers: make(map[string]string, initialHeadersCap),
 		}
 	},
