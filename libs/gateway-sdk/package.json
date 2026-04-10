@@ -1,0 +1,43 @@
+{
+  "name": "@zerly/gateway-sdk",
+  "version": "0.8.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/HorizonRepublic/zerly.git",
+    "directory": "libs/gateway-sdk"
+  },
+  "homepage": "https://github.com/HorizonRepublic/zerly/blob/main/libs/gateway-sdk/README.md",
+  "bugs": {
+    "url": "https://github.com/HorizonRepublic/zerly/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "nestjs",
+    "typescript",
+    "zerly",
+    "gateway",
+    "http",
+    "nats",
+    "microservice"
+  ],
+  "author": {
+    "name": "Horizon Republic",
+    "url": "https://github.com/HorizonRepublic"
+  },
+  "license": "MIT",
+  "type": "commonjs",
+  "main": "./src/index.js",
+  "types": "./src/index.d.ts",
+  "dependencies": {
+    "tslib": "^2.8.1"
+  },
+  "peerDependencies": {
+    "@nestjs/common": ">= 11.0.0",
+    "@nestjs/core": ">= 11.0.0",
+    "@nestjs/microservices": ">= 11.0.0",
+    "reflect-metadata": ">= 0.2.0",
+    "rxjs": ">= 7.8.0"
+  }
+}
