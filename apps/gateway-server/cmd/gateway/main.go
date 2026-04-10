@@ -1,17 +1,212 @@
 // Package main is the entry point for zerly-gateway-server.
 //
-// zerly-gateway-server is an HTTP edge server that watches the
-// handler_registry NATS KV bucket for routing metadata and proxies HTTP
-// requests to Nest microservice handlers via Core NATS request/reply.
+// The binary is a thin bootstrap: it loads configuration, constructs
+// every internal component in dependency order, starts the HTTP
+// server in a background goroutine, and blocks on SIGTERM. All
+// non-bootstrap logic lives in the internal packages so this file
+// stays auditable at a glance.
 //
-// The binary produced by this package is a scaffolding placeholder — real
-// bootstrap wiring lands in milestone M21. See the design specification at
-// docs/superpowers/specs/2026-04-10-zerly-gateway-design.md for architecture
-// details.
+// Failure-path discipline: anything that happens before the zerolog
+// logger is built writes to stderr and exits with code 1, because
+// emitting structured JSON through a non-existent logger is
+// impossible. Everything after goes through logger.Fatal() so
+// operators get the same JSON shape for startup failures as for
+// runtime errors. logger.Fatal() already calls os.Exit(1) internally,
+// so no explicit exit follows it.
 package main
 
-import "fmt"
+import (
+	"context"
+	"fmt"
+	"os"
+	"sync/atomic"
 
+	natsgo "github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
+	"github.com/rs/zerolog"
+
+	"github.com/HorizonRepublic/zerly/apps/gateway-server/internal/config"
+	"github.com/HorizonRepublic/zerly/apps/gateway-server/internal/lifecycle"
+	"github.com/HorizonRepublic/zerly/apps/gateway-server/internal/observability"
+	"github.com/HorizonRepublic/zerly/apps/gateway-server/internal/proxy"
+	"github.com/HorizonRepublic/zerly/apps/gateway-server/internal/registry"
+	"github.com/HorizonRepublic/zerly/apps/gateway-server/internal/routing"
+	httptransport "github.com/HorizonRepublic/zerly/apps/gateway-server/internal/transport/http"
+	natstransport "github.com/HorizonRepublic/zerly/apps/gateway-server/internal/transport/nats"
+)
+
+// main wires the gateway end-to-end. The body is intentionally a flat
+// sequence of helper calls so the control flow — config, logger,
+// NATS, KV, registry, routing, requester, handler, HTTP server,
+// block-on-signal, drain — is readable in under 30 lines.
 func main() {
-	fmt.Println("zerly-gateway-server — scaffolding placeholder (M11)")
+	cfg := loadConfigOrDie()
+	logger := buildLoggerOrDie(cfg)
+	logger.Info().
+		Str("http_addr", cfg.HTTPAddr).
+		Strs("nats_urls", cfg.NATSUrls).
+		Str("kv_bucket", cfg.KVBucket).
+		Msg("starting zerly-gateway-server")
+
+	ctx := context.Background()
+
+	nc := connectNATSOrDie(cfg, logger)
+	kv := openKVOrDie(ctx, nc, cfg, logger)
+
+	store := registry.NewStore()
+	watcher := registry.NewWatcher(kv, store, logger)
+	currentTable := installRoutingRebuild(store, watcher, logger)
+
+	if err := watcher.Start(ctx); err != nil {
+		logger.Fatal().Err(err).Msg("registry watcher start failed")
+	}
+
+	requester := buildRequesterOrDie(nc, logger)
+	handler := buildProxyHandler(cfg, currentTable, requester, logger)
+	httpServer := httptransport.NewServer(cfg, handler)
+
+	go httpServer.Spin()
+	logger.Info().Str("addr", cfg.HTTPAddr).Msg("http server started")
+
+	sig := lifecycle.WaitForSignal()
+	logger.Info().Str("signal", sig.String()).Msg("shutdown signal received")
+	lifecycle.Drain(lifecycle.Options{
+		HTTP:    httpServer,
+		Watcher: watcher,
+		NATS:    nc,
+		Timeout: cfg.ShutdownTimeout,
+		Logger:  logger,
+	})
+}
+
+// loadConfigOrDie loads the operator-facing config and terminates the
+// process via stderr + os.Exit if it is missing or malformed. The
+// logger is not yet available at this point, so the error path
+// bypasses zerolog entirely and writes to stderr in plain text —
+// this is the ONE place in the bootstrap where structured logging
+// cannot be used because its dependency has not been built yet.
+func loadConfigOrDie() *config.Config {
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "gateway: config load failed: %v\n", err)
+		os.Exit(1)
+	}
+	return cfg
+}
+
+// buildLoggerOrDie constructs the zerolog logger from cfg. Any failure
+// is terminal — without a working logger the rest of the bootstrap
+// would emit to /dev/null and operators would have no diagnostic
+// surface to debug why the pod is in CrashLoopBackOff. Like
+// loadConfigOrDie, the error path writes to stderr because the
+// logger that WOULD carry the error is the very thing that just
+// failed to construct.
+func buildLoggerOrDie(cfg *config.Config) zerolog.Logger {
+	logger, err := observability.NewLogger(cfg.LogLevel, cfg.LogFormat)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "gateway: logger init failed: %v\n", err)
+		os.Exit(1)
+	}
+	return logger
+}
+
+// connectNATSOrDie dials the NATS cluster and returns a live
+// connection. Failure is fatal because the gateway has no reason to
+// run without a NATS link — every request path ends in a Core NATS
+// request/reply, and a gateway that cannot reach NATS is strictly
+// worse than no gateway (it would 503 every request with zero
+// useful diagnostic signal).
+func connectNATSOrDie(cfg *config.Config, logger zerolog.Logger) *natsgo.Conn {
+	nc, err := natstransport.Connect(cfg, logger)
+	if err != nil {
+		logger.Fatal().Err(err).Msg("nats connect failed")
+	}
+	return nc
+}
+
+// openKVOrDie initializes the JetStream client and opens the
+// handler_registry KV bucket that holds the routing metadata.
+// Failure is fatal because a gateway with no routing table cannot
+// forward a single request — refusing to start is strictly better
+// than starting in a state where every request 404s.
+func openKVOrDie(
+	ctx context.Context,
+	nc *natsgo.Conn,
+	cfg *config.Config,
+	logger zerolog.Logger,
+) jetstream.KeyValue {
+	js, err := jetstream.New(nc)
+	if err != nil {
+		logger.Fatal().Err(err).Msg("jetstream init failed")
+	}
+	kv, err := js.KeyValue(ctx, cfg.KVBucket)
+	if err != nil {
+		logger.Fatal().Err(err).Str("bucket", cfg.KVBucket).Msg("open kv bucket failed")
+	}
+	return kv
+}
+
+// installRoutingRebuild wires the routing table rebuild callback into
+// the watcher. The first rebuild runs synchronously against whatever
+// snapshot the store currently holds so a nil table is never observed
+// by the proxy handler. Subsequent rebuilds fire on every KV change
+// because the watcher invokes registered callbacks in registration
+// order after every successful Store.Replace.
+//
+// The returned *atomic.Value stores the current routing.Table; the
+// proxy handler's TableProvider closure calls Load().(routing.Table)
+// for a lock-free, always-consistent snapshot. atomic.Value is used
+// rather than atomic.Pointer[routing.Table] because routing.Table is
+// an interface — atomic.Pointer[Interface] would store a pointer-to-
+// interface, introducing a second indirection on every request
+// lookup for no benefit.
+func installRoutingRebuild(
+	store *registry.Store,
+	watcher *registry.Watcher,
+	logger zerolog.Logger,
+) *atomic.Value {
+	var current atomic.Value
+	rebuild := func() {
+		current.Store(routing.BuildTable(store.Get(), logger))
+	}
+	rebuild()
+	watcher.OnChange(rebuild)
+	return &current
+}
+
+// buildRequesterOrDie constructs the NATS Requester pool. In MVP the
+// pool has a single connection; increasing the pool size is a tuning
+// knob left for after Milestone 22's benchmarks identify real
+// contention on the single-socket send path. Raising it speculatively
+// would add reconnect complexity and connection-limit pressure on
+// the NATS cluster with no evidence that it helps.
+func buildRequesterOrDie(nc *natsgo.Conn, logger zerolog.Logger) *natstransport.Requester {
+	requester, err := natstransport.NewRequester([]*natsgo.Conn{nc})
+	if err != nil {
+		logger.Fatal().Err(err).Msg("nats requester init failed")
+	}
+	return requester
+}
+
+// buildProxyHandler assembles the HTTP->NATS orchestration handler
+// with its dependencies. The Table provider closure captures the
+// *atomic.Value returned by installRoutingRebuild so every request
+// sees the latest routing snapshot without any coordination between
+// the request path and the watcher goroutine.
+func buildProxyHandler(
+	cfg *config.Config,
+	currentTable *atomic.Value,
+	requester *natstransport.Requester,
+	logger zerolog.Logger,
+) *proxy.Handler {
+	return proxy.NewHandler(proxy.HandlerConfig{
+		Table: func() routing.Table {
+			return currentTable.Load().(routing.Table)
+		},
+		Nats:    requester,
+		Encoder: proxy.NewDefaultEncoder(),
+		Decoder: proxy.NewDefaultDecoder(),
+		Timeout: cfg.RequestTimeout,
+		Logger:  logger,
+	})
 }
