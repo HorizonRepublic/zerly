@@ -1,0 +1,51 @@
+{
+  "name": "gateway-server",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "apps/gateway-server",
+  "projectType": "application",
+  "tags": [],
+  "targets": {
+    "build": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "go build -o ../../dist/apps/gateway-server/gateway ./cmd/gateway",
+        "cwd": "apps/gateway-server"
+      }
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "go test -race ./...",
+        "cwd": "apps/gateway-server"
+      }
+    },
+    "test-integration": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "go test -race -tags=integration ./...",
+        "cwd": "apps/gateway-server"
+      }
+    },
+    "bench": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "go test -bench=. -benchmem -benchtime=1s ./internal/...",
+        "cwd": "apps/gateway-server"
+      }
+    },
+    "lint": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "golangci-lint run ./...",
+        "cwd": "apps/gateway-server"
+      }
+    },
+    "tidy": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "go mod tidy",
+        "cwd": "apps/gateway-server"
+      }
+    }
+  }
+}

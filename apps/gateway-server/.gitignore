@@ -1,0 +1,12 @@
+# Go build artifacts
+/bin
+/dist
+
+# Coverage
+coverage.out
+coverage.html
+
+# Editor / OS
+.DS_Store
+*.swp
+*.swo
