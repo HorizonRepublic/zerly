@@ -9,6 +9,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { GatewayDemoModule } from './gateway-demo/gateway-demo.module';
 import { SubModule } from './submodule/sub.module';
+import { JetstreamBootstrapProvider } from './transport/jetstream-bootstrap.provider';
 
 @Module({
   controllers: [AppController],
@@ -30,6 +31,6 @@ import { SubModule } from './submodule/sub.module';
     SubModule,
     GatewayDemoModule,
   ],
-  providers: [AppService],
+  providers: [AppService, JetstreamBootstrapProvider],
 })
 export class AppModule {}
