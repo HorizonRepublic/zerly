@@ -142,6 +142,18 @@ export class DefaultErrorBodyFactory implements IErrorBodyFactory {
     );
   }
 
+  /**
+   * Narrows `value` to the `IHttpExceptionLike` duck type.
+   * @remarks
+   * Checks the four properties that together identify an `HttpException`
+   * subclass: `getStatus` and `getResponse` are the required contract methods
+   * NestJS built-ins expose; `message` and `name` are inherited from `Error`
+   * and must be strings to distinguish a real exception instance from a plain
+   * object that accidentally exposes the two method keys (e.g. a mock, a
+   * service stub, or a user-land value object). The check is intentionally
+   * shallow — any value satisfying all four properties is accepted, which is
+   * the desired open-closed behaviour for a contract-based duck type.
+   */
   private isHttpException(value: unknown): value is IHttpExceptionLike {
     if (typeof value !== 'object' || value === null) {
       return false;
@@ -178,6 +190,16 @@ export class DefaultErrorBodyFactory implements IErrorBodyFactory {
     return withDetails;
   }
 
+  /**
+   * Assembles an `IGatewayErrorBody` from a duck-typed `HttpException`.
+   * @remarks
+   * Delegates error-code resolution, message extraction, and extra-field
+   * projection to the three focused `extractHttp*` helpers so each concern
+   * remains independently testable. The stack-trace gate mirrors
+   * `buildFromDomain`: stacks are never exposed in production even for
+   * recognized exceptions, and in development they are attached only when
+   * the underlying `Error` actually carries one.
+   */
   private buildFromHttpException(
     error: IHttpExceptionLike,
     request: IGatewayRequest,
