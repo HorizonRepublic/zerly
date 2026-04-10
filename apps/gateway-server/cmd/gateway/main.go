@@ -174,12 +174,12 @@ func installRoutingRebuild(
 	return &current
 }
 
-// buildRequesterOrDie constructs the NATS Requester pool. In MVP the
-// pool has a single connection; increasing the pool size is a tuning
-// knob left for after Milestone 22's benchmarks identify real
-// contention on the single-socket send path. Raising it speculatively
-// would add reconnect complexity and connection-limit pressure on
-// the NATS cluster with no evidence that it helps.
+// buildRequesterOrDie constructs the NATS Requester pool. By default
+// the pool holds a single connection; increasing the pool size is a
+// tuning knob justified only by benchmark evidence of contention on
+// the single-socket send path. Raising it speculatively would add
+// reconnect complexity and connection-limit pressure on the NATS
+// cluster with no demonstrable throughput benefit.
 func buildRequesterOrDie(nc *natsgo.Conn, logger zerolog.Logger) *natstransport.Requester {
 	requester, err := natstransport.NewRequester([]*natsgo.Conn{nc})
 	if err != nil {

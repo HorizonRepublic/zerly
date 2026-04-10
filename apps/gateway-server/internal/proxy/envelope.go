@@ -1,8 +1,8 @@
 // Package proxy is the request orchestration layer. It encodes HTTP
 // requests into GatewayRequest envelopes, issues Core NATS RPC calls,
-// and decodes reply envelopes back into HTTP responses. The subsequent
-// milestones (M16 encoder/decoder/handler, M17 NATS transport) plug
-// into the types defined here.
+// and decodes reply envelopes back into HTTP responses. The encoder,
+// decoder, and handler types defined here are consumed by the NATS
+// and HTTP transport layers that live alongside this package.
 package proxy
 
 import "encoding/json"

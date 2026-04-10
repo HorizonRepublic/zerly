@@ -5,8 +5,8 @@ import type { IGatewayRequest } from '../../types/gateway-request.interface';
  * Contract for translating an arbitrary thrown value into a structured
  * `IGatewayErrorBody` with an HTTP status.
  * @remarks
- * The default implementation (`DefaultErrorBodyFactory`, added in M5)
- * recognizes the `@zerly/errors` `DomainException` marker
+ * The default implementation (`DefaultErrorBodyFactory`) recognizes
+ * the `@zerly/errors` `DomainException` marker
  * (`isDomainException: true`) via duck-typing and extracts `code`,
  * `message`, `details`, and optionally `stack` (dev only). For unknown
  * throws it falls back to a generic `500` shape with the real error

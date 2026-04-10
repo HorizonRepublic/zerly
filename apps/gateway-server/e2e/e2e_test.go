@@ -21,8 +21,8 @@ import (
 
 // gatewayURL is the hardcoded base URL the e2e suite targets. The
 // three-process startup protocol in README.md binds the gateway to
-// :8080 on localhost; CI would override this via an env var when we
-// wire a full docker-compose orchestration in a follow-up milestone.
+// :8080 on localhost; CI can override this via an env var once a
+// fully containerised stack is wired up.
 const gatewayURL = "http://localhost:8080"
 
 // gatewayReadyTimeout bounds how long waitForGateway polls before

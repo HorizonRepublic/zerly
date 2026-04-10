@@ -219,8 +219,8 @@ const buildArgumentsHost = (envelope: IGatewayRequest | undefined): FilterHost =
  * throws and plain `Error` throws into the RFC 7807 error envelope.
  *
  * No mocks are used for `@nestjs/common` / `@nestjs/core` /
- * `@nestjs/microservices`; the real runtime from the ESM-migrated test
- * infrastructure (M8.5) provides every framework surface touched here.
+ * `@nestjs/microservices`; the ESM-mode Jest setup loads the real
+ * runtime of every framework surface touched here.
  */
 describe('@ApiGateway end-to-end flow (integration)', () => {
   let interceptor: GatewayResponseInterceptor;

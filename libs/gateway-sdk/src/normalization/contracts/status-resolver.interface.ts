@@ -3,8 +3,8 @@ import type { IGatewayHttpMeta } from '../../types/gateway-http-meta.interface';
 /**
  * Contract for resolving the HTTP status code of a successful handler return.
  * @remarks
- * The default implementation (`DefaultStatusResolver`, added in M5) applies
- * the standard rules, in precedence order:
+ * The default implementation (`DefaultStatusResolver`) applies the
+ * standard rules, in precedence order:
  *
  *   1. Explicit `statusCode` from `@ApiGateway` options
  *      (`IGatewayHttpMeta.statusCode`).

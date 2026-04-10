@@ -2,11 +2,12 @@ package routing
 
 import "strings"
 
-// linearTable is a simple linear-scan matcher over path templates. It is
-// the MVP implementation, suitable for registries of tens to low
-// hundreds of routes. Benchmarks in Milestone 22 decide whether this
-// needs replacement with a proper trie; the Table interface is narrow
-// enough that the swap is a one-file change.
+// linearTable is a simple linear-scan matcher over path templates. It
+// is suitable for registries of tens to low hundreds of routes, which
+// covers the typical gateway deployment. Benchmark numbers live in
+// benchmarks/baseline.txt; if future workloads outgrow the linear
+// scan, the narrow Table interface makes a trie swap a one-file
+// change.
 //
 // Concurrency: safe for concurrent readers after construction. Callers
 // MUST publish a fully-built table atomically (e.g. via atomic.Pointer)

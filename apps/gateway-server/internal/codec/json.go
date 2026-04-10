@@ -2,8 +2,8 @@
 //
 // All JSON encoding and decoding in the gateway MUST go through this
 // package so the underlying implementation (sonic today) can be swapped
-// in a single place — for example, to plug in a protobuf codec in a
-// future milestone or to revert to encoding/json for debugging.
+// in a single place — for example, to plug in a protobuf codec later
+// or to revert to encoding/json for debugging.
 package codec
 
 import "github.com/bytedance/sonic"

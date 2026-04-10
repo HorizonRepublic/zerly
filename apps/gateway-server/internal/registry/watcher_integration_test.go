@@ -107,7 +107,7 @@ func TestWatcher_ReflectsKVChangesIntoStore(t *testing.T) {
 
 	// NOTE: the watcher is configured with jetstream.IgnoreDeletes() which
 	// suppresses delete events from the watch channel. That means the
-	// Store will NOT observe removals — delete propagation is covered in
-	// a future milestone when IgnoreDeletes is reconsidered based on real
-	// operational needs.
+	// Store will NOT observe removals — delete propagation can be added
+	// later by reconfiguring the watch subscription if operational needs
+	// demand it.
 }

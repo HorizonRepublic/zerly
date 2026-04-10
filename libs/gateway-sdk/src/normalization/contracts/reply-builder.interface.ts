@@ -12,8 +12,8 @@ import type { IGatewayReply } from '../../types/gateway-reply.interface';
  * keeps `status`, `headers`, and `body` ordering consistent across code
  * paths and leaves a single file to audit when the wire format evolves.
  *
- * The default implementation (`DefaultGatewayReplyBuilder`, added in M5)
- * produces JSON envelopes with an empty headers map. Future implementations
+ * The default implementation (`DefaultGatewayReplyBuilder`) produces
+ * JSON envelopes with an empty headers map. Future implementations
  * may add Content-Type negotiation, alternative wire formats (CBOR,
  * MessagePack), or domain-specific reply enrichment (correlation headers,
  * cache hints) — all swappable via DI by binding a custom class to the

@@ -9,8 +9,8 @@
 //     handler returned.
 //
 // Deliberately thin — no middleware, no routing, no business logic.
-// Recovery, access logging, metrics, and tracing live in later
-// milestones so this translation layer stays easy to audit against
+// Recovery, access logging, metrics, and tracing are layered on
+// separately so this translation layer stays easy to audit against
 // the framework-agnostic proxy layer above it.
 package http
 

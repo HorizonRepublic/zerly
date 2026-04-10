@@ -31,7 +31,7 @@ type Table interface {
 	// ("/users/:id") will not be listed here when the caller passes a
 	// concrete request path ("/users/42"). The proxy layer currently
 	// only calls Methods for static paths, so this limitation is
-	// acceptable for the MVP; it will be revisited alongside the trie
-	// swap in Milestone 22.
+	// acceptable; it will be revisited alongside any future trie swap
+	// of the default linear-scan implementation.
 	Methods(path string) []string
 }

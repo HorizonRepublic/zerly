@@ -1,13 +1,13 @@
 # Gateway end-to-end test harness
 
-This harness runs the five acceptance scenarios from the design spec
-against a live three-process stack: NATS, the `example-app` NestJS
-service (which exposes `@ApiGateway` handlers), and the
-`gateway-server` binary.
+This harness runs five acceptance scenarios against a live
+three-process stack: NATS, the `example-app` NestJS service (which
+exposes `@ApiGateway` handlers), and the `zerly-gateway-server`
+binary.
 
-Full docker-compose orchestration of all three processes is deferred
-to a follow-up milestone — the current setup runs NATS in Docker and
-both Node/Go processes on the host.
+The current setup runs NATS in Docker and both the Node and Go
+processes on the host. A fully containerised stack can be layered on
+later once a reusable `example-app` image exists.
 
 ## Prerequisites
 
