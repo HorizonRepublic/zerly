@@ -41,9 +41,11 @@ type Watcher struct {
 	callbacks []ChangeCallback
 	cbMu      sync.RWMutex
 
-	cancel   context.CancelFunc
-	done     chan struct{}
-	stopOnce sync.Once
+	cancel    context.CancelFunc
+	done      chan struct{}
+	startOnce sync.Once
+	startErr  error
+	stopOnce  sync.Once
 }
 
 // NewWatcher constructs a Watcher for the given KV bucket and store.
@@ -61,6 +63,13 @@ func NewWatcher(kv jetstream.KeyValue, store *Store, logger zerolog.Logger) *Wat
 // OnChange registers a callback invoked after every successful Store
 // replacement. Multiple callbacks may be registered; they run on the
 // watcher goroutine in registration order.
+//
+// Callbacks MUST NOT call OnChange or Stop on the same Watcher, directly
+// or transitively. The implementation protects the callback slice with a
+// snapshot-under-read-lock pattern so those calls would not deadlock, but
+// mutating the subscription set from inside a callback risks subtle
+// ordering bugs — keep callbacks side-effect-free with respect to the
+// watcher that invokes them.
 func (w *Watcher) OnChange(cb ChangeCallback) {
 	w.cbMu.Lock()
 	defer w.cbMu.Unlock()
@@ -75,16 +84,24 @@ func (w *Watcher) OnChange(cb ChangeCallback) {
 // The watch goroutine runs until Stop is called, automatically restarting
 // the underlying JetStream watcher with a short backoff if the NATS
 // connection drops or the watch channel closes unexpectedly.
+//
+// Start is single-use: calling it more than once is a no-op that returns
+// the error (or nil) observed on the first invocation. This prevents
+// goroutine leaks from an accidental double-Start during bootstrap
+// refactors and makes the lifecycle symmetric with Stop.
 func (w *Watcher) Start(ctx context.Context) error {
-	if err := w.initialLoad(ctx); err != nil {
-		return fmt.Errorf("registry watcher initial load: %w", err)
-	}
+	w.startOnce.Do(func() {
+		if err := w.initialLoad(ctx); err != nil {
+			w.startErr = fmt.Errorf("registry watcher initial load: %w", err)
+			return
+		}
 
-	watchCtx, cancel := context.WithCancel(context.Background())
-	w.cancel = cancel
+		watchCtx, cancel := context.WithCancel(context.Background())
+		w.cancel = cancel
 
-	go w.watchLoop(watchCtx)
-	return nil
+		go w.watchLoop(watchCtx)
+	})
+	return w.startErr
 }
 
 // Stop cancels the watch loop's context and waits for the goroutine to
@@ -219,9 +236,19 @@ func (w *Watcher) applyDelta(kve jetstream.KeyValueEntry) {
 }
 
 func (w *Watcher) fireCallbacks() {
+	// Snapshot the callback slice under the read lock, then release before
+	// invocation. Holding the lock across user code would turn any callback
+	// that touches the watcher (for example to register another callback
+	// or to call Stop during a shutdown cascade) into a deadlock, because
+	// sync.RWMutex does not support recursive acquisition. Allocating a
+	// small slice per delta is cheap relative to the JSON marshal and
+	// atomic Replace that already happened upstream of this call.
 	w.cbMu.RLock()
-	defer w.cbMu.RUnlock()
-	for _, cb := range w.callbacks {
+	cbs := make([]ChangeCallback, len(w.callbacks))
+	copy(cbs, w.callbacks)
+	w.cbMu.RUnlock()
+
+	for _, cb := range cbs {
 		cb()
 	}
 }
