@@ -29,7 +29,7 @@
     "bench": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "go test -bench=. -benchmem -benchtime=1s ./internal/...",
+        "command": "go test -bench=. -benchmem -benchtime=1s -run=^$ ./...",
         "cwd": "apps/gateway-server"
       }
     },
