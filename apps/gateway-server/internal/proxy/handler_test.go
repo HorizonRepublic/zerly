@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	natsgo "github.com/nats-io/nats.go"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -90,7 +91,7 @@ func TestHandler_Returns504OnTimeout(t *testing.T) {
 	table := &fakeTable{routes: map[string]routing.Route{
 		"GET /users": {Subject: "svc.cmd.users.list", PathTemplate: "/users", Method: "GET"},
 	}}
-	h := buildHandler(table, nil, errTimeoutPlaceholder)
+	h := buildHandler(table, nil, natsgo.ErrTimeout)
 
 	result := h.Handle(emptyServeInput("GET", "/users"))
 

@@ -1,7 +1,5 @@
 package proxy
 
-import "errors"
-
 // HTTP status constants used by the proxy Handler when translating
 // internal errors to response codes. Extracted so the handler code
 // reads as intent rather than magic numbers.
@@ -24,16 +22,3 @@ var (
 	serviceUnavailableBody = []byte(`{"error":"SERVICE_UNAVAILABLE"}`)
 	badGatewayBody         = []byte(`{"error":"BAD_GATEWAY"}`)
 )
-
-// errTimeoutPlaceholder is the sentinel that isTimeoutErr recognizes
-// until Milestone 17 plugs in the real nats.ErrTimeout check. Tests
-// use errors.Is-friendly wrapping so the switch-over is zero diff at
-// the call sites.
-var errTimeoutPlaceholder = errors.New("nats: timeout")
-
-// isTimeoutErr reports whether err represents a NATS request timeout.
-// Milestone 17 replaces this body with errors.Is(err, nats.ErrTimeout);
-// the signature stays the same.
-func isTimeoutErr(err error) bool {
-	return errors.Is(err, errTimeoutPlaceholder)
-}
