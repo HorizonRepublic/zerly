@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	gerrors "github.com/HorizonRepublic/zerly/apps/gateway-server/internal/errors"
 	"github.com/HorizonRepublic/zerly/apps/gateway-server/internal/routing"
 )
 
@@ -84,7 +85,7 @@ func TestHandler_Returns404WhenRouteNotFound(t *testing.T) {
 	result := h.Handle(emptyServeInput("GET", "/unknown"))
 
 	assert.Equal(t, 404, result.Status)
-	assert.Equal(t, notFoundBody, result.Body)
+	assert.Equal(t, gerrors.NotFound.Body, result.Body)
 }
 
 func TestHandler_Returns504OnTimeout(t *testing.T) {
@@ -96,7 +97,7 @@ func TestHandler_Returns504OnTimeout(t *testing.T) {
 	result := h.Handle(emptyServeInput("GET", "/users"))
 
 	assert.Equal(t, 504, result.Status)
-	assert.Equal(t, gatewayTimeoutBody, result.Body)
+	assert.Equal(t, gerrors.GatewayTimeout.Body, result.Body)
 }
 
 func TestHandler_Returns503OnNatsError(t *testing.T) {
@@ -108,7 +109,7 @@ func TestHandler_Returns503OnNatsError(t *testing.T) {
 	result := h.Handle(emptyServeInput("GET", "/users"))
 
 	assert.Equal(t, 503, result.Status)
-	assert.Equal(t, serviceUnavailableBody, result.Body)
+	assert.Equal(t, gerrors.ServiceUnavailable.Body, result.Body)
 }
 
 func TestHandler_Returns502OnMalformedReply(t *testing.T) {
@@ -120,7 +121,7 @@ func TestHandler_Returns502OnMalformedReply(t *testing.T) {
 	result := h.Handle(emptyServeInput("GET", "/users"))
 
 	assert.Equal(t, 502, result.Status)
-	assert.Equal(t, badGatewayBody, result.Body)
+	assert.Equal(t, gerrors.BadGateway.Body, result.Body)
 }
 
 func TestHandler_SuccessReplyPreservesStatusAndHeaders(t *testing.T) {

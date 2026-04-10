@@ -5,6 +5,7 @@ import (
 
 	"github.com/rs/zerolog"
 
+	gerrors "github.com/HorizonRepublic/zerly/apps/gateway-server/internal/errors"
 	"github.com/HorizonRepublic/zerly/apps/gateway-server/internal/routing"
 )
 
@@ -72,13 +73,12 @@ type ServeResult struct {
 // Handle performs the full request lifecycle: route lookup, envelope
 // encode, NATS request, reply decode, response construction. Errors
 // are translated to the appropriate HTTP status with a pre-encoded
-// JSON error body (see errors_placeholder.go until Milestone 19
-// replaces it with a richer error system).
+// JSON error body from the internal/errors package.
 func (h *Handler) Handle(in *ServeInput) *ServeResult {
 	table := h.cfg.Table()
 	route, params, ok := table.Lookup(in.Method, in.Path)
 	if !ok {
-		return &ServeResult{Status: statusNotFound, Headers: jsonHeaders(), Body: notFoundBody}
+		return toServeResult(gerrors.NotFound)
 	}
 
 	payload, err := h.cfg.Encoder.Encode(&EncodeInput{
@@ -97,22 +97,22 @@ func (h *Handler) Handle(in *ServeInput) *ServeResult {
 	})
 	if err != nil {
 		h.cfg.Logger.Error().Err(err).Msg("proxy encode failed")
-		return &ServeResult{Status: statusInternalError, Headers: jsonHeaders(), Body: internalErrorBody}
+		return toServeResult(gerrors.InternalError)
 	}
 
 	replyBytes, err := h.cfg.Nats.Request(route.Subject, payload, h.cfg.Timeout)
 	if err != nil {
 		if isTimeoutErr(err) {
-			return &ServeResult{Status: statusGatewayTimeout, Headers: jsonHeaders(), Body: gatewayTimeoutBody}
+			return toServeResult(gerrors.GatewayTimeout)
 		}
 		h.cfg.Logger.Error().Err(err).Str("subject", route.Subject).Msg("nats request failed")
-		return &ServeResult{Status: statusServiceUnavailable, Headers: jsonHeaders(), Body: serviceUnavailableBody}
+		return toServeResult(gerrors.ServiceUnavailable)
 	}
 
 	reply, err := h.cfg.Decoder.Decode(replyBytes)
 	if err != nil {
 		h.cfg.Logger.Error().Err(err).Msg("reply decode failed")
-		return &ServeResult{Status: statusBadGateway, Headers: jsonHeaders(), Body: badGatewayBody}
+		return toServeResult(gerrors.BadGateway)
 	}
 
 	return &ServeResult{
@@ -138,8 +138,20 @@ func mergeHeaders(reply map[string]string, requestID string) map[string]string {
 
 // jsonHeaders returns a fresh header map carrying only content-type.
 // Allocates on every call because ServeResult.Headers is expected to
-// be caller-owned. Milestone 19 pre-encodes error responses as fixed
-// byte slices, removing the allocation from the error hot path.
+// be caller-owned — the shared pre-encoded error body is paired with
+// this per-request header map so no caller ever sees aliased state.
 func jsonHeaders() map[string]string {
 	return map[string]string{"content-type": "application/json"}
+}
+
+// toServeResult materializes a ServeResult from a pre-encoded
+// HTTPError. The ServeResult allocates its own headers map because
+// the HTTPError is shared across goroutines and must never be
+// aliased by a caller-owned mutable map.
+func toServeResult(e gerrors.HTTPError) *ServeResult {
+	return &ServeResult{
+		Status:  e.Status,
+		Headers: jsonHeaders(),
+		Body:    e.Body,
+	}
 }
