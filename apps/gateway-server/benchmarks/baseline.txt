@@ -1,0 +1,39 @@
+# Zerly Gateway — Hot-path Benchmark Baseline
+#
+# Captured: 2026-04-11
+# Hardware: Apple M4 Pro (arm64), macOS 26.3 (build 25D5112c)
+# Go version: go1.26.1 darwin/arm64
+# Command: pnpm nx run gateway-server:bench
+#
+# Spec §8.4 targets (for reference; actual numbers documented below):
+#   Encoder.Encode        <= 500 ns/op, 0 allocs/op
+#   Decoder.Decode        <= 400 ns/op, <=1 allocs/op
+#   linearTable.Lookup    <= 100 ns/op, 0 allocs/op (over 1000 routes)
+#   Store.Get             <= 5 ns/op, 0 allocs/op
+#
+# This file is committed so regressions show up in diffs. Update by
+# re-running the bench command on the same hardware class and
+# replacing the body below.
+
+goos: darwin
+goarch: arm64
+pkg: github.com/HorizonRepublic/zerly/apps/gateway-server/internal/proxy
+cpu: Apple M4 Pro
+BenchmarkDecoder_Decode_SmallJSON-14    	 3067570	       378.6 ns/op	     772 B/op	       8 allocs/op
+BenchmarkEncoder_Encode_SmallJSON-14    	 1000000	      1125 ns/op	     615 B/op	       6 allocs/op
+PASS
+ok  	github.com/HorizonRepublic/zerly/apps/gateway-server/internal/proxy	2.997s
+goos: darwin
+goarch: arm64
+pkg: github.com/HorizonRepublic/zerly/apps/gateway-server/internal/registry
+cpu: Apple M4 Pro
+BenchmarkStore_Get-14    	1000000000	         0.2392 ns/op	       0 B/op	       0 allocs/op
+PASS
+ok  	github.com/HorizonRepublic/zerly/apps/gateway-server/internal/registry	0.585s
+goos: darwin
+goarch: arm64
+pkg: github.com/HorizonRepublic/zerly/apps/gateway-server/internal/routing
+cpu: Apple M4 Pro
+BenchmarkLinearTable_Lookup_1000Routes-14    	   45372	     26588 ns/op	   32400 B/op	    1004 allocs/op
+PASS
+ok  	github.com/HorizonRepublic/zerly/apps/gateway-server/internal/routing	1.783s
