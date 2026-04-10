@@ -29,9 +29,7 @@ describe('DefaultGatewayReplyBuilder', () => {
       // off `unknown` values that can be `undefined` when a handler has a
       // `void` return. The builder must normalize so that `JSON.stringify`
       // emits an explicit `"body": null` field instead of omitting it.
-      expect(
-        builder.success(204, undefined as unknown as null),
-      ).toEqual({
+      expect(builder.success(204, undefined as unknown as null)).toEqual({
         status: 204,
         headers: {},
         body: null,
