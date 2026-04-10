@@ -153,6 +153,18 @@ func openKVOrDie(
 // because the watcher invokes registered callbacks in registration
 // order after every successful Store.Replace.
 //
+// The closure captured below tracks prevRoutes and firstLoad across
+// rebuilds to emit lifecycle log entries: a single INFO "initial
+// route set published" on the first rebuild, then an INFO or DEBUG
+// "table rebuilt" on every subsequent rebuild depending on whether
+// the delta is empty. The closure is touched by exactly one
+// goroutine at a time — the watcher invokes OnChange callbacks
+// serially on its single watch goroutine (see registry.Watcher
+// godoc) and the initial synchronous call happens on the main
+// goroutine before OnChange is registered and before Start is
+// called, so the two phases never overlap. A future refactor that
+// parallelises callbacks MUST add explicit synchronisation here.
+//
 // The returned *atomic.Value stores the current routing.Table; the
 // proxy handler's TableProvider closure calls Load().(routing.Table)
 // for a lock-free, always-consistent snapshot. atomic.Value is used
@@ -165,10 +177,28 @@ func installRoutingRebuild(
 	watcher *registry.Watcher,
 	logger zerolog.Logger,
 ) *atomic.Value {
-	var current atomic.Value
+	var (
+		current    atomic.Value
+		prevRoutes []routing.Route
+		firstLoad  = true
+	)
+
 	rebuild := func() {
-		current.Store(routing.BuildTable(store.Get(), logger))
+		snapshot := store.Get()
+		nextRoutes := routing.CollectRoutes(snapshot, logger)
+
+		if firstLoad {
+			routing.LogInitialLoad(nextRoutes, logger)
+			firstLoad = false
+		} else {
+			delta := routing.ComputeDelta(prevRoutes, nextRoutes)
+			routing.LogDelta(delta, logger)
+		}
+
+		current.Store(routing.BuildTableFromRoutes(nextRoutes))
+		prevRoutes = nextRoutes
 	}
+
 	rebuild()
 	watcher.OnChange(rebuild)
 	return &current
