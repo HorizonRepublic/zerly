@@ -24,6 +24,21 @@
         "updateBuildableProjectDepsInPackageJson": true
       }
     },
+    "test": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "inputs": [
+        "default",
+        "^default",
+        "{workspaceRoot}/jest.preset.js",
+        { "externalDependencies": ["jest"] }
+      ],
+      "outputs": ["{workspaceRoot}/coverage/libs/gateway-sdk"],
+      "options": {
+        "cwd": "libs/gateway-sdk",
+        "command": "node --experimental-vm-modules ../../node_modules/jest/bin/jest.js"
+      }
+    },
     "nx-release-publish": {
       "options": {
         "packageRoot": "dist/{projectRoot}"

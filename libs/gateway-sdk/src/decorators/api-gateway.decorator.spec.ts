@@ -1,53 +1,8 @@
 import 'reflect-metadata';
 
-// Mock @nestjs/common, @nestjs/microservices, and @nestjs/microservices/constants
-// to avoid ESM-only import failures under ts-jest. Computed-property keys
-// match Nest's public API surface without triggering the camelCase
-// `naming-convention` rule on shorthand method keys.
-//
-// The `MessagePattern` mock reproduces just the one behaviour this spec
-// asserts on: defining `PATTERN_EXTRAS_METADATA` on `descriptor.value` with
-// the supplied `extras` object. Transport metadata, pattern metadata, and
-// the other framework-internal bookkeeping are intentionally omitted.
-const PATTERN_EXTRAS_METADATA_KEY = 'microservices:pattern_extras';
+import { PATTERN_EXTRAS_METADATA } from '@nestjs/microservices/constants';
 
-jest.mock('@nestjs/microservices/constants', () => ({
-  ['PATTERN_EXTRAS_METADATA']: PATTERN_EXTRAS_METADATA_KEY,
-}));
-
-jest.mock('@nestjs/core', () => ({
-  ['Reflector']: class {
-    public get = jest.fn();
-  },
-}));
-
-jest.mock('@nestjs/common', () => ({
-  ['applyDecorators']:
-    (...decorators: readonly (MethodDecorator | ClassDecorator | PropertyDecorator)[]) =>
-    (target: object, key: string | symbol, descriptor: PropertyDescriptor): PropertyDescriptor => {
-      for (const decorator of decorators) {
-        (decorator as MethodDecorator)(target, key, descriptor);
-      }
-
-      return descriptor;
-    },
-  ['UseInterceptors']: (): MethodDecorator => () => undefined,
-  ['UseFilters']: (): MethodDecorator => () => undefined,
-  ['Injectable']: (): ClassDecorator => (target) => target,
-  ['Inject']: (): ParameterDecorator => () => undefined,
-  ['Catch']: (): ClassDecorator => (target) => target,
-}));
-
-jest.mock('@nestjs/microservices', () => ({
-  ['MessagePattern']:
-    (_metadata: string, extras: Record<string, unknown>): MethodDecorator =>
-    (_target, _propertyKey, descriptor) => {
-      const value = (descriptor as PropertyDescriptor).value as object;
-
-      Reflect.defineMetadata(PATTERN_EXTRAS_METADATA_KEY, extras, value);
-      return descriptor;
-    },
-}));
+import { describe, expect, it } from '@jest/globals';
 
 import { ApiGateway } from './api-gateway.decorator';
 
@@ -71,7 +26,9 @@ describe('ApiGateway decorator', () => {
 
   it('writes http metadata to PATTERN_EXTRAS_METADATA with explicit statusCode', () => {
     const handler = TestController.prototype.createUser;
-    const extras = Reflect.getMetadata(PATTERN_EXTRAS_METADATA_KEY, handler);
+    const extras = Reflect.getMetadata(PATTERN_EXTRAS_METADATA, handler) as {
+      meta: { http: Record<string, unknown> };
+    };
 
     expect(extras).toEqual({
       meta: {
@@ -82,7 +39,9 @@ describe('ApiGateway decorator', () => {
 
   it('omits statusCode from http metadata when not provided', () => {
     const handler = TestController.prototype.getUser;
-    const extras = Reflect.getMetadata(PATTERN_EXTRAS_METADATA_KEY, handler);
+    const extras = Reflect.getMetadata(PATTERN_EXTRAS_METADATA, handler) as {
+      meta: { http: Record<string, unknown> };
+    };
 
     expect(extras).toEqual({
       meta: {

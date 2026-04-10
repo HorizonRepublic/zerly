@@ -1,24 +1,4 @@
-// Mock @nestjs/common to avoid ESM-only import failures under ts-jest.
-// The PascalCase keys are required to match Nest's public API surface; they
-// are supplied via computed properties so the `naming-convention` rule
-// targeting shorthand method keys is not triggered.
-jest.mock('@nestjs/common', () => ({
-  ['Global']: (): ClassDecorator => (target) => target,
-  ['Module']: (): ClassDecorator => (target) => target,
-  ['Injectable']: (): ClassDecorator => (target) => target,
-  ['Inject']: (): ParameterDecorator => () => undefined,
-  ['Catch']: (): ClassDecorator => (target) => target,
-}));
-
-jest.mock('@nestjs/core', () => ({
-  ['Reflector']: class {
-    public get = jest.fn();
-  },
-}));
-
-jest.mock('@nestjs/microservices/constants', () => ({
-  ['PATTERN_EXTRAS_METADATA']: 'microservices:pattern_extras',
-}));
+import { describe, expect, it } from '@jest/globals';
 
 import { GatewayExceptionFilter } from '../filters/gateway-exception.filter';
 import { GatewayResponseInterceptor } from '../interceptors/gateway-response.interceptor';

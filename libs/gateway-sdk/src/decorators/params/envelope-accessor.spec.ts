@@ -1,3 +1,5 @@
+import { describe, expect, it } from '@jest/globals';
+
 import { readGatewayEnvelope } from './envelope-accessor';
 
 import type { IGatewayRequest } from '../../types/gateway-request.interface';

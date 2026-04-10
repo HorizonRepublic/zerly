@@ -1,23 +1,6 @@
-// Mock @nestjs/common, @nestjs/core, and @nestjs/microservices/constants to
-// avoid ESM-only import failures under ts-jest. PascalCase/SCREAMING_SNAKE
-// keys match Nest's public API surface; they are supplied via computed
-// properties so the `naming-convention` rule targeting shorthand method keys
-// is not triggered.
-jest.mock('@nestjs/common', () => ({
-  ['Injectable']: (): ClassDecorator => (target) => target,
-  ['Inject']: (): ParameterDecorator => () => undefined,
-}));
+import { Reflector } from '@nestjs/core';
 
-jest.mock('@nestjs/core', () => ({
-  ['Reflector']: class {
-    public get = jest.fn();
-  },
-}));
-
-jest.mock('@nestjs/microservices/constants', () => ({
-  ['PATTERN_EXTRAS_METADATA']: 'microservices:pattern_extras',
-}));
-
+import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { firstValueFrom, of } from 'rxjs';
 
 import { GatewayResponseInterceptor } from './gateway-response.interceptor';
@@ -27,7 +10,6 @@ import type { IStatusResolver } from '../normalization/contracts/status-resolver
 import type { IGatewayHttpMeta } from '../types/gateway-http-meta.interface';
 import type { IGatewayReply } from '../types/gateway-reply.interface';
 import type { CallHandler, ExecutionContext } from '@nestjs/common';
-import type { Reflector } from '@nestjs/core';
 
 const buildContext = (handler: () => void): ExecutionContext =>
   ({
@@ -49,6 +31,10 @@ describe('GatewayResponseInterceptor', () => {
   let interceptor: GatewayResponseInterceptor;
 
   beforeEach(() => {
+    // Under `@jest/globals`, `jest.fn()` with no generic resolves to
+    // `Mock<UnknownFunction>`, which is not directly assignable to a
+    // `jest.Mocked<T>` slot. Casting through `unknown` is the canonical
+    // escape hatch for ad-hoc test doubles backed by a per-method `jest.fn()`.
     reflector = {
       get: jest.fn(),
     } as unknown as jest.Mocked<Reflector>;
@@ -56,11 +42,11 @@ describe('GatewayResponseInterceptor', () => {
     replyBuilder = {
       success: jest.fn(),
       error: jest.fn(),
-    };
+    } as unknown as jest.Mocked<IGatewayReplyBuilder>;
 
     statusResolver = {
       resolveSuccess: jest.fn(),
-    };
+    } as unknown as jest.Mocked<IStatusResolver>;
 
     interceptor = new GatewayResponseInterceptor(reflector, replyBuilder, statusResolver);
   });

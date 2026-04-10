@@ -1,10 +1,4 @@
-// Mock @nestjs/common to avoid ESM-only import failures under ts-jest.
-// The PascalCase key is required to match Nest's public API surface; it is
-// supplied via a computed property so the camelCase `naming-convention` rule
-// targeting shorthand method keys is not triggered.
-jest.mock('@nestjs/common', () => ({
-  ['Injectable']: (): ClassDecorator => (target) => target,
-}));
+import { describe, expect, it } from '@jest/globals';
 
 import { DefaultErrorBodyFactory } from './default-error-body.factory';
 

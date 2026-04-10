@@ -1,12 +1,4 @@
-// Mock @nestjs/common to avoid ESM-only import failures under ts-jest.
-// The PascalCase keys are required to match Nest's public API surface; they
-// are supplied via computed properties so the `naming-convention` rule
-// targeting shorthand method keys is not triggered.
-jest.mock('@nestjs/common', () => ({
-  ['Injectable']: (): ClassDecorator => (target) => target,
-  ['Inject']: (): ParameterDecorator => () => undefined,
-  ['Catch']: (): ClassDecorator => (target) => target,
-}));
+import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 
 import { GatewayExceptionFilter } from './gateway-exception.filter';
 
@@ -55,13 +47,17 @@ describe('GatewayExceptionFilter', () => {
   };
 
   beforeEach(() => {
+    // Under `@jest/globals`, `jest.fn()` with no generic resolves to
+    // `Mock<UnknownFunction>`, which is not directly assignable to a
+    // `jest.Mocked<T>` slot. Casting through `unknown` is the canonical
+    // escape hatch for ad-hoc test doubles backed by a per-method `jest.fn()`.
     replyBuilder = {
       success: jest.fn(),
       error: jest.fn().mockReturnValue(sampleEnvelope),
-    };
+    } as unknown as jest.Mocked<IGatewayReplyBuilder>;
     errorBodyFactory = {
       build: jest.fn().mockReturnValue({ status: 404, body: sampleBody }),
-    };
+    } as unknown as jest.Mocked<IErrorBodyFactory>;
     filter = new GatewayExceptionFilter(replyBuilder, errorBodyFactory);
   });
 
@@ -133,6 +129,12 @@ describe('GatewayExceptionFilter', () => {
   it('passes even a missing/undefined request through to the factory', () => {
     filter.catch(new Error('x'), buildHost(undefined));
 
-    expect(errorBodyFactory.build).toHaveBeenCalledWith(expect.any(Error), undefined);
+    // `@jest/globals` types reject passing a literal `undefined` slot to
+    // `toHaveBeenCalledWith`, so assert the arguments via the mock call record
+    // instead of relying on matcher-position argument checking.
+    const [error, request] = errorBodyFactory.build.mock.calls.at(-1) ?? [];
+
+    expect(error).toBeInstanceOf(Error);
+    expect(request).toBeUndefined();
   });
 });
