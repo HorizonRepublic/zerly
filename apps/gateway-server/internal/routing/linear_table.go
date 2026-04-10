@@ -17,6 +17,12 @@ type linearTable struct {
 	routes []Route
 }
 
+// Compile-time assertion that linearTable satisfies the Table contract.
+// Adding a new method to Table will fail the build here before any
+// downstream caller even references the routing package, making the
+// interface an enforced contract rather than a runtime assumption.
+var _ Table = (*linearTable)(nil)
+
 // newLinearTable returns an empty linearTable ready for BuildTable to
 // populate via add. The returned value is not safe to share across
 // goroutines until construction completes.
@@ -72,10 +78,13 @@ func (t *linearTable) Methods(path string) []string {
 // parameters on success. It returns a nil map and false on a mismatch.
 //
 // The function is intentionally naive: it splits on "/" and walks the
-// segments once. No regex, no backtracking, no wildcard support — the
-// cost is O(len(path)) with a single small allocation for the params
-// map only on a hit. This matches the zero-alloc hot-path goal in the
-// design spec.
+// segments once. No regex, no backtracking, no wildcard support. Exact-
+// match routes (zero parameters) allocate nothing and return a nil
+// params map; parameterized routes allocate the map lazily on the first
+// ":param" segment encountered, sized to fit the remaining segments.
+// This matches the zero-alloc hot-path goal in the design spec for the
+// common case of static routes and keeps parameter extraction proportional
+// to the number of parameters actually present.
 func matchTemplate(template, path string) (map[string]string, bool) {
 	templateSegments := splitPath(template)
 	pathSegments := splitPath(path)
@@ -84,9 +93,12 @@ func matchTemplate(template, path string) (map[string]string, bool) {
 		return nil, false
 	}
 
-	params := make(map[string]string)
+	var params map[string]string
 	for i, seg := range templateSegments {
 		if strings.HasPrefix(seg, ":") {
+			if params == nil {
+				params = make(map[string]string, len(templateSegments)-i)
+			}
 			params[seg[1:]] = pathSegments[i]
 			continue
 		}
