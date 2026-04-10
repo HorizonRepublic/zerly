@@ -37,7 +37,15 @@ export class DefaultGatewayReplyBuilder implements IGatewayReplyBuilder {
     return {
       status,
       headers: {},
-      body,
+      /*
+       * Coerce `undefined` to `null` so the wire envelope shape stays
+       * deterministic across void and explicit-null handler returns.
+       * `JSON.stringify` omits `undefined` fields entirely, which would
+       * produce different byte shapes for semantically identical 204
+       * responses — a real bug for the Go gateway that decodes the reply
+       * into a fixed struct.
+       */
+      body: body ?? null,
     };
   }
 

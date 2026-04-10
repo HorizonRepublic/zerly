@@ -24,6 +24,20 @@ describe('DefaultGatewayReplyBuilder', () => {
       });
     });
 
+    it('coerces undefined body to null for wire-format determinism', () => {
+      // The public signature is `TBody | null`, but the interceptor hands
+      // off `unknown` values that can be `undefined` when a handler has a
+      // `void` return. The builder must normalize so that `JSON.stringify`
+      // emits an explicit `"body": null` field instead of omitting it.
+      expect(
+        builder.success(204, undefined as unknown as null),
+      ).toEqual({
+        status: 204,
+        headers: {},
+        body: null,
+      });
+    });
+
     it('returns the provided status verbatim', () => {
       expect(builder.success(418, 'teapot').status).toBe(418);
     });

@@ -353,10 +353,12 @@ describe('@ApiGateway end-to-end flow (integration)', () => {
 
       expect(reply.status).toBe(204);
       expect(reply.headers).toEqual({});
-      // DefaultGatewayReplyBuilder passes the handler return value through
-      // verbatim; for a `void` handler that is `undefined`, which satisfies
-      // the `TBody | null` declared slot (JSON-serializes to no body).
-      expect(reply.body).toBeUndefined();
+      // DefaultGatewayReplyBuilder coerces `undefined` to `null` so the wire
+      // envelope shape is deterministic across void and explicit-null handler
+      // returns. Without coercion, JSON.stringify would omit the `body` field
+      // entirely, producing divergent byte shapes for semantically identical
+      // 204 responses.
+      expect(reply.body).toBeNull();
     });
   });
 
