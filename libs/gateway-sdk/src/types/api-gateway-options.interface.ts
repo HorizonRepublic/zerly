@@ -20,10 +20,23 @@ export interface IApiGatewayOptions {
    */
   readonly pattern: string;
 
-  /** HTTP method the gateway should accept. */
+  /**
+   * HTTP method the gateway should accept.
+   * @remarks
+   * Persisted verbatim into `IGatewayHttpMeta.method` (see that type for the
+   * on-wire shape) and becomes part of the gateway's routing trie key.
+   */
   readonly method: HttpMethod;
 
-  /** URL path template with `:param` placeholders, e.g. `/users/:id`. */
+  /**
+   * URL path template with `:param` placeholders, e.g. `/users/:id`.
+   * @remarks
+   * Placeholder names become the keys of `IGatewayRequest.params` and MUST
+   * match the string passed to `@GatewayParam('name')` inside the handler.
+   * The template is also used verbatim as a metric/log label — keep
+   * cardinality bounded by using `:params` for dynamic segments instead of
+   * embedding ids in the literal path.
+   */
   readonly path: string;
 
   /**

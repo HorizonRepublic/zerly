@@ -34,7 +34,14 @@ export interface IGatewayRequestMeta {
    */
   readonly remoteAddr: string;
 
-  /** Unix milliseconds when the gateway accepted the request. */
+  /**
+   * Unix milliseconds when the gateway accepted the request.
+   * @remarks
+   * Computed at the very start of the gateway request lifecycle, before
+   * subject lookup or NATS publish. Handlers can subtract it from `Date.now()`
+   * to get an in-handler latency budget, and downstream tracers use it as a
+   * synthesized span start when `traceparent` is absent.
+   */
   readonly receivedAt: number;
 
   /**

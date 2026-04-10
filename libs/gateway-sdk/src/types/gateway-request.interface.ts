@@ -15,23 +15,46 @@ export interface IGatewayRequest<TBody = unknown> {
   /** Routing context describing which registered route matched this request. */
   readonly route: IGatewayRouteContext;
 
-  /** Path parameters extracted from `:placeholders` in the route template. */
+  /**
+   * Path parameters extracted from `:placeholders` in the route template.
+   * @remarks
+   * Always present; an empty object when the matched route template has no
+   * placeholders. Handlers can read keys unconditionally without null checks.
+   * Values are always `string` — numeric coercion is the handler's
+   * responsibility (e.g., via a NestJS pipe or explicit `Number()`).
+   */
   readonly params: Readonly<Record<string, string>>;
 
   /**
-   * Parsed query string. Repeated keys arrive as `string[]`; single-value
-   * keys arrive as `string`. Handlers should `Array.isArray` to discriminate.
+   * Parsed query string.
+   * @remarks
+   * Always present; an empty object when the incoming URL has no query.
+   * Repeated keys arrive as `readonly string[]`; single-value keys arrive as
+   * `string`. Handlers should `Array.isArray` to discriminate when a single
+   * key may or may not be repeated.
    */
   readonly query: Readonly<Record<string, string | readonly string[]>>;
 
   /**
-   * Request headers, lowercased. Multi-value headers are joined into a single
-   * string in MVP; `headersRaw` will be added as a non-breaking extension when
-   * multi-value support lands.
+   * Request headers, lowercased.
+   * @remarks
+   * Always present; an empty object on requests that somehow carry no headers.
+   * Multi-value headers are joined into a single string in MVP; `headersRaw`
+   * will be added as a non-breaking extension when multi-value support lands.
+   * Hop-by-hop headers (`Connection`, `Transfer-Encoding`, etc.) are stripped
+   * by the gateway before forwarding — handlers only see end-to-end headers.
    */
   readonly headers: Readonly<Record<string, string>>;
 
-  /** Parsed JSON body, or `null` for empty requests. */
+  /**
+   * Parsed HTTP body.
+   * @remarks
+   * For `application/json` requests the gateway parses the body before
+   * publishing; for empty-body methods (typically `GET`, `DELETE`) the field
+   * holds the JSON `null` literal. Handlers that need to tolerate missing
+   * bodies should narrow the generic (`IGatewayRequest<MyDto | null>`) rather
+   * than relying on runtime presence checks.
+   */
   readonly body: TBody;
 
   /** Gateway-generated metadata: request id, trace context, deadlines. */

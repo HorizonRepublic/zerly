@@ -22,7 +22,15 @@ import type { HttpMethod } from './http-method.type';
  *   - `version`   — API version marker, e.g. `'v1'`
  */
 export interface IGatewayHttpMeta {
-  /** HTTP method the gateway will accept for this handler. */
+  /**
+   * HTTP method the gateway will accept for this handler.
+   * @remarks
+   * Combined with `path` this field forms the dispatch key of the gateway's
+   * routing trie. It is what makes `@ApiGateway` *additive* over the plain
+   * `@MessagePattern` contract: the same handler stays callable as a pure
+   * RPC while also being reachable through the gateway under the declared
+   * HTTP verb.
+   */
   readonly method: HttpMethod;
 
   /**

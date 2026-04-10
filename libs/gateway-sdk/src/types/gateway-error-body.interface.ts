@@ -16,7 +16,15 @@ export interface IGatewayErrorBody {
    */
   readonly error: string;
 
-  /** Human-readable error description. */
+  /**
+   * Human-readable error description.
+   * @remarks
+   * Sourced from `DomainException.message` when available; otherwise a
+   * sanitized generic string ("An unexpected error occurred"). Safe to
+   * render directly in a client UI — unlike `stack`, it never leaks
+   * implementation details. Clients may use `error` as an i18n key and fall
+   * back to this field when no localized message exists.
+   */
   readonly message: string;
 
   /**
