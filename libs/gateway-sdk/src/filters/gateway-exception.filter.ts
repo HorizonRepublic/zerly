@@ -6,6 +6,8 @@ import {
   type ExceptionFilter,
 } from '@nestjs/common';
 
+import { of, type Observable } from 'rxjs';
+
 import {
   GATEWAY_ERROR_BODY_FACTORY,
   GATEWAY_REPLY_BUILDER,
@@ -63,10 +65,32 @@ export class GatewayExceptionFilter implements ExceptionFilter {
     private readonly errorBodyFactory: IErrorBodyFactory,
   ) {}
 
-  public catch(exception: unknown, host: ArgumentsHost): IGatewayReply<IGatewayErrorBody> {
+  /**
+   * Serializes the exception into an `IGatewayReply` envelope and emits
+   * it as a successful Observable value.
+   * @remarks
+   * The return type is `Observable<IGatewayReply<IGatewayErrorBody>>`
+   * — NOT a bare envelope — because NestJS microservices transports
+   * (including `@horizon-republic/nestjs-jetstream`) serialize the
+   * value each Observable emits as the RPC reply body. Returning a
+   * plain object from an RPC exception filter makes Nest wrap it in
+   * the default transport error envelope (`{err, response,
+   * isDisposed}`), which the Go gateway's decoder cannot parse as a
+   * `GatewayReply` — it sees `status: 0` and surfaces the whole
+   * response as a 502 Bad Gateway.
+   *
+   * Wrapping the envelope in `of(...)` makes Nest treat it as a
+   * normal reply — exactly mirroring what the response interceptor
+   * does on the success path — so the wire envelope shape stays
+   * identical regardless of whether the handler returned or threw.
+   */
+  public catch(
+    exception: unknown,
+    host: ArgumentsHost,
+  ): Observable<IGatewayReply<IGatewayErrorBody>> {
     const request = host.switchToRpc().getData<IGatewayRequest>();
     const { status, body } = this.errorBodyFactory.build(exception, request);
 
-    return this.replyBuilder.error(status, body);
+    return of(this.replyBuilder.error(status, body));
   }
 }

@@ -372,7 +372,7 @@ describe('@ApiGateway end-to-end flow (integration)', () => {
    * never leaking the raw thrown message.
    */
   describe('error path via filter', () => {
-    it('serializes a FixtureDomainException into a structured 404 envelope', () => {
+    it('serializes a FixtureDomainException into a structured 404 envelope', async () => {
       const envelope = buildEnvelope(null, {
         meta: {
           requestId: 'req-err-1',
@@ -386,7 +386,7 @@ describe('@ApiGateway end-to-end flow (integration)', () => {
         lookupId: '42',
       });
 
-      const reply = filter.catch(exception, host);
+      const reply = await firstValueFrom(filter.catch(exception, host));
 
       expect(reply.status).toBe(404);
       expect(reply.headers).toEqual({ 'content-type': 'application/problem+json' });
@@ -397,7 +397,7 @@ describe('@ApiGateway end-to-end flow (integration)', () => {
       expect(typeof reply.body?.stack).toBe('string');
     });
 
-    it('serializes a plain Error into a sanitized 500 envelope', () => {
+    it('serializes a plain Error into a sanitized 500 envelope', async () => {
       const envelope = buildEnvelope(null, {
         meta: {
           requestId: 'req-err-2',
@@ -407,7 +407,7 @@ describe('@ApiGateway end-to-end flow (integration)', () => {
         },
       });
       const host = buildArgumentsHost(envelope);
-      const reply = filter.catch(new Error('raw internal detail'), host);
+      const reply = await firstValueFrom(filter.catch(new Error('raw internal detail'), host));
 
       expect(reply.status).toBe(500);
       expect(reply.headers).toEqual({ 'content-type': 'application/problem+json' });
@@ -426,7 +426,7 @@ describe('@ApiGateway end-to-end flow (integration)', () => {
      * same code path also handles the actual class hierarchy Nest ships,
      * without a hard import dependency leaking into the SDK runtime.
      */
-    it('serializes a real NestJS NotFoundException into a 404 envelope', () => {
+    it('serializes a real NestJS NotFoundException into a 404 envelope', async () => {
       const envelope = buildEnvelope(null, {
         meta: {
           requestId: 'req-err-3',
@@ -436,7 +436,9 @@ describe('@ApiGateway end-to-end flow (integration)', () => {
         },
       });
       const host = buildArgumentsHost(envelope);
-      const reply = filter.catch(new NotFoundException('User not found'), host);
+      const reply = await firstValueFrom(
+        filter.catch(new NotFoundException('User not found'), host),
+      );
 
       expect(reply.status).toBe(404);
       expect(reply.headers).toEqual({ 'content-type': 'application/problem+json' });
@@ -452,7 +454,7 @@ describe('@ApiGateway end-to-end flow (integration)', () => {
      * array into a single human-readable string so the wire envelope stays
      * a flat JSON object (RFC 7807 `detail` is a string, not an array).
      */
-    it('serializes a NestJS BadRequestException with array message', () => {
+    it('serializes a NestJS BadRequestException with array message', async () => {
       const envelope = buildEnvelope(null, {
         meta: {
           requestId: 'req-err-4',
@@ -462,9 +464,11 @@ describe('@ApiGateway end-to-end flow (integration)', () => {
         },
       });
       const host = buildArgumentsHost(envelope);
-      const reply = filter.catch(
-        new BadRequestException(['email must be an email', 'age must be a number']),
-        host,
+      const reply = await firstValueFrom(
+        filter.catch(
+          new BadRequestException(['email must be an email', 'age must be a number']),
+          host,
+        ),
       );
 
       expect(reply.status).toBe(400);

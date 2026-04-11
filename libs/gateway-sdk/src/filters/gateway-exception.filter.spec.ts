@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, jest } from '@jest/globals';
+import { firstValueFrom } from 'rxjs';
 
 import { GatewayExceptionFilter } from './gateway-exception.filter';
 
@@ -61,7 +62,7 @@ describe('GatewayExceptionFilter', () => {
     filter = new GatewayExceptionFilter(replyBuilder, errorBodyFactory);
   });
 
-  it('delegates a DomainException-shaped throw to the factory and builder', () => {
+  it('delegates a DomainException-shaped throw to the factory and builder', async () => {
     const request = buildRequest('req-1');
     const domainException = {
       isDomainException: true,
@@ -70,14 +71,14 @@ describe('GatewayExceptionFilter', () => {
       message: 'User not found',
     };
 
-    const result = filter.catch(domainException, buildHost(request));
+    const emitted = await firstValueFrom(filter.catch(domainException, buildHost(request)));
 
     expect(errorBodyFactory.build).toHaveBeenCalledWith(domainException, request);
     expect(replyBuilder.error).toHaveBeenCalledWith(404, sampleBody);
-    expect(result).toBe(sampleEnvelope);
+    expect(emitted).toBe(sampleEnvelope);
   });
 
-  it('delegates a generic Error throw through the same path', () => {
+  it('delegates a generic Error throw through the same path', async () => {
     const request = buildRequest('req-2');
 
     errorBodyFactory.build.mockReturnValueOnce({
@@ -93,7 +94,7 @@ describe('GatewayExceptionFilter', () => {
     replyBuilder.error.mockReturnValueOnce(internalEnvelope);
 
     const err = new Error('boom');
-    const result = filter.catch(err, buildHost(request));
+    const emitted = await firstValueFrom(filter.catch(err, buildHost(request)));
 
     expect(errorBodyFactory.build).toHaveBeenCalledWith(err, request);
     expect(replyBuilder.error).toHaveBeenCalledWith(500, {
@@ -101,15 +102,15 @@ describe('GatewayExceptionFilter', () => {
       message: 'boom',
       requestId: 'req-2',
     });
-    expect(result).toBe(internalEnvelope);
+    expect(emitted).toBe(internalEnvelope);
   });
 
   it('forwards non-Error throws (string, number, null) to the factory unchanged', () => {
     const request = buildRequest('req-3');
 
-    filter.catch('string throw', buildHost(request));
-    filter.catch(42, buildHost(request));
-    filter.catch(null, buildHost(request));
+    filter.catch('string throw', buildHost(request)).subscribe();
+    filter.catch(42, buildHost(request)).subscribe();
+    filter.catch(null, buildHost(request)).subscribe();
 
     expect(errorBodyFactory.build).toHaveBeenNthCalledWith(1, 'string throw', request);
     expect(errorBodyFactory.build).toHaveBeenNthCalledWith(2, 42, request);
@@ -121,13 +122,13 @@ describe('GatewayExceptionFilter', () => {
     const switchToRpc = jest.fn().mockReturnValue({ getData: () => request });
     const host = { switchToRpc } as unknown as ArgumentsHost;
 
-    filter.catch(new Error('x'), host);
+    filter.catch(new Error('x'), host).subscribe();
 
     expect(switchToRpc).toHaveBeenCalledTimes(1);
   });
 
   it('passes even a missing/undefined request through to the factory', () => {
-    filter.catch(new Error('x'), buildHost(undefined));
+    filter.catch(new Error('x'), buildHost(undefined)).subscribe();
 
     // `@jest/globals` types reject passing a literal `undefined` slot to
     // `toHaveBeenCalledWith`, so assert the arguments via the mock call record
