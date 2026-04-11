@@ -1,9 +1,6 @@
 package proxy
 
 import (
-	"fmt"
-
-	"github.com/HorizonRepublic/zerly/apps/gateway-server/internal/codec"
 	"github.com/HorizonRepublic/zerly/apps/gateway-server/internal/routing"
 )
 
@@ -45,12 +42,17 @@ type Encoder interface {
 	Encode(out *[]byte, in *EncodeInput) error
 }
 
-// DefaultEncoder builds JSON envelopes using sonic through the codec
-// package. It is stateless and safe for concurrent use.
+// DefaultEncoder builds JSON envelopes using a hand-rolled,
+// zero-allocation serializer defined in envelope_encode.go. It
+// intentionally bypasses sonic for this specific type: sonic's
+// map-iteration path allocates per-encode when reflecting over the
+// three map fields of GatewayRequest, which is incompatible with the
+// hot-path zero-alloc budget. Stateless and safe for concurrent use.
 type DefaultEncoder struct{}
 
-// NewDefaultEncoder returns an Encoder backed by the codec package.
-// The returned pointer is safe to share across goroutines.
+// NewDefaultEncoder returns an Encoder backed by the hand-rolled
+// envelope serializer. The returned pointer is safe to share across
+// goroutines.
 func NewDefaultEncoder() *DefaultEncoder {
 	return &DefaultEncoder{}
 }
@@ -61,11 +63,17 @@ func NewDefaultEncoder() *DefaultEncoder {
 var _ Encoder = (*DefaultEncoder)(nil)
 
 // Encode assembles a GatewayRequest from in and appends its JSON
-// representation into out. The pooled envelope is reset and released
-// via defer so every code path returns the envelope to the pool
-// exactly once. The out slice is never reallocated by this method
-// beyond what sonic.EncodeInto does internally to grow the
-// caller-supplied backing array when the envelope does not fit.
+// representation onto *out via the hand-rolled envelope serializer.
+// The pooled envelope is reset and released via defer so every code
+// path returns it to the pool exactly once. The out slice is grown
+// only by the standard append builtin as the encoder writes, so the
+// caller's pooled backing array is reused in the common case and
+// automatically extended when a larger envelope does not fit.
+//
+// The error return is preserved to keep the Encoder interface stable
+// across alternative implementations that may need to fail, but the
+// hand-rolled path itself cannot fail: every field has a deterministic
+// JSON emission and no I/O is performed.
 func (e *DefaultEncoder) Encode(out *[]byte, in *EncodeInput) error {
 	envelope := acquireEnvelope()
 	defer releaseEnvelope(envelope)
@@ -93,8 +101,6 @@ func (e *DefaultEncoder) Encode(out *[]byte, in *EncodeInput) error {
 		TimeoutMs:   in.TimeoutMs,
 	}
 
-	if err := codec.MarshalInto(out, envelope); err != nil {
-		return fmt.Errorf("proxy encoder marshal: %w", err)
-	}
+	*out = appendEnvelopeJSON(*out, envelope)
 	return nil
 }
