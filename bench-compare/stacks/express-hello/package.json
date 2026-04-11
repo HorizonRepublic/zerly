@@ -1,0 +1,14 @@
+{
+  "name": "zerly-bench-express-hello",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^5.0.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
