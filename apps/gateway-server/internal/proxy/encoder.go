@@ -31,11 +31,18 @@ type EncodeInput struct {
 }
 
 // Encoder builds GatewayRequest envelopes from pre-parsed HTTP request
-// data. The interface is deliberately narrow so fakes stub it in a few
-// lines and so a future alternative encoder (e.g. protobuf) can swap in
-// without touching Handler.
+// data into a caller-owned scratch buffer. The interface is
+// deliberately narrow so fakes stub it in a few lines and so a future
+// alternative encoder (e.g. protobuf) can swap in without touching
+// Handler.
+//
+// Callers own the buffer and are responsible for its lifetime:
+// acquire from a pool, pass a pointer to Encode, pass the dereferenced
+// slice to the transport, then release. This eliminates the per-call
+// output-slice allocation that a Marshal-style signature would
+// otherwise require on the hot path.
 type Encoder interface {
-	Encode(in *EncodeInput) ([]byte, error)
+	Encode(out *[]byte, in *EncodeInput) error
 }
 
 // DefaultEncoder builds JSON envelopes using sonic through the codec
@@ -53,12 +60,13 @@ func NewDefaultEncoder() *DefaultEncoder {
 // before any caller is affected.
 var _ Encoder = (*DefaultEncoder)(nil)
 
-// Encode assembles a GatewayRequest from in and marshals it to JSON.
-//
-// The envelope is acquired from the pool, populated, marshalled, then
-// returned — pool churn is hidden from callers. The returned byte
-// slice is owned by the caller and lives beyond the pool release.
-func (e *DefaultEncoder) Encode(in *EncodeInput) ([]byte, error) {
+// Encode assembles a GatewayRequest from in and appends its JSON
+// representation into out. The pooled envelope is reset and released
+// via defer so every code path returns the envelope to the pool
+// exactly once. The out slice is never reallocated by this method
+// beyond what sonic.EncodeInto does internally to grow the
+// caller-supplied backing array when the envelope does not fit.
+func (e *DefaultEncoder) Encode(out *[]byte, in *EncodeInput) error {
 	envelope := acquireEnvelope()
 	defer releaseEnvelope(envelope)
 
@@ -85,9 +93,8 @@ func (e *DefaultEncoder) Encode(in *EncodeInput) ([]byte, error) {
 		TimeoutMs:   in.TimeoutMs,
 	}
 
-	out, err := codec.Marshal(envelope)
-	if err != nil {
-		return nil, fmt.Errorf("proxy encoder marshal: %w", err)
+	if err := codec.MarshalInto(out, envelope); err != nil {
+		return fmt.Errorf("proxy encoder marshal: %w", err)
 	}
-	return out, nil
+	return nil
 }

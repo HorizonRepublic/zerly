@@ -74,6 +74,15 @@ type ServeResult struct {
 // encode, NATS request, reply decode, response construction. Errors
 // are translated to the appropriate HTTP status with a pre-encoded
 // JSON error body from the internal/errors package.
+//
+// Payload ownership: the request envelope is marshalled into a
+// pooled scratch []byte acquired from payloadPool. The defer
+// releases the buffer back to the pool when Handle returns. This is
+// safe because nats.Conn.Request synchronously copies the outgoing
+// message into its write buffer before returning the reply — by the
+// time Request returns, the payload slice is no longer referenced by
+// NATS and is safe to reuse. Any future refactor that keeps the
+// payload slice alive beyond this function MUST stop using the pool.
 func (h *Handler) Handle(in *ServeInput) *ServeResult {
 	table := h.cfg.Table()
 	route, params, ok := table.Lookup(in.Method, in.Path)
@@ -81,7 +90,10 @@ func (h *Handler) Handle(in *ServeInput) *ServeResult {
 		return toServeResult(gerrors.NotFound)
 	}
 
-	payload, err := h.cfg.Encoder.Encode(&EncodeInput{
+	payload := acquirePayload()
+	defer releasePayload(payload)
+
+	err := h.cfg.Encoder.Encode(payload, &EncodeInput{
 		Method:      in.Method,
 		Path:        in.Path,
 		Body:        in.Body,
@@ -100,7 +112,7 @@ func (h *Handler) Handle(in *ServeInput) *ServeResult {
 		return toServeResult(gerrors.InternalError)
 	}
 
-	replyBytes, err := h.cfg.Nats.Request(route.Subject, payload, h.cfg.Timeout)
+	replyBytes, err := h.cfg.Nats.Request(route.Subject, *payload, h.cfg.Timeout)
 	if err != nil {
 		if isTimeoutErr(err) {
 			return toServeResult(gerrors.GatewayTimeout)

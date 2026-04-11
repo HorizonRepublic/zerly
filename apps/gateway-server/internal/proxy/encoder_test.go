@@ -13,8 +13,9 @@ import (
 
 func TestDefaultEncoder_BuildsValidEnvelope(t *testing.T) {
 	enc := NewDefaultEncoder()
+	buf := make([]byte, 0, 512)
 
-	raw, err := enc.Encode(&EncodeInput{
+	err := enc.Encode(&buf, &EncodeInput{
 		Method: "GET",
 		Path:   "/users/42",
 		Body:   []byte(`{"name":"Alice"}`),
@@ -39,7 +40,7 @@ func TestDefaultEncoder_BuildsValidEnvelope(t *testing.T) {
 	require.NoError(t, err)
 
 	var decoded GatewayRequest
-	require.NoError(t, codec.Unmarshal(raw, &decoded))
+	require.NoError(t, codec.Unmarshal(buf, &decoded))
 
 	assert.Equal(t, "GET", decoded.Route.Method)
 	assert.Equal(t, "/users/:id", decoded.Route.Path)
@@ -57,8 +58,9 @@ func TestDefaultEncoder_BuildsValidEnvelope(t *testing.T) {
 
 func TestDefaultEncoder_HandlesMultiValueQuery(t *testing.T) {
 	enc := NewDefaultEncoder()
+	buf := make([]byte, 0, 512)
 
-	raw, err := enc.Encode(&EncodeInput{
+	err := enc.Encode(&buf, &EncodeInput{
 		Method: "GET",
 		Path:   "/items",
 		Query: map[string]QueryValue{
@@ -75,15 +77,16 @@ func TestDefaultEncoder_HandlesMultiValueQuery(t *testing.T) {
 	require.NoError(t, err)
 
 	var decoded GatewayRequest
-	require.NoError(t, codec.Unmarshal(raw, &decoded))
+	require.NoError(t, codec.Unmarshal(buf, &decoded))
 
 	assert.Equal(t, []string{"a", "b"}, decoded.Query["tag"].Multi)
 }
 
 func TestDefaultEncoder_EmptyBodyIsNullJSON(t *testing.T) {
 	enc := NewDefaultEncoder()
+	buf := make([]byte, 0, 512)
 
-	raw, err := enc.Encode(&EncodeInput{
+	err := enc.Encode(&buf, &EncodeInput{
 		Method: "GET",
 		Path:   "/ping",
 		Body:   nil,
@@ -97,6 +100,6 @@ func TestDefaultEncoder_EmptyBodyIsNullJSON(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	assert.True(t, strings.Contains(string(raw), `"body":null`),
-		"expected body to marshal as null, got: %s", string(raw))
+	assert.True(t, strings.Contains(string(buf), `"body":null`),
+		"expected body to marshal as null, got: %s", string(buf))
 }

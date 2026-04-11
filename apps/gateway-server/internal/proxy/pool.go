@@ -21,6 +21,14 @@ const (
 // bounded.
 const initialBufferCap = 4096
 
+// initialPayloadCap is the pre-allocated capacity of pooled scratch
+// []byte slices used for envelope marshalling. 1 KiB covers the
+// typical envelope footprint (route + small body + headers) without
+// an initial grow; sonic's EncodeInto reallocates automatically if a
+// specific request exceeds this, and the grown capacity is preserved
+// across pool cycles by storing a pointer to the slice.
+const initialPayloadCap = 1024
+
 // envelopePool reuses GatewayRequest instances across requests. Every
 // acquired envelope is reset before use by acquireEnvelope and must be
 // returned via releaseEnvelope once the NATS reply has been processed.
@@ -78,4 +86,47 @@ func releaseBuffer(buffer *bytes.Buffer) {
 		return
 	}
 	bufferPool.Put(buffer)
+}
+
+// payloadPool reuses append-style scratch buffers across requests.
+// Unlike bufferPool (which stores *bytes.Buffer for callers that want
+// a Writer interface), payloadPool stores a pointer to a bare []byte
+// slice so sonic.EncodeInto can append directly into the pooled
+// backing array without going through bytes.Buffer.Write.
+//
+// Using a pointer is mandatory: storing a bare []byte in sync.Pool
+// would lose any capacity grow that happened during encoding because
+// the returned slice header is not the same value that was Put into
+// the pool. Storing *[]byte preserves the grown capacity across
+// acquire/release cycles — the pointer value is stable even when the
+// slice header it points at has been reallocated.
+var payloadPool = sync.Pool{
+	New: func() any {
+		buf := make([]byte, 0, initialPayloadCap)
+		return &buf
+	},
+}
+
+// acquirePayload fetches a pooled scratch buffer reset to zero
+// length. The underlying backing array retains whatever capacity
+// previous users grew it to, so steady-state encodes pay zero
+// allocations once the pool has warmed up to the typical envelope
+// size.
+//
+// The returned pointer MUST be released via releasePayload on every
+// code path — including error paths — or the pool footprint grows
+// without bound.
+func acquirePayload() *[]byte {
+	ptr, _ := payloadPool.Get().(*[]byte)
+	*ptr = (*ptr)[:0]
+	return ptr
+}
+
+// releasePayload returns a payload buffer to the pool. Safe with a
+// nil pointer so defer statements can unconditionally release.
+func releasePayload(buf *[]byte) {
+	if buf == nil {
+		return
+	}
+	payloadPool.Put(buf)
 }
