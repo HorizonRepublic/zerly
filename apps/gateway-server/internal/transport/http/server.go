@@ -13,9 +13,18 @@ import (
 // only one registered route and incurs no per-request routing cost.
 //
 // The returned *server.Hertz is NOT started — callers are expected
-// to call h.Spin() once all dependencies have been assembled.
-// Returning the unstarted server lets tests construct it against an
-// ephemeral port without touching the network.
+// to call h.Run() in a goroutine once all dependencies have been
+// assembled, and then block on the lifecycle package for signal-
+// driven shutdown. Returning the unstarted server lets tests
+// construct it against an ephemeral port without touching the
+// network.
+//
+// ExitWaitTimeout is aligned with cfg.ShutdownTimeout so there is a
+// single operator-facing knob ("SHUTDOWN_TIMEOUT") for the total
+// drain budget. Hertz internally bounds its Shutdown context by
+// ExitWaitTimeout — without this override it would cap at Hertz's
+// default 5s and the lifecycle package's longer budget would be
+// silently ignored.
 //
 // HTTP/2 (h2c) support is NOT wired even though cfg.EnableHTTP2
 // exists — Hertz h2c requires additional imports that have not yet
@@ -29,6 +38,7 @@ func NewServer(cfg *config.Config, handler *proxy.Handler) *server.Hertz {
 		server.WithReadTimeout(cfg.ReadTimeout),
 		server.WithWriteTimeout(cfg.WriteTimeout),
 		server.WithIdleTimeout(cfg.IdleTimeout),
+		server.WithExitWaitTime(cfg.ShutdownTimeout),
 		server.WithKeepAlive(true),
 	)
 
