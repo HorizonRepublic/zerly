@@ -42,19 +42,30 @@ type Encoder interface {
 	Encode(out *[]byte, in *EncodeInput) error
 }
 
-// DefaultEncoder builds JSON envelopes using a hand-rolled,
-// zero-allocation serializer defined in envelope_encode.go. It
-// intentionally bypasses sonic for this specific type: sonic's
-// map-iteration path allocates per-encode when reflecting over the
-// three map fields of GatewayRequest, which is incompatible with the
-// hot-path zero-alloc budget. Stateless and safe for concurrent use.
-type DefaultEncoder struct{}
+// DefaultEncoder builds envelopes via a pluggable envelopeSerializer.
+// The default serializer is the hand-rolled, zero-allocation JSON
+// emitter in envelope_encode.go — it intentionally bypasses sonic
+// because sonic's map-iteration path allocates per encode when
+// reflecting over the three map fields of GatewayRequest, which is
+// incompatible with the hot-path zero-alloc budget.
+//
+// The serializer field preserves the "swap codec = localised change"
+// invariant from the design spec without sacrificing the measured
+// zero-alloc perf of the JSON path: a second codec (msgpack, protobuf)
+// can be dropped in as a new envelopeSerializer implementation without
+// touching Handler, the pool, or the HTTP transport. DefaultEncoder
+// itself is stateless apart from the serializer reference and safe
+// for concurrent use by construction.
+type DefaultEncoder struct {
+	serializer envelopeSerializer
+}
 
-// NewDefaultEncoder returns an Encoder backed by the hand-rolled
+// NewDefaultEncoder returns an Encoder backed by the hand-rolled JSON
 // envelope serializer. The returned pointer is safe to share across
-// goroutines.
+// goroutines — both DefaultEncoder and jsonEnvelopeSerializer are
+// stateless and allocate no shared mutable fields.
 func NewDefaultEncoder() *DefaultEncoder {
-	return &DefaultEncoder{}
+	return &DefaultEncoder{serializer: jsonEnvelopeSerializer{}}
 }
 
 // Compile-time assertion that DefaultEncoder satisfies the Encoder
@@ -62,18 +73,19 @@ func NewDefaultEncoder() *DefaultEncoder {
 // before any caller is affected.
 var _ Encoder = (*DefaultEncoder)(nil)
 
-// Encode assembles a GatewayRequest from in and appends its JSON
-// representation onto *out via the hand-rolled envelope serializer.
+// Encode assembles a GatewayRequest from in and appends its wire
+// representation onto *out via the configured envelopeSerializer.
 // The pooled envelope is reset and released via defer so every code
 // path returns it to the pool exactly once. The out slice is grown
-// only by the standard append builtin as the encoder writes, so the
-// caller's pooled backing array is reused in the common case and
-// automatically extended when a larger envelope does not fit.
+// only by the serializer's internal appends, so the caller's pooled
+// backing array is reused in the common case and automatically
+// extended when a larger envelope does not fit.
 //
 // The error return is preserved to keep the Encoder interface stable
-// across alternative implementations that may need to fail, but the
-// hand-rolled path itself cannot fail: every field has a deterministic
-// JSON emission and no I/O is performed.
+// across alternative serializer implementations that may need to fail
+// (for example, a future protobuf codec whose descriptor lookup could
+// return an error). The default JSON serializer itself cannot fail:
+// every field has a deterministic emission and no I/O is performed.
 func (e *DefaultEncoder) Encode(out *[]byte, in *EncodeInput) error {
 	envelope := acquireEnvelope()
 	defer releaseEnvelope(envelope)
@@ -101,6 +113,6 @@ func (e *DefaultEncoder) Encode(out *[]byte, in *EncodeInput) error {
 		TimeoutMs:   in.TimeoutMs,
 	}
 
-	*out = appendEnvelopeJSON(*out, envelope)
+	*out = e.serializer.Append(*out, envelope)
 	return nil
 }
