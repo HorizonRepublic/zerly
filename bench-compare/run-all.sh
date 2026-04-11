@@ -198,7 +198,9 @@ write_report() {
   local hw_info node_v wrk_v git_sha started_at finished_at
   hw_info=$(uname -srm)
   node_v=$(node --version 2>/dev/null || echo "unknown")
-  wrk_v=$(wrk --version 2>&1 | head -1 || echo "unknown")
+  # wrk prints "wrk X.Y.Z [kqueue]" on stderr; extract just the version
+  # token so the markdown table cell stays a single line.
+  wrk_v=$(wrk --version 2>&1 | head -1 | awk '{print $2}' || echo "unknown")
   git_sha=$(git -C "$SCRIPT_DIR/.." rev-parse --short HEAD 2>/dev/null || echo "unknown")
   started_at="$REPORT_STARTED_AT"
   finished_at=$(date +"%Y-%m-%d %H:%M:%S %z")
