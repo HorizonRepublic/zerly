@@ -65,7 +65,21 @@ func main() {
 	handler := buildProxyHandler(cfg, currentTable, requester, logger)
 	httpServer := httptransport.NewServer(cfg, handler)
 
-	go httpServer.Spin()
+	// Run the Hertz server directly instead of Spin() so that its
+	// built-in SIGTERM/SIGINT handler does not race with our own
+	// lifecycle.WaitForSignal. Spin() always registers its own
+	// signal waiter, and when two goroutines listen for the same
+	// signal the one that wakes first tears down the engine — if
+	// Hertz wins, lifecycle.Drain's httpServer.Shutdown sees
+	// "engine is not running" and in-flight requests are dropped
+	// instead of drained. Run() blocks until Shutdown is called
+	// externally, which is exactly the handoff our lifecycle
+	// package expects.
+	go func() {
+		if err := httpServer.Run(); err != nil {
+			logger.Error().Err(err).Msg("hertz server exited unexpectedly")
+		}
+	}()
 	logger.Info().Str("addr", cfg.HTTPAddr).Msg("http server started")
 
 	sig := lifecycle.WaitForSignal()
