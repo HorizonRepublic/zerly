@@ -170,7 +170,14 @@ func (w *Watcher) watchLoop(ctx context.Context) {
 }
 
 func (w *Watcher) runWatch(ctx context.Context) error {
-	watcher, err := w.kv.WatchAll(ctx, jetstream.IgnoreDeletes())
+	// WatchAll is intentionally invoked WITHOUT IgnoreDeletes — the
+	// watcher must see KV deletes and purges so the Store reflects
+	// route removals in real time. nestjs-jetstream's handler-metadata
+	// KV uses TTL + heartbeat cleanup: stale entries expire as Purge
+	// events on the watch channel, and failing to observe those would
+	// let orphaned routes linger in the routing table across controller
+	// rewrites and service restarts until the next gateway reboot.
+	watcher, err := w.kv.WatchAll(ctx)
 	if err != nil {
 		return fmt.Errorf("kv WatchAll: %w", err)
 	}
@@ -219,11 +226,11 @@ func (w *Watcher) applyDelta(kve jetstream.KeyValueEntry) {
 		}
 		next[key] = entry
 	case jetstream.KeyValueDelete, jetstream.KeyValuePurge:
-		// Delete and Purge are suppressed by jetstream.IgnoreDeletes() on
-		// the watch subscription above, so in steady state this branch is
-		// never taken. Keeping it here as defense-in-depth: if the watch
-		// is ever reconfigured to deliver deletions, the store will
-		// immediately start reflecting them without another code change.
+		// Delete and Purge are the two operations nats.go surfaces for
+		// entry removal. Delete marks the key as deleted (soft); Purge
+		// evicts every historical revision. Both must drop the entry
+		// from the snapshot — the routing table cares about the
+		// CURRENT set of live handlers, not the history of key states.
 		delete(next, key)
 	default:
 		// Unknown operation — ignore it instead of swapping in an

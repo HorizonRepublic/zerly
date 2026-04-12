@@ -105,9 +105,30 @@ func TestWatcher_ReflectsKVChangesIntoStore(t *testing.T) {
 	assert.Equal(t, "GET", entry.HTTP.Method)
 	assert.Equal(t, "/users/:id", entry.HTTP.Path)
 
-	// NOTE: the watcher is configured with jetstream.IgnoreDeletes() which
-	// suppresses delete events from the watch channel. That means the
-	// Store will NOT observe removals — delete propagation can be added
-	// later by reconfiguring the watch subscription if operational needs
-	// demand it.
+	// Delete-path verification. nestjs-jetstream's handler-metadata
+	// cleanup relies on TTL + heartbeat expiry, and the watcher MUST
+	// observe those as Purge events so the routing table stops
+	// exposing stale handlers after a controller rewrite or pod
+	// restart. Explicit Delete on the bucket is the deterministic
+	// equivalent we can exercise without waiting out a real TTL
+	// window in the test — the watcher's applyDelta handles Delete
+	// and Purge through the same code path.
+	require.NoError(t, kv.Delete(ctx, "users-svc.cmd.users.get"))
+
+	deadline = time.Now().Add(5 * time.Second)
+	var removed bool
+	for time.Now().Before(deadline) {
+		select {
+		case <-changeCh:
+		case <-time.After(200 * time.Millisecond):
+		}
+
+		snap := store.Get()
+		if _, stillPresent := snap.Entries["users-svc.cmd.users.get"]; !stillPresent {
+			removed = true
+
+			break
+		}
+	}
+	assert.True(t, removed, "entry should be dropped from snapshot after Delete")
 }
