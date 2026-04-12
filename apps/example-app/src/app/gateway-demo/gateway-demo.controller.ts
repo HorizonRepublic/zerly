@@ -1,6 +1,12 @@
-import { Controller } from '@nestjs/common';
+import { Controller, NotFoundException } from '@nestjs/common';
 
-import { ApiGateway, GatewayBody, GatewayParam, GatewayRequestId } from '@zerly/gateway-sdk';
+import {
+  ApiGateway,
+  GatewayBody,
+  GatewayParam,
+  GatewayQuery,
+  GatewayRequestId,
+} from '@zerly/gateway-sdk';
 
 import { GatewayDemoService, type IDemoUser } from './gateway-demo.service';
 
@@ -55,15 +61,16 @@ export class GatewayDemoController {
    * @throws Error When no user exists for the supplied ID.
    */
   @ApiGateway({
-    pattern: 'demo.users.get',
+    pattern: 'users.get',
     method: 'GET',
-    path: '/demo/users/:id',
+    path: '/users/:id',
   })
-  public getUser(@GatewayParam('id') id: string): IDemoUser {
+  public getUser(@GatewayQuery() query: unknown, @GatewayParam('id') id: string): IDemoUser {
+    console.log('QUERY', query);
     const user = this.service.findById(id);
 
     if (!user) {
-      throw new Error(`User ${id} not found`);
+      throw new NotFoundException(`User ${id} not found`);
     }
 
     return user;
@@ -76,15 +83,16 @@ export class GatewayDemoController {
    * @returns The newly created user, enriched with the request ID.
    */
   @ApiGateway({
-    pattern: 'demo.users.create',
+    pattern: 'users.create',
     method: 'POST',
-    path: '/demo/users',
+    path: '/users',
     statusCode: 201,
   })
   public createUser(
     @GatewayBody() dto: ICreateDemoUserDto,
     @GatewayRequestId() requestId: string,
   ): IDemoUserWithRequestId {
+    console.log('BODY', dto);
     return { ...this.service.create(dto.name), requestId };
   }
 
@@ -93,9 +101,9 @@ export class GatewayDemoController {
    * @param id - Opaque user identifier taken from the `:id` path segment.
    */
   @ApiGateway({
-    pattern: 'demo.users.delete',
+    pattern: 'users.delete',
     method: 'DELETE',
-    path: '/demo/users/:id',
+    path: '/users/:id',
   })
   public deleteUser(@GatewayParam('id') id: string): void {
     this.service.delete(id);
