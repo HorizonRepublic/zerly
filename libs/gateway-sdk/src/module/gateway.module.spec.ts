@@ -15,7 +15,7 @@ import { GatewayModule } from './gateway.module';
 
 import type { IErrorBodyFactory } from '../normalization/contracts/error-body-factory.interface';
 import type { IGatewayReplyBuilder } from '../normalization/contracts/reply-builder.interface';
-import type { ClassProvider, FactoryProvider, Provider } from '@nestjs/common';
+import type { ClassProvider, Provider } from '@nestjs/common';
 
 const findUseClassProvider = (
   providers: readonly Provider[],
@@ -26,63 +26,46 @@ const findUseClassProvider = (
       typeof p === 'object' && 'provide' in p && p.provide === token && 'useClass' in p,
   );
 
-const findUseFactoryProvider = (
-  providers: readonly Provider[],
-  token: symbol,
-): FactoryProvider | undefined =>
-  providers.find(
-    (p): p is FactoryProvider =>
-      typeof p === 'object' && 'provide' in p && p.provide === token && 'useFactory' in p,
-  );
-
 describe('GatewayModule', () => {
   describe('forRoot()', () => {
     it('returns a DynamicModule with global: true and module: GatewayModule', () => {
-      const mod = GatewayModule.forRoot({ isProduction: false });
+      const mod = GatewayModule.forRoot();
 
       expect(mod.module).toBe(GatewayModule);
       expect(mod.global).toBe(true);
     });
 
-    it('registers default impls when no overrides are provided', () => {
-      const mod = GatewayModule.forRoot({ isProduction: false });
+    it('accepts being called with no arguments at all', () => {
+      // All normalization slots have production-ready defaults; the module
+      // should be usable with a bare `forRoot()` invocation for zero-config
+      // quickstarts.
+      const mod = GatewayModule.forRoot();
       const providers = mod.providers ?? [];
 
-      const replyBuilderProvider = findUseClassProvider(providers, GATEWAY_REPLY_BUILDER);
-
-      expect(replyBuilderProvider).toBeDefined();
-      expect(replyBuilderProvider?.useClass).toBe(DefaultGatewayReplyBuilder);
-
-      const statusResolverProvider = findUseClassProvider(providers, GATEWAY_STATUS_RESOLVER);
-
-      expect(statusResolverProvider).toBeDefined();
-      expect(statusResolverProvider?.useClass).toBe(DefaultStatusResolver);
+      expect(findUseClassProvider(providers, GATEWAY_REPLY_BUILDER)?.useClass).toBe(
+        DefaultGatewayReplyBuilder,
+      );
+      expect(findUseClassProvider(providers, GATEWAY_STATUS_RESOLVER)?.useClass).toBe(
+        DefaultStatusResolver,
+      );
+      expect(findUseClassProvider(providers, GATEWAY_ERROR_BODY_FACTORY)?.useClass).toBe(
+        DefaultErrorBodyFactory,
+      );
     });
 
-    it('binds errorBodyFactory via useFactory producing DefaultErrorBodyFactory with isProduction=true', () => {
-      const mod = GatewayModule.forRoot({ isProduction: true });
+    it('registers default impls when an empty options object is passed', () => {
+      const mod = GatewayModule.forRoot({});
       const providers = mod.providers ?? [];
 
-      const factoryProvider = findUseFactoryProvider(providers, GATEWAY_ERROR_BODY_FACTORY);
-
-      expect(factoryProvider).toBeDefined();
-
-      const instance = factoryProvider?.useFactory();
-
-      expect(instance).toBeInstanceOf(DefaultErrorBodyFactory);
-    });
-
-    it('binds errorBodyFactory via useFactory producing DefaultErrorBodyFactory with isProduction=false', () => {
-      const mod = GatewayModule.forRoot({ isProduction: false });
-      const providers = mod.providers ?? [];
-
-      const factoryProvider = findUseFactoryProvider(providers, GATEWAY_ERROR_BODY_FACTORY);
-
-      expect(factoryProvider).toBeDefined();
-
-      const instance = factoryProvider?.useFactory();
-
-      expect(instance).toBeInstanceOf(DefaultErrorBodyFactory);
+      expect(findUseClassProvider(providers, GATEWAY_REPLY_BUILDER)?.useClass).toBe(
+        DefaultGatewayReplyBuilder,
+      );
+      expect(findUseClassProvider(providers, GATEWAY_STATUS_RESOLVER)?.useClass).toBe(
+        DefaultStatusResolver,
+      );
+      expect(findUseClassProvider(providers, GATEWAY_ERROR_BODY_FACTORY)?.useClass).toBe(
+        DefaultErrorBodyFactory,
+      );
     });
 
     it('uses the custom replyBuilder override when provided', () => {
@@ -96,47 +79,36 @@ describe('GatewayModule', () => {
         }
       }
 
-      const mod = GatewayModule.forRoot({
-        isProduction: false,
-        replyBuilder: CustomReplyBuilder,
-      });
+      const mod = GatewayModule.forRoot({ replyBuilder: CustomReplyBuilder });
       const provider = findUseClassProvider(mod.providers ?? [], GATEWAY_REPLY_BUILDER);
 
       expect(provider?.useClass).toBe(CustomReplyBuilder);
       expect(provider?.useClass).not.toBe(DefaultGatewayReplyBuilder);
     });
 
-    it('uses useClass (not useFactory) when custom errorBodyFactory is provided', () => {
+    it('uses the custom errorBodyFactory override when provided', () => {
       class CustomFactory implements IErrorBodyFactory {
         public build(): never {
           throw new Error('not implemented');
         }
       }
 
-      const mod = GatewayModule.forRoot({
-        isProduction: true,
-        errorBodyFactory: CustomFactory,
-      });
-      const providers = mod.providers ?? [];
+      const mod = GatewayModule.forRoot({ errorBodyFactory: CustomFactory });
+      const provider = findUseClassProvider(mod.providers ?? [], GATEWAY_ERROR_BODY_FACTORY);
 
-      const useClassEntry = findUseClassProvider(providers, GATEWAY_ERROR_BODY_FACTORY);
-
-      expect(useClassEntry?.useClass).toBe(CustomFactory);
-
-      const useFactoryEntry = findUseFactoryProvider(providers, GATEWAY_ERROR_BODY_FACTORY);
-
-      expect(useFactoryEntry).toBeUndefined();
+      expect(provider?.useClass).toBe(CustomFactory);
+      expect(provider?.useClass).not.toBe(DefaultErrorBodyFactory);
     });
 
     it('includes GatewayResponseInterceptor and GatewayExceptionFilter in providers', () => {
-      const mod = GatewayModule.forRoot({ isProduction: false });
+      const mod = GatewayModule.forRoot();
 
       expect(mod.providers).toContain(GatewayResponseInterceptor);
       expect(mod.providers).toContain(GatewayExceptionFilter);
     });
 
     it('exports all three tokens plus the interceptor and filter classes', () => {
-      const mod = GatewayModule.forRoot({ isProduction: false });
+      const mod = GatewayModule.forRoot();
 
       expect(mod.exports).toEqual(
         expect.arrayContaining([

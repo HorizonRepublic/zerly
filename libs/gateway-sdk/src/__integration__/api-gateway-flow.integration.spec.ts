@@ -229,7 +229,7 @@ describe('@ApiGateway end-to-end flow (integration)', () => {
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({
-      imports: [GatewayModule.forRoot({ isProduction: false })],
+      imports: [GatewayModule.forRoot()],
       controllers: [TestUsersController],
       providers: [TestUsersService],
     }).compile();
@@ -394,7 +394,6 @@ describe('@ApiGateway end-to-end flow (integration)', () => {
       expect(reply.body?.message).toBe('User not found');
       expect(reply.body?.requestId).toBe('req-err-1');
       expect(reply.body?.details).toEqual({ lookupId: '42' });
-      expect(typeof reply.body?.stack).toBe('string');
     });
 
     it('serializes a plain Error into a sanitized 500 envelope', async () => {
@@ -415,7 +414,6 @@ describe('@ApiGateway end-to-end flow (integration)', () => {
       expect(reply.body?.message).toBe('An unexpected error occurred');
       expect(reply.body?.message).not.toContain('raw internal detail');
       expect(reply.body?.requestId).toBe('req-err-2');
-      expect(typeof reply.body?.stack).toBe('string');
     });
 
     /**

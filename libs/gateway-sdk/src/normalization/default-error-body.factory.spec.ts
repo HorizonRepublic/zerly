@@ -26,41 +26,28 @@ describe('DefaultErrorBodyFactory', () => {
       code: 'USER_NOT_FOUND',
       message: 'User not found',
       details: { userId: '1' },
-      stack: 'Error: User not found\n  at ...',
     };
 
     it('extracts status from the exception', () => {
-      const factory = new DefaultErrorBodyFactory(true);
+      const factory = new DefaultErrorBodyFactory();
 
       expect(factory.build(domainError, request).status).toBe(404);
     });
 
     it('populates error code from exception.code', () => {
-      const factory = new DefaultErrorBodyFactory(true);
+      const factory = new DefaultErrorBodyFactory();
 
       expect(factory.build(domainError, request).body.error).toBe('USER_NOT_FOUND');
     });
 
     it('includes details when present', () => {
-      const factory = new DefaultErrorBodyFactory(true);
+      const factory = new DefaultErrorBodyFactory();
 
       expect(factory.build(domainError, request).body.details).toEqual({ userId: '1' });
     });
 
-    it('omits stack trace in production mode', () => {
-      const factory = new DefaultErrorBodyFactory(true);
-
-      expect(factory.build(domainError, request).body.stack).toBeUndefined();
-    });
-
-    it('includes stack trace in non-production mode', () => {
-      const factory = new DefaultErrorBodyFactory(false);
-
-      expect(factory.build(domainError, request).body.stack).toContain('User not found');
-    });
-
     it('echoes requestId from the request', () => {
-      const factory = new DefaultErrorBodyFactory(true);
+      const factory = new DefaultErrorBodyFactory();
 
       expect(factory.build(domainError, request).body.requestId).toBe('req-abc');
     });
@@ -68,31 +55,25 @@ describe('DefaultErrorBodyFactory', () => {
 
   describe('with generic Error', () => {
     it('returns 500 with INTERNAL_SERVER_ERROR code', () => {
-      const factory = new DefaultErrorBodyFactory(true);
+      const factory = new DefaultErrorBodyFactory();
       const result = factory.build(new Error('boom'), request);
 
       expect(result.status).toBe(500);
       expect(result.body.error).toBe('INTERNAL_SERVER_ERROR');
     });
 
-    it('hides the original message in production', () => {
-      const factory = new DefaultErrorBodyFactory(true);
+    it('sanitizes the original message regardless of source', () => {
+      const factory = new DefaultErrorBodyFactory();
 
       expect(factory.build(new Error('boom'), request).body.message).toBe(
         'An unexpected error occurred',
       );
     });
-
-    it('includes stack in dev mode for generic Error', () => {
-      const factory = new DefaultErrorBodyFactory(false);
-
-      expect(factory.build(new Error('boom'), request).body.stack).toContain('boom');
-    });
   });
 
   describe('with non-Error throws', () => {
     it('handles string throws', () => {
-      const factory = new DefaultErrorBodyFactory(true);
+      const factory = new DefaultErrorBodyFactory();
       const result = factory.build('some string', request);
 
       expect(result.status).toBe(500);
@@ -100,13 +81,13 @@ describe('DefaultErrorBodyFactory', () => {
     });
 
     it('handles null throws', () => {
-      const factory = new DefaultErrorBodyFactory(true);
+      const factory = new DefaultErrorBodyFactory();
 
       expect(factory.build(null, request).status).toBe(500);
     });
 
     it('handles number throws', () => {
-      const factory = new DefaultErrorBodyFactory(true);
+      const factory = new DefaultErrorBodyFactory();
 
       expect(factory.build(42, request).status).toBe(500);
     });
@@ -150,7 +131,7 @@ describe('DefaultErrorBodyFactory', () => {
     }
 
     it('extracts status from getStatus()', () => {
-      const factory = new DefaultErrorBodyFactory(true);
+      const factory = new DefaultErrorBodyFactory();
       const exception = new FixtureHttpException(
         { statusCode: 404, message: 'User not found', error: 'Not Found' },
         404,
@@ -161,7 +142,7 @@ describe('DefaultErrorBodyFactory', () => {
     });
 
     it('normalizes response.error "Not Found" into NOT_FOUND code', () => {
-      const factory = new DefaultErrorBodyFactory(true);
+      const factory = new DefaultErrorBodyFactory();
       const exception = new FixtureHttpException(
         { statusCode: 404, message: 'User not found', error: 'Not Found' },
         404,
@@ -172,7 +153,7 @@ describe('DefaultErrorBodyFactory', () => {
     });
 
     it('uses response.message as the body message', () => {
-      const factory = new DefaultErrorBodyFactory(true);
+      const factory = new DefaultErrorBodyFactory();
       const exception = new FixtureHttpException(
         { statusCode: 404, message: 'User not found', error: 'Not Found' },
         404,
@@ -183,7 +164,7 @@ describe('DefaultErrorBodyFactory', () => {
     });
 
     it('joins array messages from ValidationPipe with ", "', () => {
-      const factory = new DefaultErrorBodyFactory(true);
+      const factory = new DefaultErrorBodyFactory();
       const exception = new FixtureHttpException(
         {
           statusCode: 400,
@@ -200,7 +181,7 @@ describe('DefaultErrorBodyFactory', () => {
     });
 
     it('handles a plain-string response body', () => {
-      const factory = new DefaultErrorBodyFactory(true);
+      const factory = new DefaultErrorBodyFactory();
       const exception = new FixtureHttpException(
         'Teapot brewing coffee',
         418,
@@ -213,7 +194,7 @@ describe('DefaultErrorBodyFactory', () => {
     });
 
     it('projects extra response fields into details', () => {
-      const factory = new DefaultErrorBodyFactory(true);
+      const factory = new DefaultErrorBodyFactory();
       const exception = new FixtureHttpException(
         {
           statusCode: 418,
@@ -233,7 +214,7 @@ describe('DefaultErrorBodyFactory', () => {
     });
 
     it('derives error code from class name when response.error is missing', () => {
-      const factory = new DefaultErrorBodyFactory(true);
+      const factory = new DefaultErrorBodyFactory();
       const exception = new FixtureHttpException(
         { statusCode: 599, message: 'Boom' },
         599,
@@ -243,30 +224,8 @@ describe('DefaultErrorBodyFactory', () => {
       expect(factory.build(exception, request).body.error).toBe('CUSTOM_HTTP_EXCEPTION');
     });
 
-    it('omits stack trace in production mode', () => {
-      const factory = new DefaultErrorBodyFactory(true);
-      const exception = new FixtureHttpException(
-        { statusCode: 404, message: 'x', error: 'Not Found' },
-        404,
-        'NotFoundException',
-      );
-
-      expect(factory.build(exception, request).body.stack).toBeUndefined();
-    });
-
-    it('includes stack trace in non-production mode', () => {
-      const factory = new DefaultErrorBodyFactory(false);
-      const exception = new FixtureHttpException(
-        { statusCode: 404, message: 'x', error: 'Not Found' },
-        404,
-        'NotFoundException',
-      );
-
-      expect(factory.build(exception, request).body.stack).toBeDefined();
-    });
-
     it('takes precedence over the generic Error fallback', () => {
-      const factory = new DefaultErrorBodyFactory(true);
+      const factory = new DefaultErrorBodyFactory();
       const exception = new FixtureHttpException(
         { statusCode: 403, message: 'Nope', error: 'Forbidden' },
         403,

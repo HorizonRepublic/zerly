@@ -26,7 +26,6 @@ interface IDomainExceptionLike {
   readonly code: string;
   readonly message: string;
   readonly details?: Readonly<Record<string, unknown>>;
-  readonly stack?: string;
 }
 
 /**
@@ -48,7 +47,6 @@ interface IDomainExceptionLike {
 interface IHttpExceptionLike {
   readonly name: string;
   readonly message: string;
-  readonly stack?: string;
   getStatus(): number;
   getResponse(): string | Readonly<Record<string, unknown>>;
 }
@@ -89,9 +87,12 @@ const HTTP_RESPONSE_PROJECTED_FIELDS: ReadonlySet<string> = new Set([
  * `HttpException`, then the generic `500` fallback — so an exception
  * carrying both markers would be routed through the Zerly branch.
  *
- * Stack traces are included in the response body only when `isProduction` is
- * `false`. In production, stacks are never exposed over the wire even for
- * recognized `DomainException` or `HttpException` values.
+ * Stack traces are NEVER included in the response body, regardless of
+ * environment. Stack information stays server-side only — operators read
+ * it from logs correlated by `requestId`, never from client-facing HTTP
+ * responses. This removes an entire class of internal-path-leak bugs
+ * (filesystem layouts, framework versions, vendor dir paths) that plague
+ * dev-mode stack exposure in other HTTP frameworks.
  *
  * Bind a custom implementation against the `GATEWAY_ERROR_BODY_FACTORY`
  * token from `../tokens/gateway-tokens.constant` when integrating with
@@ -107,12 +108,6 @@ const HTTP_RESPONSE_PROJECTED_FIELDS: ReadonlySet<string> = new Set([
  */
 @Injectable()
 export class DefaultErrorBodyFactory implements IErrorBodyFactory {
-  private readonly isProduction: boolean;
-
-  public constructor(isProduction: boolean) {
-    this.isProduction = isProduction;
-  }
-
   public build(error: unknown, request: IGatewayRequest): IErrorBodyBuildResult {
     if (this.isDomainException(error)) {
       return {
@@ -179,15 +174,11 @@ export class DefaultErrorBodyFactory implements IErrorBodyFactory {
       requestId: request.meta.requestId,
     };
 
-    const withDetails: IGatewayErrorBody = error.details
-      ? { ...base, details: error.details }
-      : base;
-
-    if (!this.isProduction && error.stack !== undefined) {
-      return { ...withDetails, stack: error.stack };
+    if (error.details) {
+      return { ...base, details: error.details };
     }
 
-    return withDetails;
+    return base;
   }
 
   /**
@@ -195,10 +186,8 @@ export class DefaultErrorBodyFactory implements IErrorBodyFactory {
    * @remarks
    * Delegates error-code resolution, message extraction, and extra-field
    * projection to the three focused `extractHttp*` helpers so each concern
-   * remains independently testable. The stack-trace gate mirrors
-   * `buildFromDomain`: stacks are never exposed in production even for
-   * recognized exceptions, and in development they are attached only when
-   * the underlying `Error` actually carries one.
+   * remains independently testable. Stack traces are intentionally NOT
+   * attached — see the class-level godoc for the rationale.
    */
   private buildFromHttpException(
     error: IHttpExceptionLike,
@@ -212,13 +201,7 @@ export class DefaultErrorBodyFactory implements IErrorBodyFactory {
       requestId: request.meta.requestId,
     };
 
-    const withDetails = this.extractHttpDetails(response, base);
-
-    if (!this.isProduction && error.stack !== undefined) {
-      return { ...withDetails, stack: error.stack };
-    }
-
-    return withDetails;
+    return this.extractHttpDetails(response, base);
   }
 
   /**
@@ -315,17 +298,11 @@ export class DefaultErrorBodyFactory implements IErrorBodyFactory {
     return { ...base, details: extras };
   }
 
-  private buildFromUnknown(error: unknown, request: IGatewayRequest): IGatewayErrorBody {
-    const base: IGatewayErrorBody = {
+  private buildFromUnknown(_error: unknown, request: IGatewayRequest): IGatewayErrorBody {
+    return {
       error: 'INTERNAL_SERVER_ERROR',
       message: 'An unexpected error occurred',
       requestId: request.meta.requestId,
     };
-
-    if (!this.isProduction && error instanceof Error && error.stack !== undefined) {
-      return { ...base, stack: error.stack };
-    }
-
-    return base;
   }
 }

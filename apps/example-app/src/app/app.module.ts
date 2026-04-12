@@ -23,9 +23,7 @@ import { JetstreamBootstrapProvider } from './transport/jetstream-bootstrap.prov
     }),
 
     // gateway SDK
-    GatewayModule.forRoot({
-      isProduction: process.env['NODE_ENV'] === 'production',
-    }),
+    GatewayModule.forRoot(),
 
     // app layer
     SubModule,

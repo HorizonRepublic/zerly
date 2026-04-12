@@ -12,7 +12,6 @@ import {
 } from '../tokens/gateway-tokens.constant';
 
 import type { IGatewayModuleOptions } from './gateway-module-options.interface';
-import type { IErrorBodyFactory } from '../normalization/contracts/error-body-factory.interface';
 
 /**
  * Global NestJS module that wires the gateway SDK building blocks into the
@@ -25,17 +24,12 @@ import type { IErrorBodyFactory } from '../normalization/contracts/error-body-fa
  * inside every feature module.
  *
  * Override any of the three normalization contracts via `forRoot()` options.
- * The `isProduction` flag is mandatory because the default error body
- * factory needs it; custom factories receive their own configuration via
- * whatever DI mechanism the user wires up.
+ * All three slots have production-ready defaults; pass `{}` (or nothing)
+ * to accept all defaults.
  * @example
  * ```ts
  * @Module({
- *   imports: [
- *     GatewayModule.forRoot({
- *       isProduction: process.env.NODE_ENV === 'production',
- *     }),
- *   ],
+ *   imports: [GatewayModule.forRoot({})],
  * })
  * export class AppModule {}
  * ```
@@ -49,7 +43,7 @@ export class GatewayModule {
    *                  three normalization contracts by passing a class
    *                  reference; the remaining slots use their defaults.
    */
-  public static forRoot(options: IGatewayModuleOptions): DynamicModule {
+  public static forRoot(options: IGatewayModuleOptions = {}): DynamicModule {
     const replyBuilderProvider: Provider = {
       provide: GATEWAY_REPLY_BUILDER,
       useClass: options.replyBuilder ?? DefaultGatewayReplyBuilder,
@@ -60,15 +54,10 @@ export class GatewayModule {
       useClass: options.statusResolver ?? DefaultStatusResolver,
     };
 
-    const errorBodyFactoryProvider: Provider = options.errorBodyFactory
-      ? {
-          provide: GATEWAY_ERROR_BODY_FACTORY,
-          useClass: options.errorBodyFactory,
-        }
-      : {
-          provide: GATEWAY_ERROR_BODY_FACTORY,
-          useFactory: (): IErrorBodyFactory => new DefaultErrorBodyFactory(options.isProduction),
-        };
+    const errorBodyFactoryProvider: Provider = {
+      provide: GATEWAY_ERROR_BODY_FACTORY,
+      useClass: options.errorBodyFactory ?? DefaultErrorBodyFactory,
+    };
 
     return {
       module: GatewayModule,

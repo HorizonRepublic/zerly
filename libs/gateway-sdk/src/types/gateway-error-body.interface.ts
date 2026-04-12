@@ -37,12 +37,4 @@ export interface IGatewayErrorBody {
 
   /** Optional structured context from `DomainException.details`. Domain-specific. */
   readonly details?: Readonly<Record<string, unknown>>;
-
-  /**
-   * Stack trace. Only populated in non-production environments.
-   * @remarks
-   * Controlled by `GatewayModuleOptions.isProduction` passed to `forRoot`.
-   * Never expose stack traces in production HTTP responses.
-   */
-  readonly stack?: string;
 }
