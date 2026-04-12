@@ -28,10 +28,11 @@ export const GATEWAY_STATUS_RESOLVER = Symbol('gateway-status-resolver');
  * Dependency injection token for `IErrorBodyFactory` implementations.
  * @remarks
  * Bind a custom factory to shape error responses — for example to integrate
- * with a non-Zerly error hierarchy, to apply project-specific error-code
+ * with a non-Nest error hierarchy, to apply project-specific error-code
  * mapping (`ProblemDetails`, internal taxonomies), or to strip sensitive
  * fields from third-party errors before they reach the wire. The default
- * implementation handles `DomainException` subclasses natively and falls
+ * implementation recognizes Nest `HttpException` via `instanceof`, forwards
+ * `exception.getStatus()` and `exception.getResponse()` verbatim, and falls
  * back to `DEFAULT_STATUS_INTERNAL_ERROR` for everything else.
  */
 export const GATEWAY_ERROR_BODY_FACTORY = Symbol('gateway-error-body-factory');

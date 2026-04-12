@@ -19,7 +19,7 @@ export interface IGatewayReply<TBody = unknown> {
    * the SDK's `GatewayResponseInterceptor` fills it from
    * `IApiGatewayOptions.statusCode` (or the null-return default); on the
    * error path the `GatewayExceptionFilter` fills it from
-   * `DomainException.status` or the generic `500` fallback. Downstream
+   * `HttpException.getStatus()` or the generic `500` fallback. Downstream
    * `@HttpCode()` decorators are not consulted — this field is authoritative.
    */
   readonly status: number;

@@ -2,6 +2,7 @@ import {
   Catch,
   Inject,
   Injectable,
+  Logger,
   type ArgumentsHost,
   type ExceptionFilter,
 } from '@nestjs/common';
@@ -20,6 +21,15 @@ import type { IGatewayReply } from '../types/gateway-reply.interface';
 import type { IGatewayRequest } from '../types/gateway-request.interface';
 
 /**
+ * Lowest HTTP status that is logged at `error` level. Anything strictly
+ * below this is a deliberate, client-facing signal (404, 401, 422...) and
+ * gets emitted silently so legitimate 4xx responses do not flood the logs.
+ * Mirrors the policy in `@zerly/errors` `AllExceptionsFilter.handleHttp`
+ * so behavior stays consistent across gateway and non-gateway handlers.
+ */
+const SERVER_ERROR_THRESHOLD = 500;
+
+/**
  * Catches any exception thrown from an `@ApiGateway`-decorated handler and
  * serializes it into an `IGatewayReply` envelope with the appropriate HTTP
  * status.
@@ -31,25 +41,38 @@ import type { IGatewayRequest } from '../types/gateway-request.interface';
  * between gateway and non-gateway exception origins at catch time.
  *
  * Policy is delegated to injected contracts:
- *   - `IErrorBodyFactory` via `GATEWAY_ERROR_BODY_FACTORY` — recognizes
- *     `DomainException` via duck-typing and extracts structured fields
- *   - `IGatewayReplyBuilder` via `GATEWAY_REPLY_BUILDER` — assembles the
- *     outbound envelope
+ *   - `IErrorBodyFactory` via `GATEWAY_ERROR_BODY_FACTORY` — extracts
+ *     a `(status, body)` pair from an arbitrary throw. The default
+ *     implementation recognizes Nest `HttpException` via `instanceof`
+ *     and falls through to `500` for anything else.
+ *   - `IGatewayReplyBuilder` via `GATEWAY_REPLY_BUILDER` — assembles
+ *     the outbound envelope.
  *
  * Pipe and guard exceptions are also caught here: NestJS runs exception
  * filters after pipes/guards throw, so validation errors (e.g., from
  * typia pipes) are correctly serialized into structured HTTP responses
  * rather than surfacing as raw 500s on the client side.
+ *
+ * Logging policy is intentionally symmetric with `@zerly/errors`
+ * `AllExceptionsFilter`: exceptions whose resolved status is `>= 500`
+ * are logged at `error` level with request context (pattern, matched
+ * path, request id, remote addr); anything `< 500` is treated as an
+ * expected client-facing signal and emitted silently. The global
+ * `AllExceptionsFilter` never sees gateway exceptions because this
+ * filter is attached locally via `@UseFilters` from the `@ApiGateway`
+ * decorator — duplicating the policy here keeps operators from losing
+ * sight of handler crashes that would otherwise disappear into a bare
+ * 500 response with no trace.
  * @example
  * ```ts
  * // Attached automatically by @ApiGateway — consumers never reference this
- * // class directly. Throw any DomainException subclass inside a handler
- * // and the filter produces the matching envelope.
+ * // class directly. Throw any Nest HttpException inside a handler and the
+ * // filter produces the matching envelope with status + getResponse() body.
  * @ApiGateway({ pattern: 'users.get', method: 'GET', path: '/users/:id' })
  * getUser(@GatewayParam('id') id: string) {
  *   const user = this.users.findById(id);
  *   if (!user) {
- *     throw new NotFoundException({ code: 'USER_NOT_FOUND' });
+ *     throw new NotFoundException('User not found');
  *   }
  *   return user;
  * }
@@ -58,6 +81,8 @@ import type { IGatewayRequest } from '../types/gateway-request.interface';
 @Catch()
 @Injectable()
 export class GatewayExceptionFilter implements ExceptionFilter {
+  private readonly logger = new Logger(GatewayExceptionFilter.name);
+
   public constructor(
     @Inject(GATEWAY_REPLY_BUILDER)
     private readonly replyBuilder: IGatewayReplyBuilder,
@@ -91,6 +116,44 @@ export class GatewayExceptionFilter implements ExceptionFilter {
     const request = host.switchToRpc().getData<IGatewayRequest>();
     const { status, body } = this.errorBodyFactory.build(exception, request);
 
+    if (status >= SERVER_ERROR_THRESHOLD) {
+      this.logServerError(exception, status, request);
+    }
+
     return of(this.replyBuilder.error(status, body));
+  }
+
+  /**
+   * Emits a single structured error log line for a 5xx exception.
+   * @remarks
+   * The NestJS `Logger` contract accepts a context object plus a message
+   * string; we attach the raw exception under `err` so nestjs-pino (or any
+   * other structured logger bridge) can serialize its stack via its own
+   * error serializer rather than relying on JSON's default `Error`
+   * stringification. Request-side context is pulled from the `IGatewayRequest`
+   * envelope: pattern + matched path identify the handler, request id
+   * correlates the log with gateway access logs, and remote addr helps
+   * attribute repeated failures to a misbehaving client.
+   *
+   * The request envelope is nullable in practice — callers that synthesise
+   * a test `ArgumentsHost` may not populate `switchToRpc().getData()` — so
+   * every field is read defensively. A missing request produces a log
+   * entry with only the error, which is still more useful than silence.
+   */
+  private logServerError(
+    exception: unknown,
+    status: number,
+    request: IGatewayRequest | undefined,
+  ): void {
+    this.logger.error({
+      msg: 'Gateway Handler Error',
+      err: exception,
+      status,
+      pattern: request?.route.path,
+      method: request?.route.method,
+      matchedPath: request?.route.matchedPath,
+      requestId: request?.meta.requestId,
+      remoteAddr: request?.meta.remoteAddr,
+    });
   }
 }

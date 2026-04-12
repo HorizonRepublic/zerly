@@ -23,11 +23,11 @@ export const DEFAULT_STATUS_NO_CONTENT = 204 as const;
 
 /**
  * Default HTTP status returned for unhandled throws that are not
- * `DomainException` instances.
+ * `HttpException` instances.
  * @remarks
  * Used by `DefaultErrorBodyFactory` as the last-resort fallback when an
- * uncaught error reaches the gateway's exception filter. `DomainException`
- * subclasses carry their own status via `ApiException.statusCode`; everything
+ * uncaught error reaches the gateway's exception filter. `HttpException`
+ * subclasses carry their own status via `exception.getStatus()`; everything
  * else (native `Error`, third-party throws, unknown payloads) is normalized
  * to `500` to guarantee the filter never emits a response without a status.
  */
