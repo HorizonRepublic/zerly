@@ -5,12 +5,26 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/rs/zerolog"
 )
+
+// reconcileInterval is how often the watcher performs a full-bucket
+// key scan and drops any store entries that no longer exist in KV.
+// Paired with the nestjs-jetstream heartbeat TTL (default 30 s on the
+// bucket) so silent TTL expirations are detected within a bounded
+// window without being so aggressive that the reconcile itself
+// becomes observable load on the cluster.
+//
+// Chosen as roughly half the typical bucket MaxAge so any stale
+// entry is guaranteed to be dropped within one full TTL period —
+// the worst-case staleness window is reconcileInterval + bucket
+// MaxAge, which at 15s + 30s caps operator-visible lag at 45s.
+const reconcileInterval = 15 * time.Second
 
 // ChangeCallback is invoked after every successful snapshot replacement.
 // Downstream layers (notably the routing-table builder in `routing`)
@@ -183,6 +197,18 @@ func (w *Watcher) runWatch(ctx context.Context) error {
 	}
 	defer func() { _ = watcher.Stop() }()
 
+	// Reconciliation tick handles silent TTL expirations from the KV
+	// bucket. nestjs-jetstream's handler-metadata cleanup relies on
+	// bucket MaxAge, which drops stream messages without writing a
+	// delete/purge tombstone — meaning the watch subscription never
+	// observes the removal. A periodic full-bucket scan is the only
+	// way to detect those vanished keys and evict them from the local
+	// store. The ticker shares the watch goroutine so its execution is
+	// serialized with applyDelta: no locks needed because only one
+	// function mutates the Store at a time.
+	reconcileTicker := time.NewTicker(reconcileInterval)
+	defer reconcileTicker.Stop()
+
 	// nats.go's JetStream KV watcher sends a nil entry once the initial
 	// replay of existing entries completes. We do not discard the replay
 	// entries: initialLoad may have run at T0 while a concurrent writer
@@ -194,6 +220,8 @@ func (w *Watcher) runWatch(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			return nil
+		case <-reconcileTicker.C:
+			w.reconcile(ctx)
 		case kve, ok := <-watcher.Updates():
 			if !ok {
 				return fmt.Errorf("watch updates channel closed")
@@ -206,6 +234,71 @@ func (w *Watcher) runWatch(ctx context.Context) error {
 			w.applyDelta(kve)
 		}
 	}
+}
+
+// reconcile performs a full-bucket key scan and drops any store
+// entries that no longer exist in KV. This is the safety net for
+// silent TTL expirations: JetStream bucket MaxAge evicts stream
+// messages without writing a delete/purge tombstone, so the watch
+// subscription never observes the removal. A periodic scan is the
+// only way to detect those vanished keys.
+//
+// Reconcile NEVER adds new entries — adds are handled deterministically
+// by the watch subscription's Put events. This asymmetry is deliberate:
+// adds must be observed exactly once with correct ordering (so
+// applyDelta can decode and validate), while drops are a recovery
+// operation that can be applied idempotently from any starting state.
+//
+// Called on the watchLoop goroutine, so its execution is serialized
+// with applyDelta — no locks are required because only one function
+// at a time is mutating the Store.
+func (w *Watcher) reconcile(ctx context.Context) {
+	scanCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	liveKeys, err := w.kv.Keys(scanCtx)
+	if err != nil && !errors.Is(err, jetstream.ErrNoKeysFound) {
+		w.logger.Warn().Err(err).Msg("reconcile: list keys failed")
+
+		return
+	}
+
+	alive := make(map[string]struct{}, len(liveKeys))
+	for _, key := range liveKeys {
+		alive[key] = struct{}{}
+	}
+
+	current := w.store.Get()
+
+	var stale []string
+	for key := range current.Entries {
+		if _, ok := alive[key]; !ok {
+			stale = append(stale, key)
+		}
+	}
+
+	if len(stale) == 0 {
+		return
+	}
+
+	// Sort the stale-key slice so the log output is deterministic
+	// across runs — Go map iteration order is randomized, and
+	// operators reading incident logs appreciate stable diffs.
+	sort.Strings(stale)
+
+	next := make(map[string]HandlerEntry, len(current.Entries)-len(stale))
+	for key, entry := range current.Entries {
+		if _, ok := alive[key]; ok {
+			next[key] = entry
+		}
+	}
+
+	w.store.Replace(&Snapshot{Entries: next})
+	w.logger.Info().
+		Int("dropped", len(stale)).
+		Strs("keys", stale).
+		Msg("reconcile: dropped stale store entries")
+	w.fireCallbacks()
 }
 
 func (w *Watcher) applyDelta(kve jetstream.KeyValueEntry) {

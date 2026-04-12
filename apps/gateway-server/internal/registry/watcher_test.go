@@ -666,3 +666,124 @@ func TestWatcher_OnChange_MultipleCallbacksInOrder(t *testing.T) {
 	defer mu.Unlock()
 	assert.Equal(t, []int{1, 2, 3}, order)
 }
+
+// TestWatcher_Reconcile_DropsStaleEntries certifies the belt-and-
+// suspenders path that compensates for silent JetStream KV TTL
+// expirations. Bucket MaxAge evicts stream messages without writing
+// a delete/purge tombstone, so the watch subscription never observes
+// the removal. reconcile must detect the discrepancy on its own by
+// listing live KV keys and dropping anything in the store that is
+// no longer present.
+func TestWatcher_Reconcile_DropsStaleEntries(t *testing.T) {
+	liveKey := "svc.cmd.users.get"
+	staleKey := "svc.cmd.users.old"
+
+	kv := &fakeKeyValue{
+		keysFunc: func(context.Context) ([]string, error) {
+			// KV reports only the live key — the stale one has silently
+			// aged out of the stream.
+			return []string{liveKey}, nil
+		},
+	}
+
+	watcher, store := newWatcherWithFake(t, kv)
+
+	// Pre-populate the store with both keys as if the watcher had
+	// seen Put events for each at some earlier point.
+	store.Replace(&Snapshot{Entries: map[string]HandlerEntry{
+		liveKey:  {HTTP: &HTTPMeta{Method: "GET", Path: "/users/:id"}},
+		staleKey: {HTTP: &HTTPMeta{Method: "GET", Path: "/old/:id"}},
+	}})
+
+	var callbackCount atomic.Int32
+	watcher.OnChange(func() { callbackCount.Add(1) })
+
+	watcher.reconcile(context.Background())
+
+	snap := store.Get()
+	assert.Len(t, snap.Entries, 1, "only the live key must remain after reconcile")
+	_, liveOK := snap.Entries[liveKey]
+	_, staleOK := snap.Entries[staleKey]
+	assert.True(t, liveOK, "live key must still be present")
+	assert.False(t, staleOK, "stale key must be dropped")
+	assert.Equal(t, int32(1), callbackCount.Load(), "callback must fire exactly once when state changes")
+}
+
+// TestWatcher_Reconcile_NoOpWhenAllKeysAlive certifies that reconcile
+// does NOT touch the store or fire callbacks when every store entry
+// is still present in KV. This is the 99% case in a healthy cluster —
+// reconcile must be cheap when there is nothing to clean up, otherwise
+// downstream rebuild callbacks fire on every tick and pollute logs.
+func TestWatcher_Reconcile_NoOpWhenAllKeysAlive(t *testing.T) {
+	key := "svc.cmd.users.get"
+
+	kv := &fakeKeyValue{
+		keysFunc: func(context.Context) ([]string, error) {
+			return []string{key}, nil
+		},
+	}
+
+	watcher, store := newWatcherWithFake(t, kv)
+	store.Replace(&Snapshot{Entries: map[string]HandlerEntry{
+		key: {HTTP: &HTTPMeta{Method: "GET", Path: "/users/:id"}},
+	}})
+
+	var callbackCount atomic.Int32
+	watcher.OnChange(func() { callbackCount.Add(1) })
+
+	watcher.reconcile(context.Background())
+
+	assert.Len(t, store.Get().Entries, 1)
+	assert.Equal(t, int32(0), callbackCount.Load(), "no callbacks on a clean reconcile")
+}
+
+// TestWatcher_Reconcile_EmptyBucketDropsEverything certifies that a
+// KV bucket that has emptied out (every key TTL-expired) correctly
+// drops every store entry. The jetstream.ErrNoKeysFound response is
+// handled identically to an empty slice — both mean "nothing alive".
+func TestWatcher_Reconcile_EmptyBucketDropsEverything(t *testing.T) {
+	kv := &fakeKeyValue{
+		keysFunc: func(context.Context) ([]string, error) {
+			return nil, jetstream.ErrNoKeysFound
+		},
+	}
+
+	watcher, store := newWatcherWithFake(t, kv)
+	store.Replace(&Snapshot{Entries: map[string]HandlerEntry{
+		"svc.cmd.a": {HTTP: &HTTPMeta{Method: "GET", Path: "/a"}},
+		"svc.cmd.b": {HTTP: &HTTPMeta{Method: "GET", Path: "/b"}},
+	}})
+
+	var callbackCount atomic.Int32
+	watcher.OnChange(func() { callbackCount.Add(1) })
+
+	watcher.reconcile(context.Background())
+
+	assert.Empty(t, store.Get().Entries)
+	assert.Equal(t, int32(1), callbackCount.Load())
+}
+
+// TestWatcher_Reconcile_PreservesStoreOnListError certifies that a
+// transient Keys() failure does NOT wipe the store. The watcher must
+// treat list errors as "state unknown, do not drop" and wait for the
+// next tick to retry.
+func TestWatcher_Reconcile_PreservesStoreOnListError(t *testing.T) {
+	kv := &fakeKeyValue{
+		keysFunc: func(context.Context) ([]string, error) {
+			return nil, errors.New("transient kv failure")
+		},
+	}
+
+	watcher, store := newWatcherWithFake(t, kv)
+	store.Replace(&Snapshot{Entries: map[string]HandlerEntry{
+		"svc.cmd.a": {HTTP: &HTTPMeta{Method: "GET", Path: "/a"}},
+	}})
+
+	var callbackCount atomic.Int32
+	watcher.OnChange(func() { callbackCount.Add(1) })
+
+	watcher.reconcile(context.Background())
+
+	assert.Len(t, store.Get().Entries, 1, "store must not be mutated on list error")
+	assert.Equal(t, int32(0), callbackCount.Load())
+}
