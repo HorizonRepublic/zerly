@@ -22,10 +22,15 @@ package proxy
 //   - Map object key order follows Go's randomized map iteration —
 //     JSON object key ordering is unspecified per RFC 8259 §4 so this
 //     is safe.
-//   - Body == nil serializes to the literal "null"; a non-nil
-//     json.RawMessage is appended verbatim with no re-validation
-//     (callers are responsible for ensuring it is valid JSON, which
-//     the proxy enforces upstream of the encoder).
+//   - An empty Body (nil OR zero-length slice) serializes to the
+//     literal "null"; a non-empty json.RawMessage is appended verbatim
+//     with no re-validation (callers are responsible for ensuring it
+//     is valid JSON, which the proxy enforces upstream of the encoder).
+//     Treating an empty slice the same as nil matters because the HTTP
+//     adapter populates Body from the framework's Request.Body(), which
+//     returns []byte{} (not nil) when the client sent no body — and
+//     emitting `"body":` with nothing after it would produce invalid
+//     JSON that the upstream decoder rejects.
 //   - Meta.Traceparent is emitted only when non-empty, mirroring the
 //     `traceparent,omitempty` struct tag that sonic honors.
 //   - QueryValue.Single variant → JSON string; Multi variant → JSON
@@ -54,7 +59,7 @@ func appendEnvelopeJSON(buf []byte, envelope *GatewayRequest) []byte {
 	buf = appendStringMap(buf, envelope.Headers)
 
 	buf = append(buf, `,"body":`...)
-	if envelope.Body == nil {
+	if len(envelope.Body) == 0 {
 		buf = append(buf, `null`...)
 	} else {
 		buf = append(buf, envelope.Body...)

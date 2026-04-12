@@ -121,13 +121,40 @@ func TestAppendEnvelopeJSON_MatchesSonicMarshal(t *testing.T) {
 }
 
 func TestAppendEnvelopeJSON_EmptyBodyIsNull(t *testing.T) {
-	env := fullEnvelope()
-	env.Body = nil
+	// Both forms of "empty" must serialize as the literal null.
+	// The HTTP adapter sources Body from the framework's
+	// Request.Body(), which may return either nil or []byte{}
+	// depending on whether the client sent a Content-Length:0
+	// header or no body at all. Treating the two differently once
+	// broke the proxy path: []byte{} fell through to the
+	// append-verbatim branch and emitted `"body":,"meta":...`,
+	// producing invalid JSON that Nest's JsonCodec rejected with
+	// a decode error.
+	cases := []struct {
+		name string
+		body []byte
+	}{
+		{"nil slice", nil},
+		{"zero-length slice", []byte{}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			env := fullEnvelope()
+			env.Body = c.body
 
-	out := string(appendEnvelopeJSON(nil, env))
+			out := string(appendEnvelopeJSON(nil, env))
 
-	assert.Contains(t, out, `"body":null`)
-	assert.NotContains(t, out, `"body":""`)
+			assert.Contains(t, out, `"body":null`)
+			assert.NotContains(t, out, `"body":""`)
+			assert.NotContains(t, out, `"body":,`)
+
+			// Strongest guarantee: the full envelope must still
+			// round-trip through a standards-compliant JSON parser.
+			var decoded map[string]any
+			require.NoError(t, json.Unmarshal([]byte(out), &decoded))
+			assert.Nil(t, decoded["body"])
+		})
+	}
 }
 
 func TestAppendEnvelopeJSON_OmitsEmptyTraceparent(t *testing.T) {
