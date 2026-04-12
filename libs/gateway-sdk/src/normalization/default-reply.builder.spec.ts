@@ -43,15 +43,19 @@ describe('DefaultGatewayReplyBuilder', () => {
 
   describe('error()', () => {
     const errorBody: IGatewayErrorBody = {
-      error: 'NOT_FOUND',
-      message: 'Not found',
-      requestId: 'req-123',
+      statusCode: 404,
+      message: 'User 3 not found',
+      error: 'Not Found',
     };
 
-    it('sets application/problem+json content type', () => {
-      expect(builder.error(404, errorBody).headers).toEqual({
-        'content-type': 'application/problem+json',
-      });
+    it('returns an empty headers map', () => {
+      // The Go gateway transport layer stamps Content-Type and
+      // X-Request-Id on its own, so the reply builder MUST not set
+      // headers that would be overwritten anyway. Keeping the map
+      // empty also matches NestJS BaseExceptionFilter's behaviour of
+      // emitting errors with the same application/json content type
+      // as successful responses.
+      expect(builder.error(404, errorBody).headers).toEqual({});
     });
 
     it('returns the error body verbatim', () => {

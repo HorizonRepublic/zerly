@@ -1,3 +1,11 @@
+import {
+  BadRequestException,
+  HttpException,
+  HttpStatus,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
+
 import { describe, expect, it } from '@jest/globals';
 
 import { DefaultErrorBodyFactory } from './default-error-body.factory';
@@ -19,223 +27,148 @@ describe('DefaultErrorBodyFactory', () => {
     },
   };
 
-  describe('with DomainException-shaped error', () => {
-    const domainError = {
-      isDomainException: true,
-      status: 404,
-      code: 'USER_NOT_FOUND',
-      message: 'User not found',
-      details: { userId: '1' },
-    };
-
-    it('extracts status from the exception', () => {
+  describe('with a NestJS HttpException', () => {
+    it('extracts status from NotFoundException via getStatus()', () => {
       const factory = new DefaultErrorBodyFactory();
+      const result = factory.build(new NotFoundException('User 3 not found'), request);
 
-      expect(factory.build(domainError, request).status).toBe(404);
+      expect(result.status).toBe(HttpStatus.NOT_FOUND);
     });
 
-    it('populates error code from exception.code', () => {
+    it('forwards Nest native body shape verbatim for NotFoundException', () => {
       const factory = new DefaultErrorBodyFactory();
+      const result = factory.build(new NotFoundException('User 3 not found'), request);
 
-      expect(factory.build(domainError, request).body.error).toBe('USER_NOT_FOUND');
+      expect(result.body).toEqual({
+        statusCode: HttpStatus.NOT_FOUND,
+        message: 'User 3 not found',
+        error: 'Not Found',
+      });
     });
 
-    it('includes details when present', () => {
+    it('forwards BadRequestException with array message (ValidationPipe shape)', () => {
       const factory = new DefaultErrorBodyFactory();
-
-      expect(factory.build(domainError, request).body.details).toEqual({ userId: '1' });
-    });
-
-    it('echoes requestId from the request', () => {
-      const factory = new DefaultErrorBodyFactory();
-
-      expect(factory.build(domainError, request).body.requestId).toBe('req-abc');
-    });
-  });
-
-  describe('with generic Error', () => {
-    it('returns 500 with INTERNAL_SERVER_ERROR code', () => {
-      const factory = new DefaultErrorBodyFactory();
-      const result = factory.build(new Error('boom'), request);
-
-      expect(result.status).toBe(500);
-      expect(result.body.error).toBe('INTERNAL_SERVER_ERROR');
-    });
-
-    it('sanitizes the original message regardless of source', () => {
-      const factory = new DefaultErrorBodyFactory();
-
-      expect(factory.build(new Error('boom'), request).body.message).toBe(
-        'An unexpected error occurred',
-      );
-    });
-  });
-
-  describe('with non-Error throws', () => {
-    it('handles string throws', () => {
-      const factory = new DefaultErrorBodyFactory();
-      const result = factory.build('some string', request);
-
-      expect(result.status).toBe(500);
-      expect(result.body.error).toBe('INTERNAL_SERVER_ERROR');
-    });
-
-    it('handles null throws', () => {
-      const factory = new DefaultErrorBodyFactory();
-
-      expect(factory.build(null, request).status).toBe(500);
-    });
-
-    it('handles number throws', () => {
-      const factory = new DefaultErrorBodyFactory();
-
-      expect(factory.build(42, request).status).toBe(500);
-    });
-  });
-
-  describe('with NestJS HttpException-shaped error', () => {
-    /**
-     * Hermetic duck-typed stand-in for NestJS's `HttpException`.
-     * @remarks
-     * Kept intentionally free of a `@nestjs/common` import so this unit test
-     * exercises the factory's duck-type recognition contract in isolation;
-     * the real-class verification lives in the integration spec. The response
-     * type is carried as a generic parameter so each instance has a
-     * monomorphic `getResponse()` return type — this keeps the fixture
-     * compatible with `sonarjs/function-return-type` while still allowing the
-     * suite to exercise both string and object response shapes via distinct
-     * instantiations.
-     * @template TResponse The concrete shape of the response payload, either a
-     *   plain string body or a structured `Record` mirroring NestJS's built-in
-     *   HTTP exception JSON output.
-     */
-    class FixtureHttpException<
-      TResponse extends string | Readonly<Record<string, unknown>>,
-    > extends Error {
-      public constructor(
-        private readonly response: TResponse,
-        private readonly status: number,
-        name = 'HttpException',
-      ) {
-        super(typeof response === 'string' ? response : String(response['message'] ?? ''));
-        this.name = name;
-      }
-
-      public getStatus(): number {
-        return this.status;
-      }
-
-      public getResponse(): TResponse {
-        return this.response;
-      }
-    }
-
-    it('extracts status from getStatus()', () => {
-      const factory = new DefaultErrorBodyFactory();
-      const exception = new FixtureHttpException(
-        { statusCode: 404, message: 'User not found', error: 'Not Found' },
-        404,
-        'NotFoundException',
+      const result = factory.build(
+        new BadRequestException(['email must be an email', 'age must be a number']),
+        request,
       );
 
-      expect(factory.build(exception, request).status).toBe(404);
+      expect(result.status).toBe(HttpStatus.BAD_REQUEST);
+      expect(result.body).toEqual({
+        statusCode: HttpStatus.BAD_REQUEST,
+        message: ['email must be an email', 'age must be a number'],
+        error: 'Bad Request',
+      });
     });
 
-    it('normalizes response.error "Not Found" into NOT_FOUND code', () => {
+    it('forwards UnauthorizedException', () => {
       const factory = new DefaultErrorBodyFactory();
-      const exception = new FixtureHttpException(
-        { statusCode: 404, message: 'User not found', error: 'Not Found' },
-        404,
-        'NotFoundException',
-      );
+      const result = factory.build(new UnauthorizedException('token expired'), request);
 
-      expect(factory.build(exception, request).body.error).toBe('NOT_FOUND');
+      expect(result.status).toBe(HttpStatus.UNAUTHORIZED);
+      expect(result.body).toEqual({
+        statusCode: HttpStatus.UNAUTHORIZED,
+        message: 'token expired',
+        error: 'Unauthorized',
+      });
     });
 
-    it('uses response.message as the body message', () => {
+    it('wraps a plain-string HttpException response into { statusCode, message }', () => {
       const factory = new DefaultErrorBodyFactory();
-      const exception = new FixtureHttpException(
-        { statusCode: 404, message: 'User not found', error: 'Not Found' },
-        404,
-        'NotFoundException',
-      );
-
-      expect(factory.build(exception, request).body.message).toBe('User not found');
-    });
-
-    it('joins array messages from ValidationPipe with ", "', () => {
-      const factory = new DefaultErrorBodyFactory();
-      const exception = new FixtureHttpException(
-        {
-          statusCode: 400,
-          message: ['email must be an email', 'age must be a number'],
-          error: 'Bad Request',
-        },
-        400,
-        'BadRequestException',
-      );
-
-      expect(factory.build(exception, request).body.message).toBe(
-        'email must be an email, age must be a number',
-      );
-    });
-
-    it('handles a plain-string response body', () => {
-      const factory = new DefaultErrorBodyFactory();
-      const exception = new FixtureHttpException(
-        'Teapot brewing coffee',
-        418,
-        'ImATeapotException',
-      );
-      const result = factory.build(exception, request);
+      const result = factory.build(new HttpException('raw string body', 418), request);
 
       expect(result.status).toBe(418);
-      expect(result.body.message).toBe('Teapot brewing coffee');
+      expect(result.body).toEqual({
+        statusCode: 418,
+        message: 'raw string body',
+      });
     });
 
-    it('projects extra response fields into details', () => {
-      const factory = new DefaultErrorBodyFactory();
-      const exception = new FixtureHttpException(
-        {
-          statusCode: 418,
-          message: 'Short and stout',
-          error: 'Im a teapot',
-          teapotId: 'tp-42',
-          brew: 'earl-grey',
-        },
-        418,
-        'ImATeapotException',
-      );
+    it('forwards custom subclass structured response verbatim', () => {
+      // Custom HttpException subclasses that pass a structured object to
+      // the base constructor should round-trip every field untouched — the
+      // factory never normalizes, re-keys, or strips anything. This is the
+      // extensibility path users take when they want a richer error shape
+      // without writing a full IErrorBodyFactory.
+      class TeapotException extends HttpException {
+        public constructor() {
+          super(
+            {
+              statusCode: 418,
+              message: 'short and stout',
+              error: "I'm a Teapot",
+              teapotId: 'tp-42',
+              brew: 'earl-grey',
+            },
+            418,
+          );
+        }
+      }
 
-      expect(factory.build(exception, request).body.details).toEqual({
+      const factory = new DefaultErrorBodyFactory();
+      const result = factory.build(new TeapotException(), request);
+
+      expect(result.status).toBe(418);
+      expect(result.body).toEqual({
+        statusCode: 418,
+        message: 'short and stout',
+        error: "I'm a Teapot",
         teapotId: 'tp-42',
         brew: 'earl-grey',
       });
     });
+  });
 
-    it('derives error code from class name when response.error is missing', () => {
+  describe('with an unrecognized throw', () => {
+    it('returns a generic 500 body for a plain Error', () => {
       const factory = new DefaultErrorBodyFactory();
-      const exception = new FixtureHttpException(
-        { statusCode: 599, message: 'Boom' },
-        599,
-        'CustomHttpException',
-      );
+      const result = factory.build(new Error('raw internal detail'), request);
 
-      expect(factory.build(exception, request).body.error).toBe('CUSTOM_HTTP_EXCEPTION');
+      expect(result.status).toBe(HttpStatus.INTERNAL_SERVER_ERROR);
+      expect(result.body).toEqual({
+        statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+        message: 'Internal server error',
+      });
     });
 
-    it('takes precedence over the generic Error fallback', () => {
+    it('never leaks the original Error message into the body', () => {
       const factory = new DefaultErrorBodyFactory();
-      const exception = new FixtureHttpException(
-        { statusCode: 403, message: 'Nope', error: 'Forbidden' },
-        403,
-        'ForbiddenException',
+      const result = factory.build(
+        new Error('postgres connection to db.internal:5432 failed'),
+        request,
       );
-      const result = factory.build(exception, request);
 
-      expect(result.status).toBe(403);
-      expect(result.body.error).not.toBe('INTERNAL_SERVER_ERROR');
-      expect(result.body.error).toBe('FORBIDDEN');
+      expect(JSON.stringify(result.body)).not.toContain('postgres');
+      expect(JSON.stringify(result.body)).not.toContain('db.internal');
+    });
+
+    it('handles string throws with the same generic 500 body', () => {
+      const factory = new DefaultErrorBodyFactory();
+      const result = factory.build('some string', request);
+
+      expect(result.status).toBe(HttpStatus.INTERNAL_SERVER_ERROR);
+      expect(result.body).toEqual({
+        statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+        message: 'Internal server error',
+      });
+    });
+
+    it('handles null throws with the same generic 500 body', () => {
+      const factory = new DefaultErrorBodyFactory();
+      const result = factory.build(null, request);
+
+      expect(result.status).toBe(HttpStatus.INTERNAL_SERVER_ERROR);
+      expect(result.body).toEqual({
+        statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+        message: 'Internal server error',
+      });
+    });
+
+    it('handles number throws with the same generic 500 body', () => {
+      const factory = new DefaultErrorBodyFactory();
+      const result = factory.build(42, request);
+
+      expect(result.status).toBe(HttpStatus.INTERNAL_SERVER_ERROR);
     });
   });
 });

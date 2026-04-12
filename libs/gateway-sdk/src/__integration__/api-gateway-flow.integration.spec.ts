@@ -20,31 +20,6 @@ import type { IGatewayReply } from '../types/gateway-reply.interface';
 import type { IGatewayRequest } from '../types/gateway-request.interface';
 
 /**
- * Fixture domain exception carrying the `isDomainException` marker recognized
- * by `DefaultErrorBodyFactory`.
- * @remarks
- * Deliberately a local fixture rather than an import from `@zerly/errors` —
- * this proves the duck-type contract the factory depends on works without
- * the real class, and keeps the integration test self-contained and free
- * from cross-library coupling. Any consumer that implements the same shape
- * (true marker + status/code/message/optional details) must get identical
- * treatment from the default factory; this fixture is what certifies that
- * invariant end-to-end.
- */
-class FixtureDomainException extends Error {
-  public readonly isDomainException = true as const;
-
-  public constructor(
-    public readonly status: number,
-    public readonly code: string,
-    message: string,
-    public readonly details?: Readonly<Record<string, unknown>>,
-  ) {
-    super(message);
-  }
-}
-
-/**
  * Minimal user aggregate shape returned by the fixture controller. Mirrors
  * a typical read-model DTO without depending on `@zerly/core`'s
  * `IBaseResource` because the integration test is concerned with the wire
@@ -102,9 +77,7 @@ class TestUsersController {
     const user = this.service.findById(id);
 
     if (!user) {
-      throw new FixtureDomainException(404, 'USER_NOT_FOUND', 'User not found', {
-        lookupId: id,
-      });
+      throw new NotFoundException(`User ${id} not found`);
     }
 
     return user;
@@ -364,15 +337,20 @@ describe('@ApiGateway end-to-end flow (integration)', () => {
 
   /**
    * Error path: the real `GatewayExceptionFilter` from the DI container
-   * routes through the real `DefaultErrorBodyFactory`. The first case
-   * proves the duck-typed `isDomainException` marker is honored end-to-end
-   * (status from the exception, all fields populated including stack in
-   * non-production mode). The second case proves a plain `Error` degrades
-   * to a generic `500` with the sanitized `INTERNAL_SERVER_ERROR` code,
-   * never leaking the raw thrown message.
+   * routes through the real `DefaultErrorBodyFactory`, which in turn
+   * mirrors NestJS `BaseExceptionFilter` byte-for-byte. These cases
+   * certify that:
+   *
+   *   - Every `@nestjs/common` HttpException subclass surfaces its
+   *     native `{ statusCode, message, error }` shape on the wire,
+   *     with zero re-keying or projection by the SDK.
+   *   - Plain `Error` throws (and other non-HttpException values)
+   *     degrade to the same generic 500 body Nest would have produced.
+   *   - The reply builder leaves the headers map empty — the Go
+   *     gateway transport layer stamps Content-Type itself.
    */
   describe('error path via filter', () => {
-    it('serializes a FixtureDomainException into a structured 404 envelope', async () => {
+    it('forwards a real NestJS NotFoundException with native body shape', async () => {
       const envelope = buildEnvelope(null, {
         meta: {
           requestId: 'req-err-1',
@@ -382,80 +360,23 @@ describe('@ApiGateway end-to-end flow (integration)', () => {
         },
       });
       const host = buildArgumentsHost(envelope);
-      const exception = new FixtureDomainException(404, 'USER_NOT_FOUND', 'User not found', {
-        lookupId: '42',
-      });
-
-      const reply = await firstValueFrom(filter.catch(exception, host));
-
-      expect(reply.status).toBe(404);
-      expect(reply.headers).toEqual({ 'content-type': 'application/problem+json' });
-      expect(reply.body?.error).toBe('USER_NOT_FOUND');
-      expect(reply.body?.message).toBe('User not found');
-      expect(reply.body?.requestId).toBe('req-err-1');
-      expect(reply.body?.details).toEqual({ lookupId: '42' });
-    });
-
-    it('serializes a plain Error into a sanitized 500 envelope', async () => {
-      const envelope = buildEnvelope(null, {
-        meta: {
-          requestId: 'req-err-2',
-          remoteAddr: '127.0.0.1',
-          receivedAt: Date.now(),
-          timeoutMs: 30_000,
-        },
-      });
-      const host = buildArgumentsHost(envelope);
-      const reply = await firstValueFrom(filter.catch(new Error('raw internal detail'), host));
-
-      expect(reply.status).toBe(500);
-      expect(reply.headers).toEqual({ 'content-type': 'application/problem+json' });
-      expect(reply.body?.error).toBe('INTERNAL_SERVER_ERROR');
-      expect(reply.body?.message).toBe('An unexpected error occurred');
-      expect(reply.body?.message).not.toContain('raw internal detail');
-      expect(reply.body?.requestId).toBe('req-err-2');
-    });
-
-    /**
-     * Certifies that the duck-typed `IHttpExceptionLike` contract inside
-     * `DefaultErrorBodyFactory` correctly recognizes the REAL
-     * `@nestjs/common` `HttpException` family end-to-end. The unit spec
-     * exercises recognition with a hermetic fixture; this case proves the
-     * same code path also handles the actual class hierarchy Nest ships,
-     * without a hard import dependency leaking into the SDK runtime.
-     */
-    it('serializes a real NestJS NotFoundException into a 404 envelope', async () => {
-      const envelope = buildEnvelope(null, {
-        meta: {
-          requestId: 'req-err-3',
-          remoteAddr: '127.0.0.1',
-          receivedAt: Date.now(),
-          timeoutMs: 30_000,
-        },
-      });
-      const host = buildArgumentsHost(envelope);
       const reply = await firstValueFrom(
-        filter.catch(new NotFoundException('User not found'), host),
+        filter.catch(new NotFoundException('User 3 not found'), host),
       );
 
       expect(reply.status).toBe(404);
-      expect(reply.headers).toEqual({ 'content-type': 'application/problem+json' });
-      expect(reply.body?.error).toBe('NOT_FOUND');
-      expect(reply.body?.message).toBe('User not found');
-      expect(reply.body?.requestId).toBe('req-err-3');
+      expect(reply.headers).toEqual({});
+      expect(reply.body).toEqual({
+        statusCode: 404,
+        message: 'User 3 not found',
+        error: 'Not Found',
+      });
     });
 
-    /**
-     * Certifies handling of `BadRequestException` populated with a
-     * `message: string[]` — the shape Nest's `ValidationPipe` produces for
-     * aggregated class-validator violations. The factory must join the
-     * array into a single human-readable string so the wire envelope stays
-     * a flat JSON object (RFC 7807 `detail` is a string, not an array).
-     */
-    it('serializes a NestJS BadRequestException with array message', async () => {
+    it('forwards a NestJS BadRequestException with array message (ValidationPipe shape)', async () => {
       const envelope = buildEnvelope(null, {
         meta: {
-          requestId: 'req-err-4',
+          requestId: 'req-err-2',
           remoteAddr: '127.0.0.1',
           receivedAt: Date.now(),
           timeoutMs: 30_000,
@@ -470,11 +391,37 @@ describe('@ApiGateway end-to-end flow (integration)', () => {
       );
 
       expect(reply.status).toBe(400);
-      expect(reply.headers).toEqual({ 'content-type': 'application/problem+json' });
-      expect(reply.body?.error).toBe('BAD_REQUEST');
-      expect(reply.body?.message).toContain('email must be an email');
-      expect(reply.body?.message).toContain('age must be a number');
-      expect(reply.body?.requestId).toBe('req-err-4');
+      expect(reply.headers).toEqual({});
+      expect(reply.body).toEqual({
+        statusCode: 400,
+        message: ['email must be an email', 'age must be a number'],
+        error: 'Bad Request',
+      });
+    });
+
+    it('degrades a plain Error to a generic 500 body', async () => {
+      const envelope = buildEnvelope(null, {
+        meta: {
+          requestId: 'req-err-3',
+          remoteAddr: '127.0.0.1',
+          receivedAt: Date.now(),
+          timeoutMs: 30_000,
+        },
+      });
+      const host = buildArgumentsHost(envelope);
+      const reply = await firstValueFrom(filter.catch(new Error('raw internal detail'), host));
+
+      expect(reply.status).toBe(500);
+      expect(reply.headers).toEqual({});
+      expect(reply.body).toEqual({
+        statusCode: 500,
+        message: 'Internal server error',
+      });
+      // Critical invariant: the original Error message MUST NOT appear
+      // anywhere on the wire — that is the entire point of the generic
+      // fallback. Sensitive content (DB connection strings, internal
+      // paths) lives in Error.message for server-side diagnostics only.
+      expect(JSON.stringify(reply.body)).not.toContain('raw internal detail');
     });
   });
 });

@@ -41,13 +41,13 @@ export interface IGatewayReplyBuilder {
   /**
    * Build an envelope for a thrown exception, after it has been translated
    * into an `IGatewayErrorBody` by an `IErrorBodyFactory`.
-   * @param status - HTTP status code to return. Typically sourced from
-   *                 `DomainException.status` or the
-   *                 `DEFAULT_STATUS_INTERNAL_ERROR` fallback from
-   *                 `../../constants/defaults.constant`.
+   * @param status - HTTP status code to return. The default factory sources
+   *                 it from `HttpException.getStatus()`; custom factories
+   *                 apply whatever logic their error taxonomy requires.
    * @param body - Serialized error body produced by an `IErrorBodyFactory`.
    *               Implementations must forward the body verbatim without
-   *               rewriting fields so error semantics stay lossless.
+   *               rewriting fields so error semantics stay lossless between
+   *               the factory and the wire.
    */
   error(status: number, body: IGatewayErrorBody): IGatewayReply<IGatewayErrorBody>;
 }

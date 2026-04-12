@@ -19,9 +19,10 @@ export interface IErrorBodyBuildResult {
   /**
    * HTTP status code to attach to the outgoing reply envelope.
    * @remarks
-   * Sourced from `DomainException.status` when the thrown value is a
-   * recognized domain exception, or from the
-   * `DEFAULT_STATUS_INTERNAL_ERROR` fallback for unknown throws.
+   * Sourced from `HttpException.getStatus()` for the default factory, or
+   * from whatever logic a custom factory applies. Must be a valid HTTP
+   * status in the 100-599 range — the Go gateway's decoder rejects
+   * anything outside that window as a malformed reply.
    */
   readonly status: number;
 
@@ -29,9 +30,13 @@ export interface IErrorBodyBuildResult {
    * Serialized error body that will travel inside `IGatewayReply.body`.
    * @remarks
    * Already shaped for wire transmission — no further transformation by
-   * the reply builder. Sensitive fields (stack traces in production,
+   * the reply builder. The default factory forwards
+   * `HttpException.getResponse()` verbatim, matching NestJS's built-in
+   * `BaseExceptionFilter`; custom factories may use any JSON-
+   * serializable shape they prefer. Sensitive fields (stack traces,
    * internal identifiers) must be stripped by the factory before the
-   * body reaches this structure.
+   * body reaches this structure — the downstream layers (reply builder,
+   * exception filter, HTTP transport) never rewrite the body.
    */
   readonly body: IGatewayErrorBody;
 }

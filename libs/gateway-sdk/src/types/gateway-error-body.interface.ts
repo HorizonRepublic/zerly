@@ -1,40 +1,26 @@
 /**
- * Standard JSON shape returned inside `IGatewayReply.body` when a handler
- * throws. Modeled after RFC 7807 (`application/problem+json`), simplified.
+ * Shape returned inside `IGatewayReply.body` when a handler throws.
  * @remarks
- * Built by `IErrorBodyFactory` implementations — the default impl recognizes
- * the `isDomainException: true` marker from `@zerly/errors` and extracts
- * structured fields. Generic throws fall back to a 500 shape with minimal
- * information (full error logged server-side only).
+ * Deliberately loose — an arbitrary JSON object whose exact fields are
+ * determined by whatever `IErrorBodyFactory` the application bound. The
+ * SDK's gateway transport layer treats this as an opaque payload and
+ * forwards it verbatim to the HTTP client without inspecting or
+ * rewriting any field.
+ *
+ * The default `DefaultErrorBodyFactory` matches NestJS's built-in
+ * `BaseExceptionFilter` output byte-for-byte: for any error extending
+ * `HttpException` it emits `{ statusCode, message, error, ... }` (the
+ * exact shape of `HttpException.getResponse()` for every Nest built-in
+ * subclass), and for unknown throws it emits
+ * `{ statusCode: 500, message: 'Internal server error' }`. That makes
+ * the gateway's error envelope indistinguishable on the wire from a
+ * request that went directly to a Nest HTTP controller — the gateway is
+ * a transparent proxy for error semantics.
+ *
+ * Applications that want a custom error shape (extra correlation fields,
+ * RFC 7807 problem+json, i18n codes, domain-specific metadata) bind
+ * their own `IErrorBodyFactory` via `GATEWAY_ERROR_BODY_FACTORY` and
+ * return whatever object shape makes sense for their contract. The
+ * gateway does not prescribe any fields.
  */
-export interface IGatewayErrorBody {
-  /**
-   * Stable machine-readable error code, e.g. `USER_NOT_FOUND`.
-   * @remarks
-   * Sourced from `DomainException.code` when available. For unknown throws
-   * falls back to `INTERNAL_SERVER_ERROR`.
-   */
-  readonly error: string;
-
-  /**
-   * Human-readable error description.
-   * @remarks
-   * Sourced from `DomainException.message` when available; otherwise a
-   * sanitized generic string ("An unexpected error occurred"). Safe to
-   * render directly in a client UI — unlike `stack`, it never leaks
-   * implementation details. Clients may use `error` as an i18n key and fall
-   * back to this field when no localized message exists.
-   */
-  readonly message: string;
-
-  /**
-   * Echo of `IGatewayRequest.meta.requestId` for log correlation by the client.
-   * @remarks
-   * Clients should include this value when reporting bugs — it is the key
-   * that lets operators find the exact request path across all services.
-   */
-  readonly requestId: string;
-
-  /** Optional structured context from `DomainException.details`. Domain-specific. */
-  readonly details?: Readonly<Record<string, unknown>>;
-}
+export type IGatewayErrorBody = Readonly<Record<string, unknown>>;

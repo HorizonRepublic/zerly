@@ -6,7 +6,7 @@ import type { IGatewayReply } from '../types/gateway-reply.interface';
 
 /**
  * Default `IGatewayReplyBuilder` implementation. Produces plain JSON
- * envelopes with no content negotiation and RFC 7807 content type for errors.
+ * envelopes with an empty headers map on both the success and error paths.
  * @remarks
  * This class is the only place in the SDK allowed to construct `IGatewayReply`
  * values — see spec §6.2. All other code paths (response interceptor,
@@ -14,10 +14,13 @@ import type { IGatewayReply } from '../types/gateway-reply.interface';
  * that envelope shape stays a single-source-of-truth concern. Whenever the
  * wire format evolves, this is the single file to audit.
  *
- * Success replies ship with an empty headers map; the gateway layer merges
- * transport-level defaults (`Content-Type`, `X-Request-Id`) before the bytes
- * hit the socket. Error replies carry `application/problem+json` so RFC 7807
- * consumers can recognize the payload without peeking at the body.
+ * Both success and error replies ship with an empty headers map. The Go
+ * gateway transport layer stamps `Content-Type: application/json` and
+ * `X-Request-Id` as part of its own response-writing pass, so any headers
+ * this builder set would be overwritten anyway — keeping the default map
+ * empty avoids the illusion of control over transport-layer concerns and
+ * matches NestJS's own `BaseExceptionFilter`, which emits errors with the
+ * same `application/json` content type as successful responses.
  *
  * Bind a custom implementation against the `GATEWAY_REPLY_BUILDER` token
  * from `../tokens/gateway-tokens.constant` when you need alternative wire
@@ -52,7 +55,7 @@ export class DefaultGatewayReplyBuilder implements IGatewayReplyBuilder {
   public error(status: number, body: IGatewayErrorBody): IGatewayReply<IGatewayErrorBody> {
     return {
       status,
-      headers: { 'content-type': 'application/problem+json' },
+      headers: {},
       body,
     };
   }
