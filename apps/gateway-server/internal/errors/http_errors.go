@@ -57,9 +57,14 @@ const (
 // that the proxy handler may emit is declared here so the complete
 // set of gateway-owned error responses is auditable in a single file.
 //
-// New entries MUST use the same build helper as the existing set so
-// their JSON shape stays consistent with the application/problem+json
-// style the gateway follows for error envelopes.
+// Each body is a single-field JSON object of the form
+// `{"error": "<RFC 9110 reason phrase>"}`. The reason phrase carries
+// no implementation detail about the gateway or its upstream — it is
+// exactly the standard HTTP status phrase a client would see from any
+// reverse proxy. This keeps the wire minimal, avoids fingerprinting
+// (no "gateway"/"upstream"/"route" wording beyond what HTTP status
+// phrases already expose), and stays consistent with the Nest-native
+// error shapes produced for handler-thrown HttpException instances.
 var (
 	// NotFound is the 404 response returned when the routing table
 	// has no match for the requested method+path combination.
@@ -96,29 +101,29 @@ var (
 )
 
 func init() {
-	NotFound = build(StatusNotFound, "NOT_FOUND", "The requested route was not found on this gateway.")
-	MethodNotAllowed = build(StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "The HTTP method is not allowed for this route.")
-	PayloadTooLarge = build(StatusPayloadTooLarge, "PAYLOAD_TOO_LARGE", "The request body exceeds the maximum allowed size.")
-	UnsupportedMedia = build(StatusUnsupportedMedia, "UNSUPPORTED_MEDIA_TYPE", "The request Content-Type is not supported.")
-	InternalError = build(StatusInternalError, "INTERNAL_SERVER_ERROR", "An unexpected error occurred.")
-	ServiceUnavailable = build(StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "The gateway cannot reach any upstream service.")
-	GatewayTimeout = build(StatusGatewayTimeout, "GATEWAY_TIMEOUT", "The upstream service did not reply in time.")
-	BadGateway = build(StatusBadGateway, "BAD_GATEWAY", "The upstream service returned a malformed response.")
+	NotFound = build(StatusNotFound, "Not Found")
+	MethodNotAllowed = build(StatusMethodNotAllowed, "Method Not Allowed")
+	PayloadTooLarge = build(StatusPayloadTooLarge, "Payload Too Large")
+	UnsupportedMedia = build(StatusUnsupportedMedia, "Unsupported Media Type")
+	InternalError = build(StatusInternalError, "Internal Server Error")
+	ServiceUnavailable = build(StatusServiceUnavailable, "Service Unavailable")
+	GatewayTimeout = build(StatusGatewayTimeout, "Gateway Timeout")
+	BadGateway = build(StatusBadGateway, "Bad Gateway")
 }
 
-// build marshals a (code, message) pair through the shared codec and
-// wraps the result in an HTTPError paired with the supplied status.
-// Any marshalling failure is fatal — we are encoding a fixed-shape
-// map with string values only, and a failure there indicates a
-// corrupt build of the sonic/codec layer that should prevent the
-// process from starting rather than silently serving empty bodies.
-func build(status int, code, message string) HTTPError {
+// build marshals a single `{"error": reasonPhrase}` body through the
+// shared codec and wraps the result in an HTTPError paired with the
+// supplied status. Any marshalling failure is fatal — we are encoding
+// a fixed-shape map with string values only, and a failure there
+// indicates a corrupt build of the sonic/codec layer that should
+// prevent the process from starting rather than silently serving
+// empty bodies.
+func build(status int, reasonPhrase string) HTTPError {
 	body, err := codec.Marshal(map[string]string{
-		"error":   code,
-		"message": message,
+		"error": reasonPhrase,
 	})
 	if err != nil {
-		panic(fmt.Sprintf("errors: failed to pre-encode %q: %v", code, err))
+		panic(fmt.Sprintf("errors: failed to pre-encode %q: %v", reasonPhrase, err))
 	}
 	return HTTPError{Status: status, Body: body}
 }

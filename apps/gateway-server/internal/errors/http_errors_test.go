@@ -34,12 +34,13 @@ func TestHTTPError_StatusAndBodyPaired(t *testing.T) {
 	}
 }
 
-// TestHTTPError_BodiesParseAsJSON verifies every pre-encoded body is
-// valid JSON with the expected shape: a top-level object carrying a
-// string "error" and a string "message". This is a contract test
-// against the wire format — if the build() helper ever starts
-// producing something else, this test fails loudly.
-func TestHTTPError_BodiesParseAsJSON(t *testing.T) {
+// TestHTTPError_BodiesAreSingleFieldObjects verifies every pre-encoded
+// body is a single-field JSON object carrying a non-empty 'error'
+// string. This is the gateway's wire contract: the HTTP status line
+// carries the numeric code, the body carries a short human-readable
+// phrase and nothing else — no code field, no message field, no
+// implementation-identifying leak.
+func TestHTTPError_BodiesAreSingleFieldObjects(t *testing.T) {
 	errs := []HTTPError{
 		NotFound, MethodNotAllowed, PayloadTooLarge, UnsupportedMedia,
 		InternalError, ServiceUnavailable, GatewayTimeout, BadGateway,
@@ -47,20 +48,37 @@ func TestHTTPError_BodiesParseAsJSON(t *testing.T) {
 	for _, e := range errs {
 		var parsed map[string]string
 		require.NoError(t, json.Unmarshal(e.Body, &parsed))
-		assert.NotEmpty(t, parsed["error"], "error code field")
-		assert.NotEmpty(t, parsed["message"], "message field")
+		assert.Len(t, parsed, 1, "body must contain exactly one field")
+		assert.NotEmpty(t, parsed["error"], "body must carry a non-empty error field")
 	}
 }
 
-// TestHTTPError_NotFoundBodyContent pins the specific wire content
-// for NotFound so downstream clients can rely on the "NOT_FOUND"
-// machine-readable code. A deliberate shape change requires
-// updating this test.
-func TestHTTPError_NotFoundBodyContent(t *testing.T) {
-	var parsed map[string]string
-	require.NoError(t, json.Unmarshal(NotFound.Body, &parsed))
-	assert.Equal(t, "NOT_FOUND", parsed["error"])
-	assert.Contains(t, parsed["message"], "not found")
+// TestHTTPError_ReasonPhrases pins the exact RFC 9110 reason phrase
+// each error surfaces. These strings are part of the wire contract —
+// any deliberate rewording needs to update this test and the
+// corresponding entry in http_errors.go together.
+func TestHTTPError_ReasonPhrases(t *testing.T) {
+	cases := []struct {
+		name    string
+		err     HTTPError
+		phrase  string
+	}{
+		{"NotFound", NotFound, "Not Found"},
+		{"MethodNotAllowed", MethodNotAllowed, "Method Not Allowed"},
+		{"PayloadTooLarge", PayloadTooLarge, "Payload Too Large"},
+		{"UnsupportedMedia", UnsupportedMedia, "Unsupported Media Type"},
+		{"InternalError", InternalError, "Internal Server Error"},
+		{"ServiceUnavailable", ServiceUnavailable, "Service Unavailable"},
+		{"GatewayTimeout", GatewayTimeout, "Gateway Timeout"},
+		{"BadGateway", BadGateway, "Bad Gateway"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var parsed map[string]string
+			require.NoError(t, json.Unmarshal(c.err.Body, &parsed))
+			assert.Equal(t, c.phrase, parsed["error"])
+		})
+	}
 }
 
 // TestHTTPError_BuildIsImmutable verifies that mutating one field of
