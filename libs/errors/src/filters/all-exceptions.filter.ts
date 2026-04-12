@@ -11,191 +11,149 @@ import {
   Logger,
   Optional,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { HttpAdapterHost } from '@nestjs/core';
 
-import { Observable, throwError } from 'rxjs';
-
-import { APP_CONFIG, Environment, IAppConfig } from '@zerly/config';
-
-import { adaptTypiaError } from '../adapters/typia-validation.adapter';
-import { HTTP_ERROR_CODES } from '../constants/http-error-codes.constant';
-import { ApiException } from '../exceptions/api.exception';
-import { DomainException } from '../exceptions/domain.exception';
 import { IErrorContext } from '../interfaces/error-context.interface';
 import { IErrorReporter } from '../interfaces/error-reporter.interface';
-import { IErrorResponse } from '../interfaces/error-response.interface';
 import { ERROR_REPORTER } from '../tokens';
 
-import type { RpcException as RpcExceptionBase } from '@nestjs/microservices';
+/**
+ * Lowest HTTP status that is logged at `error` level and forwarded to the
+ * optional `IErrorReporter`. Anything strictly below this is a deliberate
+ * client-facing signal (4xx) and gets emitted silently so legitimate
+ * `NotFoundException`, `UnauthorizedException`, etc. do not flood the logs
+ * or the error reporter.
+ */
+const SERVER_ERROR_THRESHOLD = 500;
 
-type RpcExceptionCtor = typeof RpcExceptionBase;
-
-// Optional peer dep — loaded at module init, undefined if not installed
-let rpcExceptionCtor: RpcExceptionCtor | undefined;
-
-try {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports,@typescript-eslint/naming-convention
-  rpcExceptionCtor = (require('@nestjs/microservices') as { RpcException: RpcExceptionCtor })
-    .RpcException;
-} catch {
-  // @nestjs/microservices is not installed — RPC wrapping unavailable
-}
-
-interface IResolvedError {
-  code: Uppercase<string>;
-  details?: Record<string, unknown>;
-  internalDetails?: Record<string, unknown>;
-  httpStatus: number;
-}
-
+/**
+ * Global HTTP exception filter wired in via `ErrorsModule.forRoot()`.
+ * @remarks
+ * **Scope:** HTTP transport only. RPC handlers are not covered here —
+ * gateway-facing RPC endpoints are served by
+ * `GatewayExceptionFilter` (from `@zerly/gateway-sdk`, attached locally
+ * via `@ApiGateway`), and service-to-service RPC uses vanilla NestJS
+ * `RpcException` handling. Consolidating those paths into this filter
+ * would just replay what Nest already does out of the box.
+ *
+ * **Wire contract:** whatever Nest's own `HttpException` exposes. This
+ * filter deliberately does not invent a custom body shape — it reads
+ * `exception.getStatus()` and `exception.getResponse()` and forwards
+ * them verbatim, so a `NotFoundException('User not found')` yields the
+ * exact body a consumer would see from a Nest app without this filter.
+ * Unknown throws collapse to `500 Internal Server Error` with the
+ * Nest-default body shape.
+ *
+ * **Why this filter exists at all**, given that Nest already has a
+ * built-in HTTP exception filter: logging and the optional error
+ * reporter hook. Nest's default filter is silent for everything except
+ * uncaught errors, and it has no extension point for Sentry/Datadog.
+ * This filter adds:
+ *   1. Structured error-level logging for every 5xx response with
+ *      method/url context, so ops can correlate failures without
+ *      reaching for request IDs.
+ *   2. Optional `IErrorReporter` invocation on 5xx for integrations
+ *      that forward crashes to an external APM.
+ * Both hooks are skipped for 4xx so deliberate client-facing rejections
+ * stay quiet.
+ *
+ * **SOLID notes:** the filter collaborates with two abstractions only —
+ * `HttpAdapterHost` (supplied by Nest) and the optional
+ * `IErrorReporter` port. Status/body resolution is a pure function of
+ * the exception (`resolve(exception)`) and emits no side effects;
+ * logging and reporting are orchestrated once at the top of `catch`.
+ * Adding a new reporter, renaming a log field, or changing the
+ * 5xx threshold each touches exactly one location.
+ */
 @Injectable()
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
   private readonly logger = new Logger(AllExceptionsFilter.name);
-  private readonly isProd: boolean;
 
   public constructor(
     private readonly httpAdapterHost: HttpAdapterHost,
-    configService: ConfigService,
     @Optional() @Inject(ERROR_REPORTER) private readonly errorReporter?: IErrorReporter,
-  ) {
-    const config = configService.get<IAppConfig>(APP_CONFIG);
+  ) {}
 
-    this.isProd = config !== undefined ? config.env === Environment.Production : true;
-  }
-
-  public catch(exception: unknown, host: ArgumentsHost): void | Observable<unknown> {
-    const type = host.getType();
-
-    if (type === 'http') {
-      this.handleHttp(exception, host);
+  /**
+   * Entry point Nest invokes for every uncaught exception. RPC and WS
+   * contexts are ignored — those transports have their own filters and
+   * are served by different layers in this stack (see class docstring).
+   */
+  public catch(exception: unknown, host: ArgumentsHost): void {
+    if (host.getType() !== 'http') {
       return;
     }
 
-    if (type === 'rpc') {
-      return this.handleRpc(exception);
-    }
-
-    this.logger.error({ msg: `Unhandled exception context type: ${type}`, err: exception });
-  }
-
-  private handleHttp(exception: unknown, host: ArgumentsHost): void {
-    const { httpAdapter } = this.httpAdapterHost;
+    const { status, body } = this.resolve(exception);
     const ctx = host.switchToHttp();
-    const req = ctx.getRequest<IncomingMessage>();
-    const method = httpAdapter.getRequestMethod(req);
-    const url = httpAdapter.getRequestUrl(req);
+    const request = ctx.getRequest<IncomingMessage>();
+    const { httpAdapter } = this.httpAdapterHost;
+    const method = httpAdapter.getRequestMethod(request);
+    const url = httpAdapter.getRequestUrl(request);
 
-    const resolved = this.resolveException(exception);
-
-    if (resolved.httpStatus >= 500) {
-      this.logger.error({ msg: 'HTTP Server Error', err: exception, req: { method, url } });
-      const context: IErrorContext = { type: 'http', method, url };
-
-      this.errorReporter?.report(exception, context);
+    if (status >= SERVER_ERROR_THRESHOLD) {
+      this.reportServerError(exception, { type: 'http', method, url });
     }
 
-    const body: IErrorResponse = {
-      code: resolved.code,
-      timestamp: new Date().toISOString(),
-      requestId: null,
-    };
-
-    if (resolved.details !== undefined) body.details = resolved.details;
-    if (!this.isProd && resolved.internalDetails !== undefined)
-      body.internal = resolved.internalDetails;
-
-    httpAdapter.reply(ctx.getResponse(), body, resolved.httpStatus);
+    httpAdapter.reply(ctx.getResponse(), body, status);
   }
 
-  private handleRpc(exception: unknown): Observable<unknown> {
-    if (exception instanceof DomainException) {
-      if (exception.httpStatus >= 500) {
-        this.logger.error({ msg: 'RPC Domain Error', err: exception });
-        const context: IErrorContext = { type: 'rpc' };
-
-        this.errorReporter?.report(exception, context);
-      }
-
-      const payload = exception.toRpcPayload();
-
-      return throwError(() =>
-        rpcExceptionCtor !== undefined ? new rpcExceptionCtor(payload) : exception,
-      );
-    }
-
-    if (rpcExceptionCtor !== undefined && exception instanceof rpcExceptionCtor) {
-      return throwError(() => exception);
-    }
-
-    this.logger.error({ msg: 'RPC Unknown Error', err: exception });
-    const context: IErrorContext = { type: 'rpc' };
-
-    this.errorReporter?.report(exception, context);
-    const payload = { code: 'INTERNAL_SERVER_ERROR' as Uppercase<string> };
-
-    return throwError(() =>
-      rpcExceptionCtor !== undefined ? new rpcExceptionCtor(payload) : exception,
-    );
-  }
-
-  private resolveFromDomain(exception: DomainException): IResolvedError {
-    const result: IResolvedError = { code: exception.code, httpStatus: exception.httpStatus };
-
-    if (exception.details !== undefined) result.details = exception.details;
-    if (exception.internalDetails !== undefined) result.internalDetails = exception.internalDetails;
-
-    return result;
-  }
-
-  private resolveException(exception: unknown): IResolvedError {
-    if (exception instanceof DomainException) {
-      return this.resolveFromDomain(exception);
-    }
-
-    const typiaException = adaptTypiaError(exception);
-
-    if (typiaException !== null) {
-      const result: IResolvedError = {
-        code: typiaException.code,
-        httpStatus: typiaException.httpStatus,
-      };
-
-      if (typiaException.details !== undefined) result.details = typiaException.details;
-      return result;
-    }
-
-    if (rpcExceptionCtor !== undefined && exception instanceof rpcExceptionCtor) {
-      const rpcPayload = exception.getError();
-      const domainException = ApiException.fromRpcPayload(rpcPayload);
-
-      if (domainException !== null) {
-        const result: IResolvedError = {
-          code: domainException.code,
-          httpStatus: domainException.httpStatus,
-        };
-
-        if (domainException.details !== undefined) result.details = domainException.details;
-        return result;
-      }
-
-      return { code: 'INTERNAL_SERVER_ERROR', httpStatus: HttpStatus.INTERNAL_SERVER_ERROR };
-    }
-
+  /**
+   * Maps an arbitrary thrown value to the `(status, body)` pair that
+   * will be written back to the client. Split out so `catch` reads as
+   * an orchestration flow and so unit tests can assert the mapping in
+   * isolation without mocking `HttpAdapterHost`.
+   * @remarks
+   * Two cases:
+   *   - `HttpException`: trust Nest completely. Status comes from
+   *     `getStatus()` and the body from `getResponse()`. When the user
+   *     passed a string (e.g. `new NotFoundException('gone')`), Nest
+   *     wraps it in its standard `{statusCode, message, error}` envelope
+   *     via `getResponse()`'s internal normalization — but only when
+   *     the exception was constructed that way. We re-normalize string
+   *     returns into the same shape so callers always see a JSON object
+   *     regardless of construction style.
+   *   - Anything else: `500 Internal Server Error` with Nest's default
+   *     body shape. The original error's message is intentionally NOT
+   *     leaked — that prevents stack-trace / internal-detail exposure
+   *     on unexpected failures. Operators still see the full exception
+   *     via the logger hook.
+   */
+  private resolve(exception: unknown): { status: number; body: object } {
     if (exception instanceof HttpException) {
       const status = exception.getStatus();
-      const code: Uppercase<string> = HTTP_ERROR_CODES[status] ?? 'INTERNAL_SERVER_ERROR';
+      const response = exception.getResponse();
+      const body =
+        typeof response === 'string' ? { statusCode: status, message: response } : response;
 
-      return { code, httpStatus: status };
+      return { status, body };
     }
 
-    const message = exception instanceof Error ? exception.message : String(exception);
-
     return {
-      code: 'INTERNAL_SERVER_ERROR',
-      httpStatus: HttpStatus.INTERNAL_SERVER_ERROR,
-      internalDetails: { message },
+      status: HttpStatus.INTERNAL_SERVER_ERROR,
+      body: {
+        statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+        message: 'Internal server error',
+      },
     };
+  }
+
+  /**
+   * Logs a 5xx at error level and forwards it to the optional reporter.
+   * Kept as a single method so the two side effects share one call
+   * site — neither can accidentally fire without the other, and the
+   * threshold check stays in `catch` where it can be reasoned about
+   * next to the response write.
+   */
+  private reportServerError(exception: unknown, context: IErrorContext): void {
+    this.logger.error({
+      msg: 'HTTP Server Error',
+      err: exception,
+      method: context.method,
+      url: context.url,
+    });
+
+    this.errorReporter?.report(exception, context);
   }
 }
