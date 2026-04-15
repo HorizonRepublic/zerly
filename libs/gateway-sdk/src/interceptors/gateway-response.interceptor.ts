@@ -32,11 +32,11 @@ interface IExtrasWithHttpMeta {
 }
 
 /**
- * Wraps the return value of an `@ApiGateway`-decorated handler into an
+ * Wraps the return value of an `@GatewayRoute`-decorated handler into an
  * `IGatewayReply` envelope, applying configured status-resolution rules.
  * @remarks
  * **Locally attached** via `@UseInterceptors(GatewayResponseInterceptor)`
- * inside the `@ApiGateway` decorator — never registered globally. Because
+ * inside the `@GatewayRoute` decorator — never registered globally. Because
  * it is bound only to gateway-exposed handlers, the interceptor never has
  * to discriminate between gateway and non-gateway calls: its mere presence
  * on the execution stack is proof of the former.
@@ -56,7 +56,7 @@ interface IExtrasWithHttpMeta {
  * handler output through untouched.
  * @example
  * ```ts
- * @ApiGateway({ pattern: 'users.create', method: 'POST', path: '/users' })
+ * @GatewayRoute({ pattern: 'users.create', method: 'POST', path: '/users' })
  * createUser(@GatewayBody() dto: CreateUserDto) {
  *   return this.usersService.create(dto);
  * }

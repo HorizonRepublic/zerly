@@ -30,12 +30,12 @@ import type { IGatewayRequest } from '../types/gateway-request.interface';
 const SERVER_ERROR_THRESHOLD = 500;
 
 /**
- * Catches any exception thrown from an `@ApiGateway`-decorated handler and
+ * Catches any exception thrown from an `@GatewayRoute`-decorated handler and
  * serializes it into an `IGatewayReply` envelope with the appropriate HTTP
  * status.
  * @remarks
  * **Locally attached** via `@UseFilters(GatewayExceptionFilter)` inside the
- * `@ApiGateway` decorator — never registered globally. Because it is bound
+ * `@GatewayRoute` decorator — never registered globally. Because it is bound
  * only to gateway-exposed handlers, every invocation of this filter is
  * guaranteed to originate from one, so there is no need to discriminate
  * between gateway and non-gateway exception origins at catch time.
@@ -59,16 +59,16 @@ const SERVER_ERROR_THRESHOLD = 500;
  * path, request id, remote addr); anything `< 500` is treated as an
  * expected client-facing signal and emitted silently. The global
  * `AllExceptionsFilter` never sees gateway exceptions because this
- * filter is attached locally via `@UseFilters` from the `@ApiGateway`
+ * filter is attached locally via `@UseFilters` from the `@GatewayRoute`
  * decorator — duplicating the policy here keeps operators from losing
  * sight of handler crashes that would otherwise disappear into a bare
  * 500 response with no trace.
  * @example
  * ```ts
- * // Attached automatically by @ApiGateway — consumers never reference this
+ * // Attached automatically by @GatewayRoute — consumers never reference this
  * // class directly. Throw any Nest HttpException inside a handler and the
  * // filter produces the matching envelope with status + getResponse() body.
- * @ApiGateway({ pattern: 'users.get', method: 'GET', path: '/users/:id' })
+ * @GatewayRoute({ pattern: 'users.get', method: 'GET', path: '/users/:id' })
  * getUser(@GatewayParam('id') id: string) {
  *   const user = this.users.findById(id);
  *   if (!user) {

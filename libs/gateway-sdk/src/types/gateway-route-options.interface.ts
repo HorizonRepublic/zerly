@@ -1,14 +1,14 @@
 import type { HttpMethod } from './http-method.type';
 
 /**
- * Options accepted by the `@ApiGateway` decorator.
+ * Options accepted by the `@GatewayRoute` decorator.
  * @remarks
  * These options are composed into two separate metadata targets at decoration
  * time: the `pattern` is forwarded to `@MessagePattern`, while `method`,
  * `path`, and `statusCode` are written under `extras.meta.http` so that
  * `nestjs-jetstream` persists them to the `handler_registry` KV bucket.
  */
-export interface IApiGatewayOptions {
+export interface IGatewayRouteOptions {
   /**
    * The message pattern — same semantics as `@MessagePattern(pattern)`.
    * @remarks

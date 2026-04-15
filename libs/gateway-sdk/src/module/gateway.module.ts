@@ -19,7 +19,7 @@ import type { IGatewayModuleOptions } from './gateway-module-options.interface';
  * @remarks
  * Marked `@Global()` so that `GatewayResponseInterceptor` and
  * `GatewayExceptionFilter` — which are referenced by class in the
- * `@ApiGateway` decorator via `@UseInterceptors`/`@UseFilters` — are
+ * `@GatewayRoute` decorator via `@UseInterceptors`/`@UseFilters` — are
  * resolvable anywhere in the application without re-importing the module
  * inside every feature module.
  *

@@ -1,4 +1,4 @@
-export type { IApiGatewayOptions } from './api-gateway-options.interface';
+export type { IGatewayRouteOptions } from './gateway-route-options.interface';
 
 export type { IGatewayErrorBody } from './gateway-error-body.interface';
 

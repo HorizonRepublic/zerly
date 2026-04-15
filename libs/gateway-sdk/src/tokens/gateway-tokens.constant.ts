@@ -16,7 +16,7 @@ export const GATEWAY_REPLY_BUILDER = Symbol('gateway-reply-builder');
  * Dependency injection token for `IStatusResolver` implementations.
  * @remarks
  * Bind a custom resolver to implement project-specific rules on top of the
- * baseline `@ApiGateway({ statusCode })` override, for example "all handlers
+ * baseline `@GatewayRoute({ statusCode })` override, for example "all handlers
  * whose pattern ends in `.create` default to `201`" or "all handlers tagged
  * with a custom metadata marker default to `202`". The resolver is consulted
  * once per request after the handler resolves and before the reply builder

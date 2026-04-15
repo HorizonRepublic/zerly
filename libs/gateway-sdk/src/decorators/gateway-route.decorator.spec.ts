@@ -4,11 +4,11 @@ import { PATTERN_EXTRAS_METADATA } from '@nestjs/microservices/constants';
 
 import { describe, expect, it } from '@jest/globals';
 
-import { ApiGateway } from './api-gateway.decorator';
+import { GatewayRoute } from './gateway-route.decorator';
 
-describe('ApiGateway decorator', () => {
+describe('GatewayRoute decorator', () => {
   class TestController {
-    @ApiGateway({
+    @GatewayRoute({
       pattern: 'users.create',
       method: 'POST',
       path: '/users',
@@ -18,7 +18,7 @@ describe('ApiGateway decorator', () => {
       return { id: 1 };
     }
 
-    @ApiGateway({ pattern: 'users.get', method: 'GET', path: '/users/:id' })
+    @GatewayRoute({ pattern: 'users.get', method: 'GET', path: '/users/:id' })
     public getUser(): { id: number } {
       return { id: 1 };
     }

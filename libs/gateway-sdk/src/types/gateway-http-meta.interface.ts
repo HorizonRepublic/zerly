@@ -4,7 +4,7 @@ import type { HttpMethod } from './http-method.type';
  * HTTP-routing metadata stored under `meta.http` in the `handler_registry`
  * NATS KV bucket.
  *
- * Written by the `@ApiGateway` decorator (via `@MessagePattern`'s `extras.meta`
+ * Written by the `@GatewayRoute` decorator (via `@MessagePattern`'s `extras.meta`
  * passthrough in `nestjs-jetstream`) and read by `zerly-gateway-server` to
  * build its HTTP routing table.
  * @remarks
@@ -26,7 +26,7 @@ export interface IGatewayHttpMeta {
    * HTTP method the gateway will accept for this handler.
    * @remarks
    * Combined with `path` this field forms the dispatch key of the gateway's
-   * routing trie. It is what makes `@ApiGateway` *additive* over the plain
+   * routing trie. It is what makes `@GatewayRoute` *additive* over the plain
    * `@MessagePattern` contract: the same handler stays callable as a pure
    * RPC while also being reachable through the gateway under the declared
    * HTTP verb.

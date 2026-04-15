@@ -11,7 +11,7 @@ import { readGatewayEnvelope } from './envelope-accessor';
  * (via a NestJS pipe, typia, or explicit `Number()`).
  * @example
  * ```ts
- * @ApiGateway({ pattern: 'users.get', method: 'GET', path: '/users/:id' })
+ * @GatewayRoute({ pattern: 'users.get', method: 'GET', path: '/users/:id' })
  * getUser(@GatewayParam('id') id: string) {
  *   return this.usersService.findById(id);
  * }

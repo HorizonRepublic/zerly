@@ -50,7 +50,7 @@ import type { IGatewayRequest } from '../types/gateway-request.interface';
  * ```ts
  * import { NotFoundException } from '@nestjs/common';
  *
- * // Inside any @ApiGateway-decorated handler:
+ * // Inside any @GatewayRoute-decorated handler:
  * throw new NotFoundException(`User ${id} not found`);
  * // → gateway emits HTTP 404 with body:
  * // { "statusCode": 404, "message": "User 3 not found", "error": "Not Found" }

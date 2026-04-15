@@ -17,7 +17,7 @@ export interface IGatewayRouteContext {
   /**
    * Original registered path template, e.g. `/users/:id`.
    * @remarks
-   * This is the exact string passed to `@ApiGateway({ path })`. Stable across
+   * This is the exact string passed to `@GatewayRoute({ path })`. Stable across
    * requests, safe to use as a metric label (low cardinality).
    */
   readonly path: string;

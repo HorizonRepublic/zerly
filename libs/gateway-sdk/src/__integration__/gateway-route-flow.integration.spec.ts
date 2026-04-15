@@ -8,7 +8,7 @@ import { Test } from '@nestjs/testing';
 import { beforeAll, describe, expect, it } from '@jest/globals';
 import { firstValueFrom, of } from 'rxjs';
 
-import { ApiGateway } from '../decorators/api-gateway.decorator';
+import { GatewayRoute } from '../decorators/gateway-route.decorator';
 import { GatewayBody } from '../decorators/params/gateway-body.decorator';
 import { GatewayParam } from '../decorators/params/gateway-param.decorator';
 import { GatewayRequestId } from '../decorators/params/gateway-request-id.decorator';
@@ -72,7 +72,7 @@ class TestUsersService {
 class TestUsersController {
   public constructor(private readonly service: TestUsersService) {}
 
-  @ApiGateway({ pattern: 'users.get', method: 'GET', path: '/users/:id' })
+  @GatewayRoute({ pattern: 'users.get', method: 'GET', path: '/users/:id' })
   public getUser(@GatewayParam('id') id: string): ITestUser {
     const user = this.service.findById(id);
 
@@ -83,7 +83,7 @@ class TestUsersController {
     return user;
   }
 
-  @ApiGateway({
+  @GatewayRoute({
     pattern: 'users.create',
     method: 'POST',
     path: '/users',
@@ -98,7 +98,7 @@ class TestUsersController {
     return { ...user, requestId };
   }
 
-  @ApiGateway({ pattern: 'users.delete', method: 'DELETE', path: '/users/:id' })
+  @GatewayRoute({ pattern: 'users.delete', method: 'DELETE', path: '/users/:id' })
   public deleteUser(@GatewayParam('id') _id: string): void {
     // Void return should yield 204 via DefaultStatusResolver.
   }
@@ -106,7 +106,7 @@ class TestUsersController {
 
 /**
  * Shape of the `extras` record stored at `PATTERN_EXTRAS_METADATA` by the
- * composed `@ApiGateway` -> `@MessagePattern(..., { meta: { http } })`
+ * composed `@GatewayRoute` -> `@MessagePattern(..., { meta: { http } })`
  * chain. Declared locally so metadata assertions stay type-safe without
  * leaking a framework-internal descriptor.
  */
@@ -182,7 +182,7 @@ const buildArgumentsHost = (envelope: IGatewayRequest | undefined): FilterHost =
   }) as unknown as FilterHost;
 
 /**
- * End-to-end integration of `@ApiGateway` flowing through a real
+ * End-to-end integration of `@GatewayRoute` flowing through a real
  * `Test.createTestingModule`. Verifies that (1) the composed decorator
  * writes HTTP metadata to NestJS's native `PATTERN_EXTRAS_METADATA` key
  * where the interceptor can read it, (2) the real `GatewayResponseInterceptor`
@@ -195,7 +195,7 @@ const buildArgumentsHost = (envelope: IGatewayRequest | undefined): FilterHost =
  * `@nestjs/microservices`; the ESM-mode Jest setup loads the real
  * runtime of every framework surface touched here.
  */
-describe('@ApiGateway end-to-end flow (integration)', () => {
+describe('@GatewayRoute end-to-end flow (integration)', () => {
   let interceptor: GatewayResponseInterceptor;
   let filter: GatewayExceptionFilter;
   let reflector: Reflector;

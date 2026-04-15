@@ -4,8 +4,8 @@ import { MessagePattern } from '@nestjs/microservices';
 import { GatewayExceptionFilter } from '../filters/gateway-exception.filter';
 import { GatewayResponseInterceptor } from '../interceptors/gateway-response.interceptor';
 
-import type { IApiGatewayOptions } from '../types/api-gateway-options.interface';
 import type { IGatewayHttpMeta } from '../types/gateway-http-meta.interface';
+import type { IGatewayRouteOptions } from '../types/gateway-route-options.interface';
 
 /**
  * Exposes a NATS message handler as an HTTP endpoint via `zerly-gateway-server`.
@@ -38,7 +38,7 @@ import type { IGatewayHttpMeta } from '../types/gateway-http-meta.interface';
  * ```ts
  * @Controller()
  * export class UsersController {
- *   @ApiGateway({
+ *   @GatewayRoute({
  *     pattern: 'users.create',
  *     method: 'POST',
  *     path: '/users',
@@ -50,7 +50,7 @@ import type { IGatewayHttpMeta } from '../types/gateway-http-meta.interface';
  * }
  * ```
  */
-export const ApiGateway = (options: IApiGatewayOptions): MethodDecorator => {
+export const GatewayRoute = (options: IGatewayRouteOptions): MethodDecorator => {
   const http: IGatewayHttpMeta =
     options.statusCode === undefined
       ? { method: options.method, path: options.path }

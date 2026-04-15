@@ -1,7 +1,7 @@
 import { Controller, NotFoundException } from '@nestjs/common';
 
 import {
-  ApiGateway,
+  GatewayRoute,
   GatewayBody,
   GatewayParam,
   GatewayQuery,
@@ -29,7 +29,7 @@ interface IDemoUserWithRequestId extends IDemoUser {
 }
 
 /**
- * Demonstrates the three most common `@ApiGateway` patterns.
+ * Demonstrates the three most common `@GatewayRoute` patterns.
  * @remarks
  * 1. `GET /demo/users/:id` — path param extraction via `@GatewayParam`,
  *    throws a plain `Error` on miss so the `DefaultErrorBodyFactory`
@@ -45,7 +45,7 @@ interface IDemoUserWithRequestId extends IDemoUser {
  *
  * None of these handlers are connected to a live NATS transport by the
  * example-app bootstrap — that is deferred until the E2E milestone. At
- * compile time they prove that `@ApiGateway` composes correctly with a
+ * compile time they prove that `@GatewayRoute` composes correctly with a
  * real NestJS DI-managed controller, and their metadata is retrievable
  * via `Reflector.get` (as verified end-to-end in the `gateway-sdk`
  * integration test).
@@ -60,7 +60,7 @@ export class GatewayDemoController {
    * @returns The matching user record.
    * @throws Error When no user exists for the supplied ID.
    */
-  @ApiGateway({
+  @GatewayRoute({
     pattern: 'users.get',
     method: 'GET',
     path: '/users/:id',
@@ -82,7 +82,7 @@ export class GatewayDemoController {
    * @param requestId - Gateway-assigned request correlation ID.
    * @returns The newly created user, enriched with the request ID.
    */
-  @ApiGateway({
+  @GatewayRoute({
     pattern: 'users.create',
     method: 'POST',
     path: '/users',
@@ -100,7 +100,7 @@ export class GatewayDemoController {
    * Delete a user. Idempotent — unknown IDs do not raise.
    * @param id - Opaque user identifier taken from the `:id` path segment.
    */
-  @ApiGateway({
+  @GatewayRoute({
     pattern: 'users.delete',
     method: 'DELETE',
     path: '/users/:id',

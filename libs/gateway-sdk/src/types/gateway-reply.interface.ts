@@ -17,7 +17,7 @@ export interface IGatewayReply<TBody = unknown> {
    * Always present. The gateway writes this value verbatim to the HTTP
    * response status line without further interpretation. On the success path
    * the SDK's `GatewayResponseInterceptor` fills it from
-   * `IApiGatewayOptions.statusCode` (or the null-return default); on the
+   * `IGatewayRouteOptions.statusCode` (or the null-return default); on the
    * error path the `GatewayExceptionFilter` fills it from
    * `HttpException.getStatus()` or the generic `500` fallback. Downstream
    * `@HttpCode()` decorators are not consulted — this field is authoritative.

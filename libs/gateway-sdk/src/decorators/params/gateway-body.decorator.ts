@@ -11,7 +11,7 @@ import { readGatewayEnvelope } from './envelope-accessor';
  * pipe for schema enforcement when the body shape matters.
  * @example
  * ```ts
- * @ApiGateway({ pattern: 'users.create', method: 'POST', path: '/users' })
+ * @GatewayRoute({ pattern: 'users.create', method: 'POST', path: '/users' })
  * createUser(@GatewayBody() dto: CreateUserDto) {
  *   return this.usersService.create(dto);
  * }

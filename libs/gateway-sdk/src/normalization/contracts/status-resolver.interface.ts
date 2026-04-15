@@ -6,7 +6,7 @@ import type { IGatewayHttpMeta } from '../../types/gateway-http-meta.interface';
  * The default implementation (`DefaultStatusResolver`) applies the
  * standard rules, in precedence order:
  *
- *   1. Explicit `statusCode` from `@ApiGateway` options
+ *   1. Explicit `statusCode` from `@GatewayRoute` options
  *      (`IGatewayHttpMeta.statusCode`).
  *   2. `DEFAULT_STATUS_NO_CONTENT` (204) for `null` / `undefined` returns.
  *   3. `DEFAULT_STATUS_OK` (200) otherwise.
@@ -26,7 +26,7 @@ import type { IGatewayHttpMeta } from '../../types/gateway-http-meta.interface';
 export interface IStatusResolver {
   /**
    * Decide which HTTP status to return for a successful handler invocation.
-   * @param httpMeta - HTTP metadata from the handler's `@ApiGateway`
+   * @param httpMeta - HTTP metadata from the handler's `@GatewayRoute`
    *                   decorator, read from `PATTERN_EXTRAS_METADATA` at
    *                   interceptor time.
    * @param returnValue - Raw value returned by the handler method, before

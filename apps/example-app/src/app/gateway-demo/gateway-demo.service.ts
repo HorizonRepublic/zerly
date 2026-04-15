@@ -19,7 +19,7 @@ export interface IDemoUser {
  * Uses a simple `Map<string, IDemoUser>` pre-seeded with two users. Deletes
  * and creations mutate the map in-process — there is no persistence, no
  * concurrency safety, and no production value beyond demonstrating that the
- * `@ApiGateway`-decorated handlers integrate cleanly with conventional
+ * `@GatewayRoute`-decorated handlers integrate cleanly with conventional
  * NestJS service injection.
  */
 @Injectable()

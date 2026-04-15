@@ -1,3 +1,3 @@
-export { ApiGateway } from './api-gateway.decorator';
+export { GatewayRoute } from './gateway-route.decorator';
 
 export * from './params';

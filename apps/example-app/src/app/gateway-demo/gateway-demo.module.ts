@@ -4,7 +4,7 @@ import { GatewayDemoController } from './gateway-demo.controller';
 import { GatewayDemoService } from './gateway-demo.service';
 
 /**
- * Feature module exposing three `@ApiGateway`-decorated demo endpoints.
+ * Feature module exposing three `@GatewayRoute`-decorated demo endpoints.
  * @remarks
  * This module must be imported under a root module that also imports
  * `GatewayModule.forRoot(...)` so the SDK's response interceptor and

@@ -2,7 +2,7 @@
  * Default HTTP status for successful handler returns that produce a response
  * body.
  * @remarks
- * Applied by `DefaultStatusResolver` whenever `@ApiGateway` omits an explicit
+ * Applied by `DefaultStatusResolver` whenever `@GatewayRoute` omits an explicit
  * `statusCode` and the handler returns a non-null, non-undefined value. Kept
  * as a standalone literal (rather than reused from `@nestjs/common`'s
  * `HttpStatus`) so that the gateway transport and the SDK share a single
@@ -15,7 +15,7 @@ export const DEFAULT_STATUS_OK = 200 as const;
  * Default HTTP status for handler returns that carry no response body.
  * @remarks
  * Applied by `DefaultStatusResolver` whenever a handler returns `null`,
- * `undefined`, or is declared `void`, and `@ApiGateway` does not override
+ * `undefined`, or is declared `void`, and `@GatewayRoute` does not override
  * `statusCode`. `204` is the canonical "success with no body" status per
  * RFC 7231 §6.3.5 and permits the transport to skip body encoding entirely.
  */
