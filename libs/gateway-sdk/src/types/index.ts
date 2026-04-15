@@ -7,7 +7,11 @@ export type {
 
 export type { IGatewayAuthVerifierOptions } from './gateway-auth-verifier-options.interface';
 
+export type { ICookieOptions } from './cookie-options.interface';
+
 export type { IGatewayErrorBody } from './gateway-error-body.interface';
+
+export type { IGatewayResponse } from './gateway-response.interface';
 
 export type { IGatewayHttpMeta } from './gateway-http-meta.interface';
 
