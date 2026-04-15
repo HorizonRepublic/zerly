@@ -36,10 +36,14 @@ import type { IGatewayReply } from '../types/gateway-reply.interface';
  */
 @Injectable()
 export class DefaultGatewayReplyBuilder implements IGatewayReplyBuilder {
-  public success<TBody>(status: number, body: TBody | null): IGatewayReply<TBody> {
+  public success<TBody>(
+    status: number,
+    body: TBody | null,
+    headers?: Readonly<Record<string, readonly string[]>>,
+  ): IGatewayReply<TBody> {
     return {
       status,
-      headers: {},
+      headers: headers ?? {},
       /*
        * Coerce `undefined` to `null` so the wire envelope shape stays
        * deterministic across void and explicit-null handler returns.
@@ -52,10 +56,14 @@ export class DefaultGatewayReplyBuilder implements IGatewayReplyBuilder {
     };
   }
 
-  public error(status: number, body: IGatewayErrorBody): IGatewayReply<IGatewayErrorBody> {
+  public error(
+    status: number,
+    body: IGatewayErrorBody,
+    headers?: Readonly<Record<string, readonly string[]>>,
+  ): IGatewayReply<IGatewayErrorBody> {
     return {
       status,
-      headers: {},
+      headers: headers ?? {},
       body,
     };
   }

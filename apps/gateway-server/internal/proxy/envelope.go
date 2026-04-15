@@ -59,14 +59,22 @@ type GatewayRequest struct {
 }
 
 // GatewayReply is the envelope Nest sends back. Mirror of the
-// TypeScript IGatewayReply type from @zerly/gateway-sdk. Body is
-// json.RawMessage for the same zero-deserialize reason as
+// TypeScript IGatewayReply type from @zerly/gateway-sdk.
+//
+// Headers is a multi-value map so RFC-mandated multi-value response
+// headers (Set-Cookie, Vary, Link) survive the NATS wire verbatim.
+// Single-value headers live here too, wrapped in a one-element
+// slice. Request envelopes stay single-value — Fastify already
+// joins multi-value request headers per RFC 7230 §3.2.2 before they
+// reach the transport.
+//
+// Body is json.RawMessage for the same zero-deserialize reason as
 // GatewayRequest.Body — the gateway writes it verbatim to the HTTP
 // response body.
 type GatewayReply struct {
-	Status  int               `json:"status"`
-	Headers map[string]string `json:"headers"`
-	Body    json.RawMessage   `json:"body"`
+	Status  int                 `json:"status"`
+	Headers map[string][]string `json:"headers"`
+	Body    json.RawMessage     `json:"body"`
 }
 
 // reset returns a GatewayRequest to a zero-valued state ready for the

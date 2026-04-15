@@ -121,8 +121,8 @@ func TestHandler_HappyPath(t *testing.T) {
 	result := h.Handle(emptyServeInput("GET", "/users"))
 
 	assert.Equal(t, 200, result.Status)
-	assert.Equal(t, "r1", result.Headers["x-request-id"])
-	assert.Equal(t, "application/json", result.Headers["content-type"])
+	assert.Equal(t, []string{"r1"}, result.Headers["x-request-id"])
+	assert.Equal(t, []string{"application/json"}, result.Headers["content-type"])
 	assert.JSONEq(t, `{"ok":true}`, string(result.Body))
 }
 
@@ -176,7 +176,7 @@ func TestHandler_SuccessReplyPreservesStatusAndHeaders(t *testing.T) {
 	table := &fakeTable{routes: map[string]routing.Route{
 		"POST /users": {Subject: "svc.cmd.users.create", PathTemplate: "/users", Method: "POST"},
 	}}
-	reply := []byte(`{"status":201,"headers":{"x-custom":"yes"},"body":{"id":"1"}}`)
+	reply := []byte(`{"status":201,"headers":{"x-custom":["yes"]},"body":{"id":"1"}}`)
 	h := buildHandler(table, reply, nil)
 
 	in := emptyServeInput("POST", "/users")
@@ -185,8 +185,13 @@ func TestHandler_SuccessReplyPreservesStatusAndHeaders(t *testing.T) {
 	result := h.Handle(in)
 
 	assert.Equal(t, 201, result.Status)
-	assert.Equal(t, "yes", result.Headers["x-custom"])
-	assert.Equal(t, "r1", result.Headers["x-request-id"], "x-request-id is always gateway-owned")
+	assert.Equal(t, []string{"yes"}, result.Headers["x-custom"])
+	assert.Equal(
+		t,
+		[]string{"r1"},
+		result.Headers["x-request-id"],
+		"x-request-id is always gateway-owned",
+	)
 	require.NotNil(t, result.Body)
 }
 
@@ -237,8 +242,16 @@ func TestHandler_CallsVerifierBeforeRoute(t *testing.T) {
 	}
 
 	nats := newFakeNats()
-	nats.program(verifierSubject, []byte(`{"status":200,"headers":{},"body":{"userId":"u1","roles":["admin"]}}`), nil)
-	nats.program(routeSubject, []byte(`{"status":200,"headers":{},"body":{"greeting":"hi"}}`), nil)
+	nats.program(
+		verifierSubject,
+		[]byte(`{"status":200,"headers":{},"body":{"userId":"u1","roles":["admin"]}}`),
+		nil,
+	)
+	nats.program(
+		routeSubject,
+		[]byte(`{"status":200,"headers":{},"body":{"greeting":"hi"}}`),
+		nil,
+	)
 
 	sut := newAuthHandler(stubTable(route), nats)
 
@@ -273,14 +286,18 @@ func TestHandler_ShortCircuitsOn401FromVerifier(t *testing.T) {
 	}
 
 	nats := newFakeNats()
-	nats.program(verifierSubject, []byte(`{"status":401,"headers":{"www-authenticate":"Bearer"},"body":{"error":"Unauthorized"}}`), nil)
+	nats.program(
+		verifierSubject,
+		[]byte(`{"status":401,"headers":{"www-authenticate":["Bearer"]},"body":{"error":"Unauthorized"}}`),
+		nil,
+	)
 
 	sut := newAuthHandler(stubTable(route), nats)
 
 	result := sut.Handle(authServeInput("GET", "/users/me"))
 
 	assert.Equal(t, 401, result.Status)
-	assert.Equal(t, "Bearer", result.Headers["www-authenticate"])
+	assert.Equal(t, []string{"Bearer"}, result.Headers["www-authenticate"])
 
 	// Route was NOT called.
 	require.Len(t, nats.requests, 1)
@@ -299,8 +316,16 @@ func TestHandler_OptionalAuthContinuesOn401(t *testing.T) {
 	}
 
 	nats := newFakeNats()
-	nats.program(verifierSubject, []byte(`{"status":401,"headers":{},"body":{"error":"Unauthorized"}}`), nil)
-	nats.program(routeSubject, []byte(`{"status":200,"headers":{},"body":{"public":true}}`), nil)
+	nats.program(
+		verifierSubject,
+		[]byte(`{"status":401,"headers":{},"body":{"error":"Unauthorized"}}`),
+		nil,
+	)
+	nats.program(
+		routeSubject,
+		[]byte(`{"status":200,"headers":{},"body":{"public":true}}`),
+		nil,
+	)
 
 	sut := newAuthHandler(stubTable(route), nats)
 
@@ -330,7 +355,11 @@ func TestHandler_OptionalAuthStillForwards403(t *testing.T) {
 	}
 
 	nats := newFakeNats()
-	nats.program(verifierSubject, []byte(`{"status":403,"headers":{},"body":{"error":"Forbidden"}}`), nil)
+	nats.program(
+		verifierSubject,
+		[]byte(`{"status":403,"headers":{},"body":{"error":"Forbidden"}}`),
+		nil,
+	)
 
 	sut := newAuthHandler(stubTable(route), nats)
 
@@ -368,10 +397,10 @@ func TestHandler_OverwritesUpstreamRequestID(t *testing.T) {
 	table := &fakeTable{routes: map[string]routing.Route{
 		"GET /users": {Subject: "svc.cmd.users.list", PathTemplate: "/users", Method: "GET"},
 	}}
-	reply := []byte(`{"status":200,"headers":{"x-request-id":"spoofed"},"body":null}`)
+	reply := []byte(`{"status":200,"headers":{"x-request-id":["spoofed"]},"body":null}`)
 	h := buildHandler(table, reply, nil)
 
 	result := h.Handle(emptyServeInput("GET", "/users"))
 
-	assert.Equal(t, "r1", result.Headers["x-request-id"])
+	assert.Equal(t, []string{"r1"}, result.Headers["x-request-id"])
 }

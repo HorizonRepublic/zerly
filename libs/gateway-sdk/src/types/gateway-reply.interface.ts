@@ -25,13 +25,20 @@ export interface IGatewayReply<TBody = unknown> {
   readonly status: number;
 
   /**
-   * HTTP headers to include in the response. Always present; may be empty.
+   * Response headers as a multi-value map. Always present; may be empty.
    * @remarks
+   * Each header name maps to an array of values so multi-value
+   * headers like `Set-Cookie` survive the NATS wire verbatim. Single
+   * -value headers still live here, just wrapped in a one-element
+   * array. Headers are lowercase by convention so the Go side can use
+   * case-sensitive map lookups on the hot path without normalizing
+   * per-request.
+   *
    * The gateway merges these over its own defaults (`Content-Type`,
    * `X-Request-Id`). Headers set here override gateway defaults, except
    * `X-Request-Id` which the gateway always owns.
    */
-  readonly headers: Readonly<Record<string, string>>;
+  readonly headers: Readonly<Record<string, readonly string[]>>;
 
   /** Response body. `null` for void/204 responses. JSON-serializable. */
   readonly body: TBody | null;

@@ -35,8 +35,17 @@ export interface IGatewayReplyBuilder {
    * @param body - Handler return value, or `null` for void/204 responses.
    *               Implementations must not mutate or deep-clone the value;
    *               the envelope holds the reference verbatim.
+   * @param headers - Optional multi-value headers map. When omitted
+   *                  implementations emit an empty object so the wire
+   *                  shape stays stable; each value is an array so
+   *                  multi-value headers such as `Set-Cookie` reach
+   *                  the Go gateway verbatim.
    */
-  success<TBody>(status: number, body: TBody | null): IGatewayReply<TBody>;
+  success<TBody>(
+    status: number,
+    body: TBody | null,
+    headers?: Readonly<Record<string, readonly string[]>>,
+  ): IGatewayReply<TBody>;
 
   /**
    * Build an envelope for a thrown exception, after it has been translated
@@ -48,6 +57,12 @@ export interface IGatewayReplyBuilder {
    *               Implementations must forward the body verbatim without
    *               rewriting fields so error semantics stay lossless between
    *               the factory and the wire.
+   * @param headers - Optional multi-value headers map. Same contract as
+   *                  the success variant; defaults to an empty object.
    */
-  error(status: number, body: IGatewayErrorBody): IGatewayReply<IGatewayErrorBody>;
+  error(
+    status: number,
+    body: IGatewayErrorBody,
+    headers?: Readonly<Record<string, readonly string[]>>,
+  ): IGatewayReply<IGatewayErrorBody>;
 }

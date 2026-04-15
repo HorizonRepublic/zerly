@@ -150,9 +150,19 @@ func collectQueryValues(ctx *app.RequestContext) map[string]proxy.QueryValue {
 // the wire format — an upstream handler cannot change it to anything
 // else, which is a deliberate anti-spoofing measure that lets HTTP
 // clients parse the body without sniffing.
+//
+// Header.Add is used instead of Header.Set so each slice entry lands
+// as a separate header line on the client response. The critical
+// case is Set-Cookie: Hertz's setSpecialHeader routes every Add on
+// "Set-Cookie" through its per-cookie slot (internally an append),
+// so calling Add twice yields two cookie lines — exactly the RFC
+// 6265 shape browsers expect. Single-value headers with a one-element
+// slice land as one Add call, equivalent to Set on an empty slot.
 func writeServeResult(ctx *app.RequestContext, result *proxy.ServeResult) {
-	for key, value := range result.Headers {
-		ctx.Response.Header.Set(key, value)
+	for key, values := range result.Headers {
+		for _, value := range values {
+			ctx.Response.Header.Add(key, value)
+		}
 	}
 	ctx.Response.Header.SetContentType(consts.MIMEApplicationJSON)
 	ctx.SetStatusCode(result.Status)

@@ -11,11 +11,17 @@ import (
 func TestDefaultDecoder_ValidReply(t *testing.T) {
 	dec := NewDefaultDecoder()
 
-	reply, err := dec.Decode([]byte(`{"status":201,"headers":{"x-foo":"bar"},"body":{"id":"42"}}`))
+	reply, err := dec.Decode(
+		[]byte(`{"status":201,"headers":{"x-foo":["bar"],"set-cookie":["a=1","b=2"]},"body":{"id":"42"}}`),
+	)
 	require.NoError(t, err)
 
 	assert.Equal(t, 201, reply.Status)
-	assert.Equal(t, "bar", reply.Headers["x-foo"])
+	assert.Equal(t, []string{"bar"}, reply.Headers["x-foo"])
+	// Multi-value headers must decode verbatim so Set-Cookie lines
+	// preserve order as emitted by the handler — order matters for
+	// cookies that set the same name with different paths.
+	assert.Equal(t, []string{"a=1", "b=2"}, reply.Headers["set-cookie"])
 	assert.JSONEq(t, `{"id":"42"}`, string(reply.Body))
 }
 

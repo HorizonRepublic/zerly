@@ -65,9 +65,15 @@ type ServeInput struct {
 
 // ServeResult is the framework-agnostic outcome of handling a request.
 // Adapters translate it into their HTTP response representation.
+//
+// Headers is a multi-value map so the HTTP adapter can emit each
+// slice entry as a separate header on the client response. This is
+// the critical shape for Set-Cookie, where two cookies set by the
+// same handler MUST land on the wire as two distinct Set-Cookie
+// lines instead of a single joined value.
 type ServeResult struct {
 	Status  int
-	Headers map[string]string
+	Headers map[string][]string
 	Body    []byte
 }
 
@@ -230,17 +236,19 @@ func (h *Handler) runAuthFlow(
 	}, false
 }
 
-// mergeHeaders combines the reply headers with gateway-owned headers
-// (content-type, x-request-id). The gateway always stamps its own
-// x-request-id — any value the upstream service set is intentionally
-// overwritten to prevent spoofing.
-func mergeHeaders(reply map[string]string, requestID string) map[string]string {
-	out := make(map[string]string, len(reply)+2)
-	out["content-type"] = "application/json"
+// mergeHeaders combines the reply headers with gateway-owned defaults.
+// Multi-value entries from the reply (e.g. multiple Set-Cookie lines)
+// are forwarded verbatim so RFC-mandated multi-value headers survive
+// the wire. The gateway always stamps its own x-request-id on top of
+// whatever the upstream service emitted, so a compromised upstream
+// cannot forge correlator ids.
+func mergeHeaders(reply map[string][]string, requestID string) map[string][]string {
+	out := make(map[string][]string, len(reply)+2)
+	out["content-type"] = []string{"application/json"}
 	for k, v := range reply {
 		out[k] = v
 	}
-	out["x-request-id"] = requestID
+	out["x-request-id"] = []string{requestID}
 	return out
 }
 
@@ -248,8 +256,8 @@ func mergeHeaders(reply map[string]string, requestID string) map[string]string {
 // Allocates on every call because ServeResult.Headers is expected to
 // be caller-owned — the shared pre-encoded error body is paired with
 // this per-request header map so no caller ever sees aliased state.
-func jsonHeaders() map[string]string {
-	return map[string]string{"content-type": "application/json"}
+func jsonHeaders() map[string][]string {
+	return map[string][]string{"content-type": {"application/json"}}
 }
 
 // toServeResult materializes a ServeResult from a pre-encoded

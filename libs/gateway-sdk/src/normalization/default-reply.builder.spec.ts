@@ -39,6 +39,21 @@ describe('DefaultGatewayReplyBuilder', () => {
     it('returns the provided status verbatim', () => {
       expect(builder.success(418, 'teapot').status).toBe(418);
     });
+
+    it('forwards the provided multi-value headers map by reference', () => {
+      // The builder must not clone or merge — callers own the shape.
+      // The Go gateway relies on byte-identity between what the
+      // accumulator buffers and what lands on the wire, so a
+      // defensive clone here would break the zero-copy contract.
+      const headers = {
+        'set-cookie': ['sid=a; Path=/', 'theme=dark; Path=/'],
+        'x-custom': ['one'],
+      } as const;
+
+      const reply = builder.success(200, { id: 1 }, headers);
+
+      expect(reply.headers).toBe(headers);
+    });
   });
 
   describe('error()', () => {
@@ -64,6 +79,16 @@ describe('DefaultGatewayReplyBuilder', () => {
 
     it('returns the provided status', () => {
       expect(builder.error(404, errorBody).status).toBe(404);
+    });
+
+    it('forwards the provided multi-value headers map by reference', () => {
+      const headers = {
+        'www-authenticate': ['Bearer realm="api"'],
+      } as const;
+
+      const reply = builder.error(401, errorBody, headers);
+
+      expect(reply.headers).toBe(headers);
     });
   });
 });

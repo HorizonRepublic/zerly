@@ -102,9 +102,12 @@ func TestBuildServeInput_StampsXRequestIdResponseHeader(t *testing.T) {
 func TestWriteServeResult_SetsStatusHeadersAndBody(t *testing.T) {
 	ctx := ut.CreateUtRequestContext("GET", "https://gateway.test/x", nil)
 	result := &proxy.ServeResult{
-		Status:  201,
-		Headers: map[string]string{"x-custom": "yes", "x-request-id": "r-1"},
-		Body:    []byte(`{"ok":true}`),
+		Status: 201,
+		Headers: map[string][]string{
+			"x-custom":     {"yes"},
+			"x-request-id": {"r-1"},
+		},
+		Body: []byte(`{"ok":true}`),
 	}
 
 	writeServeResult(ctx, result)
@@ -123,13 +126,46 @@ func TestWriteServeResult_ForcesApplicationJSONContentType(t *testing.T) {
 	ctx := ut.CreateUtRequestContext("GET", "https://gateway.test/x", nil)
 	result := &proxy.ServeResult{
 		Status:  200,
-		Headers: map[string]string{"content-type": "text/plain"},
+		Headers: map[string][]string{"content-type": {"text/plain"}},
 		Body:    []byte(`"ok"`),
 	}
 
 	writeServeResult(ctx, result)
 
 	assert.Contains(t, string(ctx.Response.Header.Peek("Content-Type")), "application/json")
+}
+
+// TestWriteServeResult_EmitsMultipleSetCookieLines is the load-bearing
+// test for Phase E.1: a handler that returns two Set-Cookie values in
+// the envelope MUST land on the wire as two distinct header lines so
+// RFC 6265 §3 parsers (every browser, curl -v, Node's http module)
+// recognize both cookies. If this assertion ever breaks it means the
+// adapter is joining multi-value headers, which would silently drop
+// the second cookie from the client-visible jar.
+func TestWriteServeResult_EmitsMultipleSetCookieLines(t *testing.T) {
+	ctx := ut.CreateUtRequestContext("GET", "https://gateway.test/x", nil)
+	result := &proxy.ServeResult{
+		Status: 200,
+		Headers: map[string][]string{
+			"set-cookie": {
+				"sid=abc; Path=/; HttpOnly",
+				"theme=dark; Path=/",
+			},
+		},
+		Body: []byte(`{}`),
+	}
+
+	writeServeResult(ctx, result)
+
+	var lines []string
+	ctx.Response.Header.VisitAllCookie(func(_, value []byte) {
+		lines = append(lines, string(value))
+	})
+
+	assert.ElementsMatch(t, []string{
+		"sid=abc; Path=/; HttpOnly",
+		"theme=dark; Path=/",
+	}, lines)
 }
 
 // ---------- full adapter integration tests ----------
@@ -171,7 +207,7 @@ func TestAdapter_ForwardsResponseThroughProxyHandler(t *testing.T) {
 		hit: true,
 	}
 	requester := &fakeRequester{
-		reply: []byte(`{"status":200,"headers":{"x-custom":"yes"},"body":{"ok":true}}`),
+		reply: []byte(`{"status":200,"headers":{"x-custom":["yes"]},"body":{"ok":true}}`),
 	}
 	handler := proxy.NewHandler(proxy.HandlerConfig{
 		Table:   func() routing.Table { return table },
