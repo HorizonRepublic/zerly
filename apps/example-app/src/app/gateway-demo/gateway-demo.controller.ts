@@ -10,10 +10,10 @@ import {
   GatewayUser,
 } from '@zerly/gateway-sdk';
 
-import type { IGatewayResponse } from '@zerly/gateway-sdk';
-
 import { type IDemoAuthUser } from './auth-verifier.controller';
 import { GatewayDemoService, type IDemoUser } from './gateway-demo.service';
+
+import type { IGatewayResponse } from '@zerly/gateway-sdk';
 
 /**
  * Request body accepted by `POST /auth/login`. A realistic login
