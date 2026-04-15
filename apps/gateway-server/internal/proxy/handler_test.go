@@ -390,6 +390,236 @@ func TestHandler_VerifierNoRespondersReturns503(t *testing.T) {
 	assert.Equal(t, 503, result.Status)
 }
 
+func TestHandler_MergesVerifierAndRouteCookies(t *testing.T) {
+	routeSubject := "users-svc__microservice.cmd.users.me"
+	verifierSubject := "users-svc__microservice.cmd.auth.verifier.jwt"
+
+	route := routing.Route{
+		Subject:      routeSubject,
+		Method:       "GET",
+		PathTemplate: "/users/me",
+		Auth:         &routing.RouteAuth{VerifierSubject: verifierSubject},
+	}
+
+	nats := newFakeNats()
+	nats.program(
+		verifierSubject,
+		[]byte(`{"status":200,"headers":{"set-cookie":["rotated=new; HttpOnly"]},"body":{"userId":"u1"}}`),
+		nil,
+	)
+	nats.program(
+		routeSubject,
+		[]byte(`{"status":200,"headers":{"set-cookie":["theme=dark; Path=/"]},"body":{"greeting":"hi"}}`),
+		nil,
+	)
+
+	sut := newAuthHandler(stubTable(route), nats)
+
+	result := sut.Handle(authServeInput("GET", "/users/me"))
+
+	require.Equal(t, 200, result.Status)
+	// Spec §6.6: verifier values FIRST, route values AFTER.
+	assert.Equal(
+		t,
+		[]string{"rotated=new; HttpOnly", "theme=dark; Path=/"},
+		result.Headers["set-cookie"],
+	)
+}
+
+func TestHandler_VerifierOnlyCookiePassesThrough(t *testing.T) {
+	routeSubject := "users-svc__microservice.cmd.users.me"
+	verifierSubject := "users-svc__microservice.cmd.auth.verifier.jwt"
+
+	route := routing.Route{
+		Subject:      routeSubject,
+		Method:       "GET",
+		PathTemplate: "/users/me",
+		Auth:         &routing.RouteAuth{VerifierSubject: verifierSubject},
+	}
+
+	nats := newFakeNats()
+	nats.program(
+		verifierSubject,
+		[]byte(`{"status":200,"headers":{"set-cookie":["rotated=new; HttpOnly"]},"body":{"userId":"u1"}}`),
+		nil,
+	)
+	nats.program(
+		routeSubject,
+		[]byte(`{"status":200,"headers":{},"body":{"greeting":"hi"}}`),
+		nil,
+	)
+
+	sut := newAuthHandler(stubTable(route), nats)
+
+	result := sut.Handle(authServeInput("GET", "/users/me"))
+
+	require.Equal(t, 200, result.Status)
+	assert.Equal(t, []string{"rotated=new; HttpOnly"}, result.Headers["set-cookie"])
+}
+
+func TestHandler_RouteOnlyCookieUnchanged(t *testing.T) {
+	routeSubject := "users-svc__microservice.cmd.users.me"
+	verifierSubject := "users-svc__microservice.cmd.auth.verifier.jwt"
+
+	route := routing.Route{
+		Subject:      routeSubject,
+		Method:       "GET",
+		PathTemplate: "/users/me",
+		Auth:         &routing.RouteAuth{VerifierSubject: verifierSubject},
+	}
+
+	nats := newFakeNats()
+	nats.program(
+		verifierSubject,
+		[]byte(`{"status":200,"headers":{},"body":{"userId":"u1"}}`),
+		nil,
+	)
+	nats.program(
+		routeSubject,
+		[]byte(`{"status":200,"headers":{"set-cookie":["theme=dark; Path=/"]},"body":{"greeting":"hi"}}`),
+		nil,
+	)
+
+	sut := newAuthHandler(stubTable(route), nats)
+
+	result := sut.Handle(authServeInput("GET", "/users/me"))
+
+	require.Equal(t, 200, result.Status)
+	assert.Equal(t, []string{"theme=dark; Path=/"}, result.Headers["set-cookie"])
+}
+
+func TestHandler_RouteHeaderWinsOverVerifierForSingleValue(t *testing.T) {
+	routeSubject := "users-svc__microservice.cmd.users.me"
+	verifierSubject := "users-svc__microservice.cmd.auth.verifier.jwt"
+
+	route := routing.Route{
+		Subject:      routeSubject,
+		Method:       "GET",
+		PathTemplate: "/users/me",
+		Auth:         &routing.RouteAuth{VerifierSubject: verifierSubject},
+	}
+
+	nats := newFakeNats()
+	nats.program(
+		verifierSubject,
+		[]byte(`{"status":200,"headers":{"cache-control":["no-store"]},"body":{"userId":"u1"}}`),
+		nil,
+	)
+	nats.program(
+		routeSubject,
+		[]byte(`{"status":200,"headers":{"cache-control":["private"]},"body":{"greeting":"hi"}}`),
+		nil,
+	)
+
+	sut := newAuthHandler(stubTable(route), nats)
+
+	result := sut.Handle(authServeInput("GET", "/users/me"))
+
+	require.Equal(t, 200, result.Status)
+	// Single-value conflict → route reply owns the slot.
+	assert.Equal(t, []string{"private"}, result.Headers["cache-control"])
+}
+
+func TestHandler_VerifierOnlyHeaderPassesThrough(t *testing.T) {
+	routeSubject := "users-svc__microservice.cmd.users.me"
+	verifierSubject := "users-svc__microservice.cmd.auth.verifier.jwt"
+
+	route := routing.Route{
+		Subject:      routeSubject,
+		Method:       "GET",
+		PathTemplate: "/users/me",
+		Auth:         &routing.RouteAuth{VerifierSubject: verifierSubject},
+	}
+
+	nats := newFakeNats()
+	nats.program(
+		verifierSubject,
+		[]byte(`{"status":200,"headers":{"x-verifier-trace":["vtrace-abc"]},"body":{"userId":"u1"}}`),
+		nil,
+	)
+	nats.program(
+		routeSubject,
+		[]byte(`{"status":200,"headers":{"x-route-trace":["rtrace-xyz"]},"body":{"greeting":"hi"}}`),
+		nil,
+	)
+
+	sut := newAuthHandler(stubTable(route), nats)
+
+	result := sut.Handle(authServeInput("GET", "/users/me"))
+
+	require.Equal(t, 200, result.Status)
+	assert.Equal(t, []string{"vtrace-abc"}, result.Headers["x-verifier-trace"])
+	assert.Equal(t, []string{"rtrace-xyz"}, result.Headers["x-route-trace"])
+}
+
+func TestHandler_OptionalAuth401DoesNotMergeVerifierHeaders(t *testing.T) {
+	routeSubject := "users-svc__microservice.cmd.articles.get"
+	verifierSubject := "users-svc__microservice.cmd.auth.verifier.jwt"
+
+	route := routing.Route{
+		Subject:      routeSubject,
+		Method:       "GET",
+		PathTemplate: "/articles/:id",
+		Auth:         &routing.RouteAuth{VerifierSubject: verifierSubject, Optional: true},
+	}
+
+	nats := newFakeNats()
+	nats.program(
+		verifierSubject,
+		[]byte(`{"status":401,"headers":{"x-verifier-trace":["vtrace"],"set-cookie":["leak=bad"]},"body":{}}`),
+		nil,
+	)
+	nats.program(
+		routeSubject,
+		[]byte(`{"status":200,"headers":{},"body":{"public":true}}`),
+		nil,
+	)
+
+	sut := newAuthHandler(stubTable(route), nats)
+
+	result := sut.Handle(authServeInput("GET", "/articles/:id"))
+
+	require.Equal(t, 200, result.Status)
+	_, traceSeen := result.Headers["x-verifier-trace"]
+	assert.False(t, traceSeen, "verifier headers on 401 swallow path must not reach the client")
+	_, cookieSeen := result.Headers["set-cookie"]
+	assert.False(t, cookieSeen, "verifier cookies on 401 swallow path must not reach the client")
+}
+
+func TestHandler_GatewayRequestIDBeatsVerifierSpoofing(t *testing.T) {
+	routeSubject := "users-svc__microservice.cmd.users.me"
+	verifierSubject := "users-svc__microservice.cmd.auth.verifier.jwt"
+
+	route := routing.Route{
+		Subject:      routeSubject,
+		Method:       "GET",
+		PathTemplate: "/users/me",
+		Auth:         &routing.RouteAuth{VerifierSubject: verifierSubject},
+	}
+
+	nats := newFakeNats()
+	nats.program(
+		verifierSubject,
+		[]byte(`{"status":200,"headers":{"x-request-id":["forged-by-verifier"]},"body":{"userId":"u1"}}`),
+		nil,
+	)
+	nats.program(
+		routeSubject,
+		[]byte(`{"status":200,"headers":{},"body":{"greeting":"hi"}}`),
+		nil,
+	)
+
+	sut := newAuthHandler(stubTable(route), nats)
+
+	in := authServeInput("GET", "/users/me")
+	in.RequestID = "req-0001"
+
+	result := sut.Handle(in)
+
+	require.Equal(t, 200, result.Status)
+	assert.Equal(t, []string{"req-0001"}, result.Headers["x-request-id"])
+}
+
 func TestHandler_OverwritesUpstreamRequestID(t *testing.T) {
 	// Upstream services MUST NOT be able to set x-request-id — the
 	// gateway always stamps its own value so request-id tracking

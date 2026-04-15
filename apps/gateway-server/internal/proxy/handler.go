@@ -98,14 +98,16 @@ func (h *Handler) Handle(in *ServeInput) *ServeResult {
 	}
 
 	var claims json.RawMessage
+	var authHeaders map[string][]string
 
 	if route.Auth != nil {
-		authResult, proceed := h.runAuthFlow(in, route, params)
-		if !proceed {
-			return authResult
+		authOutcome := h.runAuthFlow(in, route, params)
+		if !authOutcome.Proceed {
+			return authOutcome.ShortCircuit
 		}
 
-		claims = authResult.Body
+		claims = authOutcome.Claims
+		authHeaders = authOutcome.AuthHeaders
 	}
 
 	payload := acquirePayload()
@@ -146,33 +148,54 @@ func (h *Handler) Handle(in *ServeInput) *ServeResult {
 		return toServeResult(gerrors.BadGateway)
 	}
 
+	mergedHeaders := mergeHeaders(reply.Headers, in.RequestID)
+	mergeAuthHeaders(mergedHeaders, authHeaders)
+
 	return &ServeResult{
 		Status:  reply.Status,
-		Headers: mergeHeaders(reply.Headers, in.RequestID),
+		Headers: mergedHeaders,
 		Body:    reply.Body,
 	}
+}
+
+// authFlowResult captures the outcome of a pre-flight verifier
+// sub-request. Exactly one of ShortCircuit and the (Claims,
+// AuthHeaders) pair is populated:
+//
+//   - When Proceed is false, ShortCircuit holds the response that
+//     must be returned to the HTTP client verbatim; Claims and
+//     AuthHeaders are zero.
+//   - When Proceed is true, the caller injects Claims as the
+//     `auth` field of the main request envelope and merges
+//     AuthHeaders into the main route reply headers via
+//     mergeAuthHeaders before the HTTP write.
+type authFlowResult struct {
+	Proceed      bool
+	ShortCircuit *ServeResult
+	Claims       json.RawMessage
+	AuthHeaders  map[string][]string
 }
 
 // runAuthFlow issues the verifier sub-request for a protected route
 // and decides whether the main route request proceeds.
 //
-// Return semantics:
+// The returned authFlowResult is discriminated on Proceed:
 //
-//   - proceed == false → the caller MUST return the ServeResult
-//     pointer verbatim. Covers 401/403 short-circuits, verifier
-//     transport errors (503/504/502), and decoder failures.
-//   - proceed == true → the caller continues to the main route
-//     request. The returned ServeResult.Body carries the verifier's
-//     reply body (the claims) to inject into the main envelope's
-//     Auth field. On an optional-auth 401 swallow, Body is nil.
-//
-// The ServeResult pointer returned on the "proceed" path is reused
-// purely as a claims carrier — only Body is meaningful in that case.
+//   - Proceed == false → the caller MUST return ShortCircuit
+//     verbatim. Covers 401/403 short-circuits, verifier transport
+//     errors (503/504/502), and decoder failures.
+//   - Proceed == true → the caller continues to the main route
+//     request. Claims carries the verifier's reply body for
+//     injection into the main envelope's auth field (nil on the
+//     optional-auth 401 swallow). AuthHeaders carries the verifier
+//     reply's response headers for merge into the main reply — only
+//     set on a 200 verifier reply so failed verifier replies never
+//     leak headers onto the main response.
 func (h *Handler) runAuthFlow(
 	in *ServeInput,
 	route routing.Route,
 	params map[string]string,
-) (*ServeResult, bool) {
+) *authFlowResult {
 	verifyPayload := acquirePayload()
 	defer releasePayload(verifyPayload)
 
@@ -195,45 +218,55 @@ func (h *Handler) runAuthFlow(
 	})
 	if err != nil {
 		h.cfg.Logger.Error().Err(err).Msg("auth: verify encode failed")
-		return toServeResult(gerrors.InternalError), false
+		return &authFlowResult{Proceed: false, ShortCircuit: toServeResult(gerrors.InternalError)}
 	}
 
 	replyBytes, err := h.cfg.Nats.Request(route.Auth.VerifierSubject, *verifyPayload, h.cfg.Timeout)
 	if err != nil {
 		if isTimeoutErr(err) {
-			return toServeResult(gerrors.GatewayTimeout), false
+			return &authFlowResult{Proceed: false, ShortCircuit: toServeResult(gerrors.GatewayTimeout)}
 		}
 		h.cfg.Logger.Error().
 			Err(err).
 			Str("subject", route.Auth.VerifierSubject).
 			Msg("auth: verifier nats request failed")
-		return toServeResult(gerrors.ServiceUnavailable), false
+
+		return &authFlowResult{Proceed: false, ShortCircuit: toServeResult(gerrors.ServiceUnavailable)}
 	}
 
 	reply, err := h.cfg.Decoder.Decode(replyBytes)
 	if err != nil {
 		h.cfg.Logger.Error().Err(err).Msg("auth: verifier reply decode failed")
-		return toServeResult(gerrors.BadGateway), false
+		return &authFlowResult{Proceed: false, ShortCircuit: toServeResult(gerrors.BadGateway)}
 	}
 
 	if reply.Status == 200 {
-		return &ServeResult{Body: reply.Body}, true
+		return &authFlowResult{
+			Proceed:     true,
+			Claims:      reply.Body,
+			AuthHeaders: reply.Headers,
+		}
 	}
 
 	// Optional-auth: swallow 401 only. 403 and every other non-200
 	// status still short-circuits. Transport errors above already
-	// returned before this branch.
+	// returned before this branch. Verifier headers are intentionally
+	// dropped on this path — only 200-path verifier replies
+	// contribute headers to the main response.
 	if route.Auth.Optional && reply.Status == 401 {
-		return &ServeResult{Body: nil}, true
+		return &authFlowResult{Proceed: true}
 	}
 
 	// Forward the verifier's reply verbatim — this is how verifier-set
 	// headers like WWW-Authenticate reach the client.
-	return &ServeResult{
-		Status:  reply.Status,
-		Headers: mergeHeaders(reply.Headers, in.RequestID),
-		Body:    reply.Body,
-	}, false
+	return &authFlowResult{
+		Proceed: false,
+		ShortCircuit: &ServeResult{
+			Status:  reply.Status,
+			Headers: mergeHeaders(reply.Headers, in.RequestID),
+			Body:    reply.Body,
+		},
+	}
 }
 
 // mergeHeaders combines the reply headers with gateway-owned defaults.
@@ -250,6 +283,51 @@ func mergeHeaders(reply map[string][]string, requestID string) map[string][]stri
 	}
 	out["x-request-id"] = []string{requestID}
 	return out
+}
+
+// mergeAuthHeaders layers a verifier reply's response headers onto
+// an already-merged main reply headers map per the design spec §6.6
+// rules:
+//
+//   - set-cookie is appended with verifier values first, then the
+//     route's existing values — so the client sees the verifier's
+//     rotated cookies alongside any cookies the main handler set
+//     in the order declared by the spec.
+//   - Other headers from the verifier are added only when the
+//     merged map does not already contain the key. The main route
+//     reply (and the gateway's x-request-id / content-type stamps
+//     from mergeHeaders) own conflicting single-value slots
+//     unconditionally, so verifier headers never overwrite gateway
+//     state or silently shadow a route-chosen value.
+//
+// The merged map is mutated in place. Callers are expected to have
+// already run mergeHeaders so gateway defaults are baked in.
+func mergeAuthHeaders(merged map[string][]string, authHeaders map[string][]string) {
+	if len(authHeaders) == 0 {
+		return
+	}
+
+	for verifierKey, verifierValues := range authHeaders {
+		if len(verifierValues) == 0 {
+			continue
+		}
+
+		if verifierKey == "set-cookie" {
+			existing := merged["set-cookie"]
+			combined := make([]string, 0, len(verifierValues)+len(existing))
+			combined = append(combined, verifierValues...)
+			combined = append(combined, existing...)
+			merged["set-cookie"] = combined
+
+			continue
+		}
+
+		if _, exists := merged[verifierKey]; exists {
+			continue
+		}
+
+		merged[verifierKey] = verifierValues
+	}
 }
 
 // jsonHeaders returns a fresh header map carrying only content-type.
