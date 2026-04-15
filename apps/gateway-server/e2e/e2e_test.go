@@ -41,7 +41,7 @@ const gatewayPollInterval = 500 * time.Millisecond
 func TestE2E_GetUserReturns200(t *testing.T) {
 	waitForGateway(t)
 
-	resp, err := http.Get(gatewayURL + "/demo/users/1")
+	resp, err := http.Get(gatewayURL + "/users/1")
 	require.NoError(t, err)
 	defer func() { _ = resp.Body.Close() }()
 
@@ -61,7 +61,7 @@ func TestE2E_CreateUserReturns201(t *testing.T) {
 	waitForGateway(t)
 
 	body := bytes.NewBufferString(`{"name":"E2E User"}`)
-	req, err := http.NewRequest(http.MethodPost, gatewayURL+"/demo/users", body)
+	req, err := http.NewRequest(http.MethodPost, gatewayURL+"/users", body)
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
 
@@ -86,7 +86,7 @@ func TestE2E_CreateUserReturns201(t *testing.T) {
 func TestE2E_DeleteUserReturns204(t *testing.T) {
 	waitForGateway(t)
 
-	req, err := http.NewRequest(http.MethodDelete, gatewayURL+"/demo/users/2", nil)
+	req, err := http.NewRequest(http.MethodDelete, gatewayURL+"/users/2", nil)
 	require.NoError(t, err)
 
 	resp, err := http.DefaultClient.Do(req)
@@ -109,7 +109,7 @@ func TestE2E_UnknownRouteReturns404(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 	body, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
-	assert.Contains(t, string(body), "NOT_FOUND")
+	assert.Contains(t, string(body), "Not Found")
 	assert.Contains(t, resp.Header.Get("Content-Type"), "application/json")
 }
 
@@ -119,7 +119,7 @@ func TestE2E_UnknownRouteReturns404(t *testing.T) {
 func TestE2E_RequestIDAlwaysPresent(t *testing.T) {
 	waitForGateway(t)
 
-	resp, err := http.Get(gatewayURL + "/demo/users/1")
+	resp, err := http.Get(gatewayURL + "/users/1")
 	require.NoError(t, err)
 	defer func() { _ = resp.Body.Close() }()
 

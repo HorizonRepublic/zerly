@@ -6,8 +6,10 @@ import {
   GatewayParam,
   GatewayQuery,
   GatewayRequestId,
+  GatewayUser,
 } from '@zerly/gateway-sdk';
 
+import { type IDemoAuthUser } from './auth-verifier.controller';
 import { GatewayDemoService, type IDemoUser } from './gateway-demo.service';
 
 /**
@@ -107,5 +109,59 @@ export class GatewayDemoController {
   })
   public deleteUser(@GatewayParam('id') id: string): void {
     this.service.delete(id);
+  }
+
+  /**
+   * Echo the authenticated caller.
+   * @remarks
+   * Protected with `auth: true`, which routes through the default
+   * `@GatewayAuthVerifier` registered by `AuthVerifierController`.
+   * The verifier rejects missing / non-`demo-*` bearer tokens with a
+   * 401, flags `demo-banned` as 403, and populates `user` for
+   * everything else. The handler body simply returns whatever the
+   * verifier produced — demonstrating the "identity-function on the
+   * wire" contract for verifier claims.
+   * @param user - Verifier-produced caller identity; non-nullable on
+   *               required-auth routes.
+   * @returns The verifier's claims verbatim.
+   */
+  @GatewayRoute({
+    pattern: 'users.me',
+    method: 'GET',
+    path: '/me',
+    auth: true,
+  })
+  public me(@GatewayUser() user: IDemoAuthUser): IDemoAuthUser {
+    return user;
+  }
+
+  /**
+   * Optional-auth endpoint demonstrating enriched-if-logged-in
+   * content.
+   * @remarks
+   * Protected with `auth: { optional: true }`. Anonymous requests
+   * (no bearer token or a rejected one) flow through with
+   * `user === undefined`. Requests with a valid token surface the
+   * caller identity under the `viewer` field so downstream consumers
+   * can distinguish authenticated and anonymous responses without
+   * running a second roundtrip.
+   * @param id - Opaque article identifier taken from the `:id` path
+   *             segment.
+   * @param user - Verifier claims when present; undefined for
+   *               anonymous callers.
+   * @returns A payload that reveals the caller identity only when
+   *          available.
+   */
+  @GatewayRoute({
+    pattern: 'articles.get',
+    method: 'GET',
+    path: '/articles/:id',
+    auth: { optional: true },
+  })
+  public getArticle(
+    @GatewayParam('id') id: string,
+    @GatewayUser() user: IDemoAuthUser | undefined,
+  ): { readonly id: string; readonly viewer: IDemoAuthUser | null } {
+    return { id, viewer: user ?? null };
   }
 }
