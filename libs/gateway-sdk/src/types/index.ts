@@ -1,5 +1,12 @@
 export type { IGatewayRouteOptions } from './gateway-route-options.interface';
 
+export type {
+  GatewayRouteAuth,
+  IGatewayRouteAuthOptions,
+} from './gateway-route-auth-options.interface';
+
+export type { IGatewayAuthVerifierOptions } from './gateway-auth-verifier-options.interface';
+
 export type { IGatewayErrorBody } from './gateway-error-body.interface';
 
 export type { IGatewayHttpMeta } from './gateway-http-meta.interface';

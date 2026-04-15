@@ -11,3 +11,5 @@ export { GatewayParam } from './gateway-param.decorator';
 export { GatewayQuery } from './gateway-query.decorator';
 
 export { GatewayRequestId } from './gateway-request-id.decorator';
+
+export { GatewayUser } from './gateway-user.decorator';

@@ -6,12 +6,17 @@ import type { IGatewayRouteContext } from './gateway-route-context.interface';
  * Core NATS request/reply.
  * @template TBody - Type of the parsed HTTP body. Defaults to `unknown` for
  *                   safety; narrow via the handler signature or param decorators.
+ * @template TAuth - Type of the verifier claims injected by the gateway for
+ *                   protected routes. Defaults to `unknown`; narrow via
+ *                   `@GatewayUser()` parameter typing or an explicit generic
+ *                   argument on the envelope itself.
  * @remarks
  * Application code typically does not touch this type directly — param
- * decorators (`@GatewayBody`, `@GatewayParam`, etc.) extract the fields
- * individually. Use `@Payload()` with this type when you need the raw envelope.
+ * decorators (`@GatewayBody`, `@GatewayParam`, `@GatewayUser`, etc.) extract
+ * the fields individually. Use `@Payload()` with this type when you need
+ * the raw envelope.
  */
-export interface IGatewayRequest<TBody = unknown> {
+export interface IGatewayRequest<TBody = unknown, TAuth = unknown> {
   /** Routing context describing which registered route matched this request. */
   readonly route: IGatewayRouteContext;
 
@@ -59,4 +64,12 @@ export interface IGatewayRequest<TBody = unknown> {
 
   /** Gateway-generated metadata: request id, trace context, deadlines. */
   readonly meta: IGatewayRequestMeta;
+
+  /**
+   * Verifier claims injected by the gateway when the matched route declared
+   * an `auth` block. `undefined` for unprotected routes and for optional-auth
+   * routes when no credential was presented. Route handlers read this via
+   * `@GatewayUser()`.
+   */
+  readonly auth?: TAuth;
 }

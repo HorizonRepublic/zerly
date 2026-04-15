@@ -1,3 +1,4 @@
+import type { GatewayRouteAuth } from './gateway-route-auth-options.interface';
 import type { HttpMethod } from './http-method.type';
 
 /**
@@ -47,4 +48,14 @@ export interface IGatewayRouteOptions {
    * value (e.g. `201` for `POST /users`) when the default is wrong.
    */
   readonly statusCode?: number;
+
+  /**
+   * Declares the route is protected by an auth verifier.
+   * @remarks
+   * Omit the field entirely for public routes. Short form `auth: true`
+   * is equivalent to `auth: {}` — both resolve to the default verifier.
+   * See `IGatewayRouteAuthOptions` for the full decision matrix and
+   * the design spec §4.1/§5 for semantics.
+   */
+  readonly auth?: GatewayRouteAuth;
 }
