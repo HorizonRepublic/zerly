@@ -24,12 +24,30 @@ import type { IGatewayHttpMeta } from '../types/gateway-http-meta.interface';
  * `PATTERN_EXTRAS_METADATA` by `@nestjs/microservices` so the interceptor
  * does not have to import the framework's internal `PatternMetadata`
  * descriptor and stays tolerant of additive schema changes.
+ *
+ * The two top-level keys are mutually exclusive in practice:
+ *   - `http` — regular `@GatewayRoute` handler. The value populates
+ *     routing metadata on the Go side and drives status resolution.
+ *   - `verifier` — `@GatewayAuthVerifier` handler. Its presence
+ *     alone tells the interceptor to wrap the return in a 200 reply;
+ *     the fields of the object itself are only read on the gateway
+ *     side.
  */
-interface IExtrasWithHttpMeta {
+interface IExtrasWithGatewayMeta {
   readonly meta?: {
     readonly http?: IGatewayHttpMeta;
+    readonly verifier?: object;
   };
 }
+
+/**
+ * HTTP status used for every successful verifier reply. Verifiers
+ * that need to signal anything other than success throw an
+ * `HttpException` subclass, which `GatewayExceptionFilter` converts
+ * into the appropriate error envelope — so the success path is
+ * always 200, unambiguously.
+ */
+const VERIFIER_SUCCESS_STATUS = 200;
 
 /**
  * Wraps the return value of an `@GatewayRoute`-decorated handler into an
@@ -73,22 +91,29 @@ export class GatewayResponseInterceptor implements NestInterceptor {
   ) {}
 
   public intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
-    const extras = this.reflector.get<IExtrasWithHttpMeta | undefined>(
+    const extras = this.reflector.get<IExtrasWithGatewayMeta | undefined>(
       PATTERN_EXTRAS_METADATA,
       context.getHandler(),
     );
     const httpMeta = extras?.meta?.http;
+    const isVerifier = extras?.meta?.verifier !== undefined;
 
-    if (!httpMeta) {
-      return next.handle();
+    if (httpMeta !== undefined) {
+      return next
+        .handle()
+        .pipe(
+          map((value: unknown) =>
+            this.replyBuilder.success(this.statusResolver.resolveSuccess(httpMeta, value), value),
+          ),
+        );
     }
 
-    return next
-      .handle()
-      .pipe(
-        map((value: unknown) =>
-          this.replyBuilder.success(this.statusResolver.resolveSuccess(httpMeta, value), value),
-        ),
-      );
+    if (isVerifier) {
+      return next
+        .handle()
+        .pipe(map((value: unknown) => this.replyBuilder.success(VERIFIER_SUCCESS_STATUS, value)));
+    }
+
+    return next.handle();
   }
 }

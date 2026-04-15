@@ -8,6 +8,52 @@ import type { IGatewayHttpMeta } from '../types/gateway-http-meta.interface';
 import type { IGatewayRouteOptions } from '../types/gateway-route-options.interface';
 
 /**
+ * Wire shape of the `auth` block persisted into the `handler_registry`
+ * KV bucket under `meta.auth`. Mirrors the Go-side `RouteAuthMeta`
+ * exactly — changing this type requires a synchronized update to
+ * `apps/gateway-server/internal/registry/entry.go`.
+ * @remarks
+ * Always a plain object on the wire, even when the user wrote
+ * `auth: true` at the decorator call site. An empty `verifier` string
+ * means "use the default verifier".
+ */
+interface IGatewayRouteAuthWire {
+  verifier: string;
+  optional: boolean;
+}
+
+/**
+ * Normalise the decorator's `auth` option into the wire-compatible
+ * object shape. Handles the three legal forms:
+ *
+ *   - `undefined` → returns `undefined` (public route, no auth block).
+ *   - `true` → `{ verifier: '', optional: false }` (default verifier,
+ *     required auth).
+ *   - `IGatewayRouteAuthOptions` → a plain object with the fields
+ *     from the decorator, filling `verifier = ''` and
+ *     `optional = false` defaults where omitted.
+ *
+ * Kept as a pure helper so the decorator body stays a flat
+ * `applyDecorators` call and the normalisation rules are testable in
+ * isolation if needed.
+ */
+const normalizeAuth = (auth: IGatewayRouteOptions['auth']): IGatewayRouteAuthWire | undefined => {
+  if (auth === undefined) {
+    return undefined;
+  }
+
+  // eslint-disable-next-line security/detect-possible-timing-attacks
+  if (auth === true) {
+    return { verifier: '', optional: false };
+  }
+
+  return {
+    verifier: auth.verifier ?? '',
+    optional: auth.optional ?? false,
+  };
+};
+
+/**
  * Exposes a NATS message handler as an HTTP endpoint via `zerly-gateway-server`.
  * @param options - Routing metadata for the handler.
  * @remarks
@@ -60,8 +106,11 @@ export const GatewayRoute = (options: IGatewayRouteOptions): MethodDecorator => 
           statusCode: options.statusCode,
         };
 
+  const auth = normalizeAuth(options.auth);
+  const meta = auth === undefined ? { http } : { http, auth };
+
   return applyDecorators(
-    MessagePattern(options.pattern, { meta: { http } }),
+    MessagePattern(options.pattern, { meta }),
     UseInterceptors(GatewayResponseInterceptor),
     UseFilters(GatewayExceptionFilter),
   );
