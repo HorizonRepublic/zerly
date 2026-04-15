@@ -120,6 +120,12 @@ importers:
       '@darraghor/eslint-plugin-nestjs-typed':
         specifier: ^7.1.22
         version: 7.1.28(@typescript-eslint/parser@8.58.1(eslint@9.39.4(jiti@2.6.1))(typescript@5.9.3))(class-validator@0.14.3)(eslint@9.39.4(jiti@2.6.1))(typescript@5.9.3)
+      '@faker-js/faker':
+        specifier: ^10.4.0
+        version: 10.4.0
+      '@golevelup/ts-jest':
+        specifier: ^3.0.0
+        version: 3.0.0
       '@jest/globals':
         specifier: ^30.2.0
         version: 30.3.0
@@ -1257,6 +1263,10 @@ packages:
     resolution: {integrity: sha512-43/qtrDUokr7LJqoF2c3+RInu/t4zfrpYdoSDfYyhg52rwLV6TnOvdG4fXm7IkSB3wErkcmJS9iEhjVtOSEjjA==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
 
+  '@faker-js/faker@10.4.0':
+    resolution: {integrity: sha512-sDBWI3yLy8EcDzgobvJTWq1MJYzAkQdpjXuPukga9wXonhpMRvd1Izuo2Qgwey2OiEoRIBr35RMU9HJRoOHzpw==}
+    engines: {node: ^20.19.0 || ^22.13.0 || ^23.5.0 || >=24.0.0, npm: '>=10'}
+
   '@fastify/accept-negotiator@2.0.1':
     resolution: {integrity: sha512-/c/TW2bO/v9JeEgoD/g1G5GxGeCF1Hafdf79WPmUlgYiBXummY0oX3VVq4yFkKKVBKDNlaDUYoab7g38RpPqCQ==}
 
@@ -1300,6 +1310,9 @@ packages:
     peerDependencies:
       '@nestjs/common': ^11.0.20
       '@nestjs/core': ^11.0.20
+
+  '@golevelup/ts-jest@3.0.0':
+    resolution: {integrity: sha512-ei0cvUKrVv8cJBW6df54yeod8PyzR2LTYG6wJ1xm+213p7HnThw5ShQcRH0/hhhnXnJCLrpmJM7e6fkRjHUF1g==}
 
   '@horizon-republic/nestjs-jetstream@2.9.0':
     resolution: {integrity: sha512-7yHNw0BzsnpbKhMIT6BwVQ4CaF+cmXJnpa/Rne4QgQVvDShKRNtMU9l0cBgP9/TS/IorBEha5JQQBi4AJhr7ng==}
@@ -9826,6 +9839,8 @@ snapshots:
       '@eslint/core': 0.17.0
       levn: 0.4.1
 
+  '@faker-js/faker@10.4.0': {}
+
   '@fastify/accept-negotiator@2.0.1': {}
 
   '@fastify/ajv-compiler@4.0.5':
@@ -9887,6 +9902,8 @@ snapshots:
       '@nestjs/common': 12.0.0-alpha.2(class-validator@0.14.3)(reflect-metadata@0.2.2)(rxjs@7.8.2)
       '@nestjs/core': 12.0.0-alpha.2(@nestjs/common@12.0.0-alpha.2(class-validator@0.14.3)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/microservices@12.0.0-alpha.2)(@nestjs/platform-express@12.0.0-alpha.2)(reflect-metadata@0.2.2)(rxjs@7.8.2)
       lodash: 4.18.1
+
+  '@golevelup/ts-jest@3.0.0': {}
 
   '@horizon-republic/nestjs-jetstream@2.9.0(@nestjs/common@12.0.0-alpha.2(class-validator@0.14.3)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.0-alpha.2)(@nestjs/microservices@12.0.0-alpha.2)(reflect-metadata@0.2.2)(rxjs@7.8.2)':
     dependencies:
