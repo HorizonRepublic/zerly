@@ -208,3 +208,38 @@ func TestAppendEnvelopeJSON_SingleElementMultiStillArray(t *testing.T) {
 
 	assert.Contains(t, out, `"query":{"tag":["solo"]}`)
 }
+
+// TestAppendEnvelopeJSON_OmitsAuthWhenNil pins the contract that the
+// Auth field is only emitted when the gateway resolved claims for a
+// protected route. Public routes must produce envelopes byte-identical
+// to the pre-auth gateway build — otherwise consumers running a
+// pre-auth SDK version see an unexpected `auth` key and potentially
+// break on strict-parse JSON codecs.
+func TestAppendEnvelopeJSON_OmitsAuthWhenNil(t *testing.T) {
+	env := fullEnvelope()
+	env.Auth = nil
+
+	out := string(appendEnvelopeJSON(nil, env))
+
+	assert.NotContains(t, out, `"auth"`)
+}
+
+func TestAppendEnvelopeJSON_EmitsAuthWhenPresent(t *testing.T) {
+	env := fullEnvelope()
+	env.Auth = json.RawMessage(`{"userId":"u1","roles":["admin"]}`)
+
+	out := string(appendEnvelopeJSON(nil, env))
+
+	assert.Contains(t, out, `"auth":{"userId":"u1","roles":["admin"]}`)
+
+	// Strongest guarantee: the envelope must still round-trip through
+	// a standards-compliant JSON parser after the auth slice is spliced
+	// in — nothing about the raw append should break the surrounding
+	// JSON structure.
+	var decoded map[string]any
+	require.NoError(t, json.Unmarshal([]byte(out), &decoded))
+
+	authField, ok := decoded["auth"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "u1", authField["userId"])
+}

@@ -48,6 +48,14 @@ type GatewayRequest struct {
 	Headers map[string]string     `json:"headers"`
 	Body    json.RawMessage       `json:"body"`
 	Meta    RequestMeta           `json:"meta"`
+	// Auth carries the verifier claims for a protected route. nil on
+	// public routes and on optional-auth routes where the caller was
+	// anonymous. When non-nil, the encoder emits the field as
+	// `"auth":<verifier reply body>` — the raw JSON bytes are forwarded
+	// verbatim, same zero-copy contract as Body. Omitted entirely when
+	// nil so public-route envelopes stay byte-compatible with pre-auth
+	// gateway builds.
+	Auth json.RawMessage `json:"auth,omitempty"`
 }
 
 // GatewayReply is the envelope Nest sends back. Mirror of the
@@ -78,5 +86,6 @@ func (r *GatewayRequest) reset() {
 		delete(r.Headers, k)
 	}
 	r.Body = nil
+	r.Auth = nil
 	r.Meta = RequestMeta{}
 }

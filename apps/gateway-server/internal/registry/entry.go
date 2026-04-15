@@ -37,20 +37,70 @@ type HTTPMeta struct {
 	StatusCode *int `json:"statusCode,omitempty"`
 }
 
+// RouteAuthMeta is the auth descriptor stored under "auth" on a route
+// entry in the handler_registry KV bucket. Present when the route was
+// declared with a non-null `auth` block on the TypeScript side.
+//
+// Zero-valued Verifier means "use the default verifier". Optional is
+// the route-level opt-in for the "anonymous proceed" behavior
+// documented in design spec §5.1: when true, the gateway still calls
+// the verifier but treats a 401 reply as "proceed anonymously" rather
+// than short-circuiting. 403 and transport errors still short-circuit
+// regardless of this flag.
+type RouteAuthMeta struct {
+	// Verifier is the id of the verifier the gateway must invoke
+	// before forwarding this route. Empty string selects the default
+	// verifier, resolved at routing-table build time.
+	Verifier string `json:"verifier"`
+
+	// Optional relaxes the 401 short-circuit on missing or invalid
+	// credentials so the main handler still runs, with a nil auth
+	// blob in the envelope. Handlers that opt into this MUST treat
+	// the `@GatewayUser()` parameter as possibly undefined.
+	Optional bool `json:"optional"`
+}
+
+// VerifierMeta is the discriminator stored under "verifier" on a
+// standalone verifier entry in the handler_registry KV bucket.
+// Present when the entry was registered via `@GatewayAuthVerifier`
+// on the TypeScript side.
+//
+// Route and verifier entries share the same bucket but never carry
+// both fields on the same entry — the gateway discriminates by the
+// HTTP and Verifier field presence at parse time. An entry with
+// neither field is a pure-RPC handler that neither layer reads
+// from.
+type VerifierMeta struct {
+	// ID is the logical handle routes reference via
+	// `auth: { verifier: '<id>' }`. Uniqueness is operator
+	// responsibility; collisions resolve to first-match by the
+	// lexicographically-smallest KV key so behavior is deterministic
+	// across gateway pods without coordination.
+	ID string `json:"id"`
+
+	// Default marks this verifier as the fallback for routes that
+	// declare `auth` without naming a verifier explicitly. At most
+	// one verifier in the bucket should set this; collisions are
+	// logged as ERROR at routing-table build time.
+	Default bool `json:"default"`
+}
+
 // HandlerEntry is a single deserialized record from the handler_registry
 // KV bucket.
 //
-// Entries without an HTTP field represent pure-RPC handlers that the
-// gateway does not expose. The watcher still stores them (so future
-// features — health checks, debug dashboards, service discovery — can
-// read arbitrary metadata) but the routing table build step in
-// `routing.BuildTable` skips them.
+// Entries without an HTTP, Auth, or Verifier field represent pure-RPC
+// handlers that the gateway does not expose. The watcher still stores
+// them (so future features — health checks, debug dashboards, service
+// discovery — can read arbitrary metadata) but both the routing table
+// build step and the verifier registry build step skip them.
 //
 // Unknown JSON fields in the KV value are silently ignored by Go's
 // default json unmarshal behavior. This is intentional: it keeps the
 // gateway forward-compatible with future nestjs-jetstream metadata
-// extensions (auth descriptors, rate-limit rules, schema references, etc.)
-// without requiring a gateway upgrade in lockstep.
+// extensions (rate-limit rules, schema references, etc.) without
+// requiring a gateway upgrade in lockstep.
 type HandlerEntry struct {
-	HTTP *HTTPMeta `json:"http,omitempty"`
+	HTTP     *HTTPMeta      `json:"http,omitempty"`
+	Auth     *RouteAuthMeta `json:"auth,omitempty"`
+	Verifier *VerifierMeta  `json:"verifier,omitempty"`
 }

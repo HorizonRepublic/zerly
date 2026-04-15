@@ -65,6 +65,15 @@ func appendEnvelopeJSON(buf []byte, envelope *GatewayRequest) []byte {
 		buf = append(buf, envelope.Body...)
 	}
 
+	// Auth is emitted only when claims are present. Public routes and
+	// optional-auth anonymous requests carry a nil Auth slice and must
+	// not leak a `"auth":null` field — that would confuse consumers
+	// running a pre-auth SDK build.
+	if len(envelope.Auth) > 0 {
+		buf = append(buf, `,"auth":`...)
+		buf = append(buf, envelope.Auth...)
+	}
+
 	buf = append(buf, `,"meta":`...)
 	buf = appendRequestMeta(buf, envelope.Meta)
 

@@ -1,6 +1,8 @@
 package proxy
 
 import (
+	"encoding/json"
+
 	"github.com/HorizonRepublic/zerly/apps/gateway-server/internal/routing"
 )
 
@@ -25,6 +27,11 @@ type EncodeInput struct {
 	RemoteAddr  string
 	ReceivedAt  int64
 	TimeoutMs   int64
+	// Auth is the pre-resolved verifier claims for a protected route,
+	// or nil for public routes and optional-auth anonymous requests.
+	// Forwarded verbatim into the envelope's Auth json.RawMessage,
+	// which the encoder emits as `"auth":<raw>` only when non-empty.
+	Auth json.RawMessage
 }
 
 // Encoder builds GatewayRequest envelopes from pre-parsed HTTP request
@@ -105,6 +112,7 @@ func (e *DefaultEncoder) Encode(out *[]byte, in *EncodeInput) error {
 		envelope.Headers[k] = v
 	}
 	envelope.Body = in.Body
+	envelope.Auth = in.Auth
 	envelope.Meta = RequestMeta{
 		RequestID:   in.RequestID,
 		Traceparent: in.Traceparent,

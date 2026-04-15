@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -90,6 +91,17 @@ func (h *Handler) Handle(in *ServeInput) *ServeResult {
 		return toServeResult(gerrors.NotFound)
 	}
 
+	var claims json.RawMessage
+
+	if route.Auth != nil {
+		authResult, proceed := h.runAuthFlow(in, route, params)
+		if !proceed {
+			return authResult
+		}
+
+		claims = authResult.Body
+	}
+
 	payload := acquirePayload()
 	defer releasePayload(payload)
 
@@ -106,6 +118,7 @@ func (h *Handler) Handle(in *ServeInput) *ServeResult {
 		RemoteAddr:  in.RemoteAddr,
 		ReceivedAt:  in.ReceivedAt,
 		TimeoutMs:   h.cfg.Timeout.Milliseconds(),
+		Auth:        claims,
 	})
 	if err != nil {
 		h.cfg.Logger.Error().Err(err).Msg("proxy encode failed")
@@ -132,6 +145,89 @@ func (h *Handler) Handle(in *ServeInput) *ServeResult {
 		Headers: mergeHeaders(reply.Headers, in.RequestID),
 		Body:    reply.Body,
 	}
+}
+
+// runAuthFlow issues the verifier sub-request for a protected route
+// and decides whether the main route request proceeds.
+//
+// Return semantics:
+//
+//   - proceed == false → the caller MUST return the ServeResult
+//     pointer verbatim. Covers 401/403 short-circuits, verifier
+//     transport errors (503/504/502), and decoder failures.
+//   - proceed == true → the caller continues to the main route
+//     request. The returned ServeResult.Body carries the verifier's
+//     reply body (the claims) to inject into the main envelope's
+//     Auth field. On an optional-auth 401 swallow, Body is nil.
+//
+// The ServeResult pointer returned on the "proceed" path is reused
+// purely as a claims carrier — only Body is meaningful in that case.
+func (h *Handler) runAuthFlow(
+	in *ServeInput,
+	route routing.Route,
+	params map[string]string,
+) (*ServeResult, bool) {
+	verifyPayload := acquirePayload()
+	defer releasePayload(verifyPayload)
+
+	// The verify-request envelope is identical to the main envelope
+	// except Body is always nil — verifiers never see the request
+	// body by design (auth design spec §4.2).
+	err := h.cfg.Encoder.Encode(verifyPayload, &EncodeInput{
+		Method:      in.Method,
+		Path:        in.Path,
+		Body:        nil,
+		Query:       in.Query,
+		Headers:     in.Headers,
+		Route:       route,
+		PathParams:  params,
+		RequestID:   in.RequestID,
+		Traceparent: in.Traceparent,
+		RemoteAddr:  in.RemoteAddr,
+		ReceivedAt:  in.ReceivedAt,
+		TimeoutMs:   h.cfg.Timeout.Milliseconds(),
+	})
+	if err != nil {
+		h.cfg.Logger.Error().Err(err).Msg("auth: verify encode failed")
+		return toServeResult(gerrors.InternalError), false
+	}
+
+	replyBytes, err := h.cfg.Nats.Request(route.Auth.VerifierSubject, *verifyPayload, h.cfg.Timeout)
+	if err != nil {
+		if isTimeoutErr(err) {
+			return toServeResult(gerrors.GatewayTimeout), false
+		}
+		h.cfg.Logger.Error().
+			Err(err).
+			Str("subject", route.Auth.VerifierSubject).
+			Msg("auth: verifier nats request failed")
+		return toServeResult(gerrors.ServiceUnavailable), false
+	}
+
+	reply, err := h.cfg.Decoder.Decode(replyBytes)
+	if err != nil {
+		h.cfg.Logger.Error().Err(err).Msg("auth: verifier reply decode failed")
+		return toServeResult(gerrors.BadGateway), false
+	}
+
+	if reply.Status == 200 {
+		return &ServeResult{Body: reply.Body}, true
+	}
+
+	// Optional-auth: swallow 401 only. 403 and every other non-200
+	// status still short-circuits. Transport errors above already
+	// returned before this branch.
+	if route.Auth.Optional && reply.Status == 401 {
+		return &ServeResult{Body: nil}, true
+	}
+
+	// Forward the verifier's reply verbatim — this is how verifier-set
+	// headers like WWW-Authenticate reach the client.
+	return &ServeResult{
+		Status:  reply.Status,
+		Headers: mergeHeaders(reply.Headers, in.RequestID),
+		Body:    reply.Body,
+	}, false
 }
 
 // mergeHeaders combines the reply headers with gateway-owned headers

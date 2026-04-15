@@ -1,13 +1,27 @@
 package routing
 
 import (
+	"io"
 	"testing"
 
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
+	"github.com/HorizonRepublic/zerly/apps/gateway-server/internal/auth"
 	"github.com/HorizonRepublic/zerly/apps/gateway-server/internal/registry"
 )
+
+func silentLogger() zerolog.Logger {
+	return zerolog.New(io.Discard).Level(zerolog.Disabled)
+}
+
+func emptyVerifiers() *auth.VerifierRegistry {
+	return auth.BuildVerifierRegistry(
+		&registry.Snapshot{Entries: map[string]registry.HandlerEntry{}},
+		silentLogger(),
+	)
+}
 
 func TestBuildTable_SkipsEntriesWithoutHTTP(t *testing.T) {
 	snapshot := &registry.Snapshot{
@@ -16,7 +30,7 @@ func TestBuildTable_SkipsEntriesWithoutHTTP(t *testing.T) {
 		},
 	}
 
-	table := BuildTable(snapshot, zerolog.Nop())
+	table := BuildTable(snapshot, emptyVerifiers(), silentLogger())
 	_, _, ok := table.Lookup("GET", "/users")
 	assert.False(t, ok)
 }
@@ -33,7 +47,7 @@ func TestBuildTable_IncludesHTTPEntries(t *testing.T) {
 		},
 	}
 
-	table := BuildTable(snapshot, zerolog.Nop())
+	table := BuildTable(snapshot, emptyVerifiers(), silentLogger())
 
 	listRoute, _, ok := table.Lookup("GET", "/users")
 	assert.True(t, ok)
@@ -60,7 +74,7 @@ func TestBuildTable_SkipsMalformedKeys(t *testing.T) {
 		},
 	}
 
-	table := BuildTable(snapshot, zerolog.Nop())
+	table := BuildTable(snapshot, emptyVerifiers(), silentLogger())
 
 	// The malformed entry is absent.
 	_, _, ok := table.Lookup("GET", "/broken")
@@ -79,10 +93,131 @@ func TestBuildTable_EmptySnapshot(t *testing.T) {
 	// returns ok=false rather than panicking on a nil map.
 	snapshot := &registry.Snapshot{Entries: map[string]registry.HandlerEntry{}}
 
-	table := BuildTable(snapshot, zerolog.Nop())
+	table := BuildTable(snapshot, emptyVerifiers(), silentLogger())
 	assert.NotNil(t, table)
 
 	_, _, ok := table.Lookup("GET", "/anything")
 	assert.False(t, ok)
 	assert.Empty(t, table.Methods("/anything"))
+}
+
+func TestCollectRoutes_ResolvesExplicitVerifier(t *testing.T) {
+	snapshot := &registry.Snapshot{
+		Entries: map[string]registry.HandlerEntry{
+			"users-svc.cmd.users.me": {
+				HTTP: &registry.HTTPMeta{Method: "GET", Path: "/users/me"},
+				Auth: &registry.RouteAuthMeta{Verifier: "jwt"},
+			},
+			"users-svc.cmd.auth.verifier.jwt": {
+				Verifier: &registry.VerifierMeta{ID: "jwt", Default: true},
+			},
+		},
+	}
+	verifiers := auth.BuildVerifierRegistry(snapshot, silentLogger())
+
+	routes := CollectRoutes(snapshot, verifiers, silentLogger())
+
+	require.Len(t, routes, 1)
+	require.NotNil(t, routes[0].Auth)
+	assert.Equal(t, "users-svc__microservice.cmd.auth.verifier.jwt", routes[0].Auth.VerifierSubject)
+	assert.False(t, routes[0].Auth.Optional)
+}
+
+func TestCollectRoutes_UsesDefaultVerifierWhenRouteOmitsId(t *testing.T) {
+	snapshot := &registry.Snapshot{
+		Entries: map[string]registry.HandlerEntry{
+			"users-svc.cmd.users.me": {
+				HTTP: &registry.HTTPMeta{Method: "GET", Path: "/users/me"},
+				Auth: &registry.RouteAuthMeta{}, // empty Verifier → default
+			},
+			"users-svc.cmd.auth.verifier.jwt": {
+				Verifier: &registry.VerifierMeta{ID: "jwt", Default: true},
+			},
+		},
+	}
+	verifiers := auth.BuildVerifierRegistry(snapshot, silentLogger())
+
+	routes := CollectRoutes(snapshot, verifiers, silentLogger())
+
+	require.Len(t, routes, 1)
+	require.NotNil(t, routes[0].Auth)
+	assert.Equal(t, "users-svc__microservice.cmd.auth.verifier.jwt", routes[0].Auth.VerifierSubject)
+}
+
+func TestCollectRoutes_OptionalAuthPreservesFlag(t *testing.T) {
+	snapshot := &registry.Snapshot{
+		Entries: map[string]registry.HandlerEntry{
+			"users-svc.cmd.articles.get": {
+				HTTP: &registry.HTTPMeta{Method: "GET", Path: "/articles/:id"},
+				Auth: &registry.RouteAuthMeta{Verifier: "jwt", Optional: true},
+			},
+			"users-svc.cmd.auth.verifier.jwt": {
+				Verifier: &registry.VerifierMeta{ID: "jwt"},
+			},
+		},
+	}
+	verifiers := auth.BuildVerifierRegistry(snapshot, silentLogger())
+
+	routes := CollectRoutes(snapshot, verifiers, silentLogger())
+
+	require.Len(t, routes, 1)
+	require.NotNil(t, routes[0].Auth)
+	assert.True(t, routes[0].Auth.Optional)
+}
+
+func TestCollectRoutes_DropsRouteWithUnknownVerifier(t *testing.T) {
+	// Route references verifier 'jwt' but no such verifier is
+	// registered. The route must be excluded from the routing table;
+	// matching HTTP requests return 404 until the verifier registers.
+	snapshot := &registry.Snapshot{
+		Entries: map[string]registry.HandlerEntry{
+			"users-svc.cmd.users.me": {
+				HTTP: &registry.HTTPMeta{Method: "GET", Path: "/users/me"},
+				Auth: &registry.RouteAuthMeta{Verifier: "jwt"},
+			},
+		},
+	}
+	verifiers := auth.BuildVerifierRegistry(snapshot, silentLogger())
+
+	routes := CollectRoutes(snapshot, verifiers, silentLogger())
+
+	assert.Empty(t, routes)
+}
+
+func TestCollectRoutes_DropsRouteWithImplicitDefaultWhenNoDefaultRegistered(t *testing.T) {
+	snapshot := &registry.Snapshot{
+		Entries: map[string]registry.HandlerEntry{
+			"users-svc.cmd.users.me": {
+				HTTP: &registry.HTTPMeta{Method: "GET", Path: "/users/me"},
+				Auth: &registry.RouteAuthMeta{}, // implicit default
+			},
+			// Verifier exists but does NOT set Default:true.
+			"users-svc.cmd.auth.verifier.jwt": {
+				Verifier: &registry.VerifierMeta{ID: "jwt"},
+			},
+		},
+	}
+	verifiers := auth.BuildVerifierRegistry(snapshot, silentLogger())
+
+	routes := CollectRoutes(snapshot, verifiers, silentLogger())
+
+	assert.Empty(t, routes)
+}
+
+func TestCollectRoutes_PublicRouteUnaffectedByVerifierRegistry(t *testing.T) {
+	// Regression: routes without an Auth block must still land in the
+	// table even when the verifier registry is empty.
+	snapshot := &registry.Snapshot{
+		Entries: map[string]registry.HandlerEntry{
+			"users-svc.cmd.healthcheck": {
+				HTTP: &registry.HTTPMeta{Method: "GET", Path: "/health"},
+			},
+		},
+	}
+	verifiers := auth.BuildVerifierRegistry(snapshot, silentLogger())
+
+	routes := CollectRoutes(snapshot, verifiers, silentLogger())
+
+	require.Len(t, routes, 1)
+	assert.Nil(t, routes[0].Auth)
 }

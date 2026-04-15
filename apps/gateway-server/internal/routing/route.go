@@ -29,4 +29,25 @@ type Route struct {
 	// raw request path — the template is a bounded-cardinality label,
 	// the raw path is not.
 	PathTemplate string
+
+	// Auth is the resolved auth contract populated at build time when
+	// the underlying registry entry declared an Auth block AND the
+	// referenced verifier existed in the VerifierRegistry. nil means
+	// the route is public — no verifier sub-request is issued.
+	Auth *RouteAuth
+}
+
+// RouteAuth is the pre-resolved auth contract a protected Route
+// carries into the proxy handler. VerifierSubject is the full NATS
+// subject of the verifier that must be called before forwarding this
+// route — resolved once at routing-table build time so the handler
+// never has to do its own lookup per request.
+//
+// Optional mirrors RouteAuthMeta.Optional from the registry layer:
+// when true, the handler proceeds with nil claims on a verifier
+// 401 reply instead of short-circuiting. 403 and transport errors
+// still short-circuit regardless.
+type RouteAuth struct {
+	VerifierSubject string
+	Optional        bool
 }
