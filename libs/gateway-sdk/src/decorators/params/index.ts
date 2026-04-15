@@ -2,6 +2,10 @@ export { readGatewayEnvelope } from './envelope-accessor';
 
 export { GatewayBody } from './gateway-body.decorator';
 
+export { GatewayCookie } from './gateway-cookie.decorator';
+
+export { GatewayHeader } from './gateway-header.decorator';
+
 export { GatewayHeaders } from './gateway-headers.decorator';
 
 export { GatewayMeta } from './gateway-meta.decorator';
