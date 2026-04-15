@@ -1,6 +1,7 @@
 package http
 
 import (
+	"bytes"
 	"testing"
 	"time"
 
@@ -166,6 +167,49 @@ func TestWriteServeResult_EmitsMultipleSetCookieLines(t *testing.T) {
 		"sid=abc; Path=/; HttpOnly",
 		"theme=dark; Path=/",
 	}, lines)
+}
+
+// TestWriteServeResult_DeduplicatesXRequestIdAcrossBuildAndWrite
+// pins the regression fix for a double X-Request-Id header on
+// every response. `buildServeInput` stamps the correlator on
+// the Hertz response up front so panic-recovery middleware
+// still sees it; `writeServeResult` later re-emits it from the
+// proxy's ServeResult headers. Without the Del in
+// writeServeResult, both writes landed and every HTTP response
+// carried two identical `X-Request-Id:` header lines. The
+// assertion walks every header line (not just Peek, which
+// returns the first value) so a future regression producing
+// duplicates is caught loudly instead of sneaking past
+// single-value introspection.
+func TestWriteServeResult_DeduplicatesXRequestIdAcrossBuildAndWrite(t *testing.T) {
+	ctx := ut.CreateUtRequestContext("GET", "https://gateway.test/x", nil)
+
+	// Simulate the real request flow: buildServeInput stamps
+	// X-Request-Id on Response.Header early, then writeServeResult
+	// runs with a ServeResult whose Headers include x-request-id
+	// (as mergeHeaders in the proxy layer produces on every
+	// request).
+	input := buildServeInput(ctx)
+	result := &proxy.ServeResult{
+		Status: 200,
+		Headers: map[string][]string{
+			"x-request-id": {input.RequestID},
+		},
+		Body: []byte(`{"ok":true}`),
+	}
+
+	writeServeResult(ctx, result)
+
+	var xRequestIDLines []string
+	ctx.Response.Header.VisitAll(func(key, value []byte) {
+		if bytes.EqualFold(key, []byte("X-Request-Id")) {
+			xRequestIDLines = append(xRequestIDLines, string(value))
+		}
+	})
+
+	// Exactly one X-Request-Id header, with the generated ID.
+	assert.Len(t, xRequestIDLines, 1, "expected exactly one X-Request-Id header, got %v", xRequestIDLines)
+	assert.Equal(t, input.RequestID, xRequestIDLines[0])
 }
 
 // ---------- full adapter integration tests ----------

@@ -158,7 +158,20 @@ func collectQueryValues(ctx *app.RequestContext) map[string]proxy.QueryValue {
 // so calling Add twice yields two cookie lines — exactly the RFC
 // 6265 shape browsers expect. Single-value headers with a one-element
 // slice land as one Add call, equivalent to Set on an empty slot.
+//
+// The `x-request-id` slot is explicitly cleared before the Add loop
+// runs. `buildServeInput` stamps the correlator on `ctx.Response`
+// up front so a panic between input-build and writeServeResult
+// still gives the error response a correlator, but the proxy layer
+// then re-emits it via `result.Headers` — without the Del, Add
+// would produce two identical `X-Request-Id` response headers on
+// every request. Clearing only this specific slot keeps the Del
+// targeted to the header the adapter itself stamped; other
+// header names reach the Add loop untouched and preserve
+// whatever semantics Hertz middleware may have configured.
 func writeServeResult(ctx *app.RequestContext, result *proxy.ServeResult) {
+	ctx.Response.Header.Del("X-Request-Id")
+
 	for key, values := range result.Headers {
 		for _, value := range values {
 			ctx.Response.Header.Add(key, value)
