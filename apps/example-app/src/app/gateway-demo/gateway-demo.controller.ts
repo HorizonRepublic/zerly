@@ -6,11 +6,24 @@ import {
   GatewayParam,
   GatewayQuery,
   GatewayRequestId,
+  GatewayResponse,
   GatewayUser,
 } from '@zerly/gateway-sdk';
 
+import type { IGatewayResponse } from '@zerly/gateway-sdk';
+
 import { type IDemoAuthUser } from './auth-verifier.controller';
 import { GatewayDemoService, type IDemoUser } from './gateway-demo.service';
+
+/**
+ * Request body accepted by `POST /auth/login`. A realistic login
+ * DTO would carry a password or a one-time-token; this demo keeps
+ * it to just a name so tests do not need to wire up a password
+ * store. Real consumers pair their own DTO with their own verifier.
+ */
+interface IDemoLoginDto {
+  readonly name: string;
+}
 
 /**
  * Request body accepted by `POST /demo/users`. Declared locally because the
@@ -163,5 +176,110 @@ export class GatewayDemoController {
     @GatewayUser() user: IDemoAuthUser | undefined,
   ): { readonly id: string; readonly viewer: IDemoAuthUser | null } {
     return { id, viewer: user ?? null };
+  }
+
+  /**
+   * Demo login endpoint — demonstrates `@GatewayResponse()` for
+   * setting an auth cookie plus overriding the default status
+   * code to 201 from inside the handler body.
+   * @remarks
+   * Real consumers would hash a password, look the user up in a
+   * store, issue a JWT or session id, and set the resulting cookie
+   * with appropriate flags (`HttpOnly`, `Secure`, `SameSite`).
+   * The demo skips the crypto and returns a synthetic user whose
+   * `sid` cookie value is derived directly from the submitted
+   * name — the e2e tests can assert on the exact cookie bytes.
+   *
+   * `secure: false` is used here because example-app runs on plain
+   * HTTP in local dev. Production consumers MUST set `secure: true`
+   * so the cookie only traverses TLS.
+   * @param dto - Body with the display name to log in as.
+   * @param res - Response builder for setting the session cookie
+   *              and overriding status to 201.
+   * @returns The authenticated user shape, mirroring what the
+   *          verifier would have returned for `demo-<name>`.
+   */
+  @GatewayRoute({
+    pattern: 'auth.login',
+    method: 'POST',
+    path: '/auth/login',
+  })
+  public login(
+    @GatewayBody() dto: IDemoLoginDto,
+    @GatewayResponse() res: IGatewayResponse,
+  ): IDemoAuthUser {
+    res
+      .cookie('sid', `demo-${dto.name}`, {
+        httpOnly: true,
+        secure: false,
+        sameSite: 'lax',
+        path: '/',
+        maxAge: 3600,
+      })
+      .status(201);
+
+    const roles = dto.name === 'admin' ? (['admin', 'user'] as const) : (['user'] as const);
+
+    return {
+      id: `user-${dto.name}`,
+      email: `${dto.name}@example.test`,
+      roles,
+    };
+  }
+
+  /**
+   * Demo logout endpoint — demonstrates `@GatewayResponse().clearCookie()`
+   * for client-side session removal.
+   * @remarks
+   * `clearCookie` emits a `Set-Cookie` header with `Max-Age=0` and
+   * `Expires=Thu, 01 Jan 1970 00:00:00 GMT`, matching the domain
+   * and path of the original cookie. The client MUST see matching
+   * `path` / `domain` for the deletion to apply — this demo used
+   * `path: '/'` when setting, so the clear uses the same.
+   * @param res - Response builder for emitting the delete cookie.
+   * @returns A trivial success envelope.
+   */
+  @GatewayRoute({
+    pattern: 'auth.logout',
+    method: 'POST',
+    path: '/auth/logout',
+  })
+  public logout(@GatewayResponse() res: IGatewayResponse): { readonly ok: true } {
+    res.clearCookie('sid', { path: '/' });
+
+    return { ok: true };
+  }
+
+  /**
+   * Demo OAuth2 redirect — demonstrates `@GatewayResponse().redirect()`
+   * for the classic 302-to-external-provider start of an OAuth2
+   * Authorization Code flow.
+   * @remarks
+   * Real consumers would read client id / redirect uri from
+   * configuration, generate a PKCE verifier + state nonce, stash
+   * the nonce in a server-side store, and then redirect to the
+   * provider's authorize endpoint. The demo redirects to a
+   * canned URL so e2e tests can assert the exact `Location`
+   * header bytes without depending on a live provider.
+   *
+   * The handler `return null` is intentional — redirects carry
+   * no body, and null return types combine with our 302 status
+   * override to produce an empty HTTP body.
+   * @param res - Response builder for the redirect.
+   * @returns `null` — the status + Location header carry the
+   *          entire response semantically.
+   */
+  @GatewayRoute({
+    pattern: 'auth.google.start',
+    method: 'GET',
+    path: '/auth/google/start',
+  })
+  public googleStart(@GatewayResponse() res: IGatewayResponse): null {
+    res.redirect(
+      'https://accounts.google.com/o/oauth2/v2/auth?client_id=demo&response_type=code&scope=openid',
+      302,
+    );
+
+    return null;
   }
 }

@@ -1,6 +1,8 @@
 import { Controller, ForbiddenException, UnauthorizedException } from '@nestjs/common';
 
-import { GatewayAuthVerifier, GatewayHeaders } from '@zerly/gateway-sdk';
+import { GatewayAuthVerifier, GatewayHeaders, GatewayResponse } from '@zerly/gateway-sdk';
+
+import type { IGatewayResponse } from '@zerly/gateway-sdk';
 
 /**
  * Toy "bearer token" user shape produced by the demo verifier.
@@ -28,6 +30,10 @@ export interface IDemoAuthUser {
  * - `demo-banned` → throws `ForbiddenException` (403) so consumers
  *   can see the "known user, denied" path.
  * - `demo-admin` → returns a user with `['admin', 'user']` roles.
+ * - `demo-rotate-<anything>` → returns the user AND sets a freshly
+ *   rotated `sid` cookie via `@GatewayResponse().cookie()`. Verifies
+ *   that verifier-side cookie mutations merge into the final HTTP
+ *   response through the Phase E Go-side mergeAuthHeaders path.
  * - Any other `demo-<name>` → returns a baseline `['user']` user.
  * - Missing, non-bearer, or non-`demo-` tokens → throws
  *   `UnauthorizedException` (401).
@@ -39,8 +45,11 @@ export interface IDemoAuthUser {
 @Controller()
 export class AuthVerifierController {
   @GatewayAuthVerifier({ id: 'demo', default: true })
-  public verify(@GatewayHeaders() headers: Readonly<Record<string, string>>): IDemoAuthUser {
-    const authHeader = headers['authorization'] ?? headers['Authorization'];
+  public verify(
+    @GatewayHeaders() headers: Readonly<Record<string, string>>,
+    @GatewayResponse() res: IGatewayResponse,
+  ): IDemoAuthUser {
+    const authHeader = headers['authorization'];
     const token = authHeader?.replace(/^Bearer /, '').trim();
 
     if (token === undefined || token === '' || !token.startsWith('demo-')) {
@@ -51,6 +60,21 @@ export class AuthVerifierController {
 
     if (name === 'banned') {
       throw new ForbiddenException('Account suspended');
+    }
+
+    // Rotation path: any `demo-rotate-*` token triggers the verifier
+    // to emit a fresh session cookie alongside its claims. This is
+    // the canonical session-rotation demo — the cookie reaches the
+    // client verbatim via the verifier→route header merge, without
+    // the route handler knowing anything about it.
+    if (name.startsWith('rotate-')) {
+      res.cookie('sid', `demo-${name}-rotated`, {
+        httpOnly: true,
+        secure: false,
+        sameSite: 'lax',
+        path: '/',
+        maxAge: 3600,
+      });
     }
 
     const roles = name === 'admin' ? (['admin', 'user'] as const) : (['user'] as const);
