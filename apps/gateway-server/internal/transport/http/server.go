@@ -2,10 +2,29 @@ package http
 
 import (
 	"github.com/cloudwego/hertz/pkg/app/server"
+	hertzconfig "github.com/cloudwego/hertz/pkg/common/config"
 
 	"github.com/HorizonRepublic/zerly/apps/gateway-server/internal/config"
 	"github.com/HorizonRepublic/zerly/apps/gateway-server/internal/proxy"
 )
+
+// withNoDefaultServerHeader disables Hertz's automatic
+// `Server: hertz` response header. Hertz's public option API
+// does not expose a helper for this flag even though the
+// underlying `config.Options.NoDefaultServerHeader` field is
+// public, so we build the option in-line against the documented
+// struct shape (`config.Option` is a tiny `{F func(*Options)}`
+// wrapper). Keeping the server name off the wire is both a
+// fingerprinting-surface reduction and a consistency choice —
+// the gateway should not leak its transport implementation into
+// every response.
+func withNoDefaultServerHeader() hertzconfig.Option {
+	return hertzconfig.Option{
+		F: func(o *hertzconfig.Options) {
+			o.NoDefaultServerHeader = true
+		},
+	}
+}
 
 // NewServer constructs a Hertz server bound to handler via a single
 // catch-all route "/*path". Dynamic HTTP-to-RPC routing is performed
@@ -40,6 +59,7 @@ func NewServer(cfg *config.Config, handler *proxy.Handler) *server.Hertz {
 		server.WithIdleTimeout(cfg.IdleTimeout),
 		server.WithExitWaitTime(cfg.ShutdownTimeout),
 		server.WithKeepAlive(true),
+		withNoDefaultServerHeader(),
 	)
 
 	h.Any("/*path", NewHertzAdapter(handler))
