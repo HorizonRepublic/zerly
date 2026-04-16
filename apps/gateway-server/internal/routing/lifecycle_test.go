@@ -1,8 +1,10 @@
 package routing
 
 import (
+	"bytes"
 	"testing"
 
+	"github.com/HorizonRepublic/zerly/apps/gateway-server/internal/registry"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -46,6 +48,7 @@ func TestComputeDelta_NoOp(t *testing.T) {
 
 	assert.Empty(t, delta.Added)
 	assert.Empty(t, delta.Removed)
+	assert.Empty(t, delta.Modified)
 	assert.Equal(t, 2, delta.Unchanged)
 	assert.True(t, delta.IsEmpty())
 }
@@ -87,6 +90,7 @@ func TestComputeDelta_IgnoresSubjectRename(t *testing.T) {
 
 	assert.Empty(t, delta.Added)
 	assert.Empty(t, delta.Removed)
+	assert.Empty(t, delta.Modified)
 	assert.Equal(t, 1, delta.Unchanged)
 	assert.True(t, delta.IsEmpty())
 }
@@ -119,6 +123,78 @@ func TestComputeDelta_SortsDeterministically(t *testing.T) {
 	assert.Equal(t, "/z", delta.Removed[2].PathTemplate)
 }
 
+func TestComputeDelta_DetectsModifiedCORS(t *testing.T) {
+	previous := []Route{
+		{
+			Subject:      "svc.cmd.a",
+			Method:       "GET",
+			PathTemplate: "/a",
+			CORS:         nil,
+		},
+	}
+	next := []Route{
+		{
+			Subject:      "svc.cmd.a",
+			Method:       "GET",
+			PathTemplate: "/a",
+			CORS:         &registry.CORSMeta{Origins: []string{"https://example.com"}},
+		},
+	}
+
+	delta := ComputeDelta(previous, next)
+
+	assert.Empty(t, delta.Added)
+	assert.Empty(t, delta.Removed)
+	require.Len(t, delta.Modified, 1)
+	assert.Contains(t, delta.Modified[0], "GET /a")
+	assert.Contains(t, delta.Modified[0], "cors")
+	assert.Equal(t, 0, delta.Unchanged)
+	assert.False(t, delta.IsEmpty())
+}
+
+func TestComputeDelta_DetectsMultipleFieldChanges(t *testing.T) {
+	previous := []Route{
+		{
+			Subject:      "svc.cmd.users",
+			Method:       "PUT",
+			PathTemplate: "/users/:id",
+		},
+	}
+
+	next := []Route{
+		{
+			Subject:      "svc.cmd.users",
+			Method:       "PUT",
+			PathTemplate: "/users/:id",
+			CORS:         &registry.CORSMeta{Origins: []string{"*"}},
+			Timeout:      5_000_000_000, // 5s
+		},
+	}
+
+	delta := ComputeDelta(previous, next)
+
+	require.Len(t, delta.Modified, 1)
+	assert.Contains(t, delta.Modified[0], "cors")
+	assert.Contains(t, delta.Modified[0], "timeout")
+	assert.False(t, delta.IsEmpty())
+}
+
+func TestComputeDelta_ModifiedSortsDeterministically(t *testing.T) {
+	previous := []Route{
+		{Method: "GET", PathTemplate: "/z"},
+		{Method: "GET", PathTemplate: "/a"},
+	}
+	next := []Route{
+		{Method: "GET", PathTemplate: "/z", Timeout: 1_000_000_000},
+		{Method: "GET", PathTemplate: "/a", Timeout: 1_000_000_000},
+	}
+
+	delta := ComputeDelta(previous, next)
+
+	require.Len(t, delta.Modified, 2)
+	assert.Less(t, delta.Modified[0], delta.Modified[1])
+}
+
 func TestRouteDelta_IsEmpty_TrueWhenBothZero(t *testing.T) {
 	delta := RouteDelta{Unchanged: 42}
 	assert.True(t, delta.IsEmpty())
@@ -138,6 +214,14 @@ func TestRouteDelta_IsEmpty_FalseWhenRemoved(t *testing.T) {
 	assert.False(t, delta.IsEmpty())
 }
 
+func TestRouteDelta_IsEmpty_FalseWhenOnlyModified(t *testing.T) {
+	delta := RouteDelta{
+		Modified:  []string{"GET /a (cors)"},
+		Unchanged: 5,
+	}
+	assert.False(t, delta.IsEmpty())
+}
+
 func TestLogInitialLoad_DoesNotPanic(t *testing.T) {
 	routes := []Route{
 		{Subject: "svc.cmd.a", Method: "GET", PathTemplate: "/a"},
@@ -150,6 +234,11 @@ func TestLogInitialLoad_DoesNotPanic(t *testing.T) {
 }
 
 func TestLogDelta_DoesNotPanic(t *testing.T) {
+	allRoutes := []Route{
+		{Subject: "svc.cmd.new", Method: "GET", PathTemplate: "/new"},
+		{Subject: "svc.cmd.kept", Method: "POST", PathTemplate: "/kept"},
+	}
+
 	delta := RouteDelta{
 		Added: []Route{
 			{Subject: "svc.cmd.new", Method: "GET", PathTemplate: "/new"},
@@ -161,10 +250,18 @@ func TestLogDelta_DoesNotPanic(t *testing.T) {
 	}
 
 	assert.NotPanics(t, func() {
-		LogDelta(delta, zerolog.Nop())
+		LogDelta(delta, allRoutes, zerolog.Nop())
 	})
+}
 
-	assert.NotPanics(t, func() {
-		LogDelta(RouteDelta{Unchanged: 5}, zerolog.Nop())
-	})
+func TestLogDelta_SilentWhenEmpty(t *testing.T) {
+	// Given: a buffer-backed logger so we can assert nothing was written.
+	var buf bytes.Buffer
+	logger := zerolog.New(&buf)
+
+	// When: LogDelta is called with an empty delta.
+	LogDelta(RouteDelta{Unchanged: 5}, nil, logger)
+
+	// Then: no output is produced — silence signals stability.
+	assert.Empty(t, buf.String())
 }
