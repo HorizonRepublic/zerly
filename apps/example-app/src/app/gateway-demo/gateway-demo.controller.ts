@@ -1,4 +1,4 @@
-import { Controller, NotFoundException } from '@nestjs/common';
+import { Controller, ImATeapotException, NotFoundException } from '@nestjs/common';
 
 import {
   GatewayRoute,
@@ -281,5 +281,44 @@ export class GatewayDemoController {
     );
 
     return null;
+  }
+
+  /**
+   * Benchmark 200 hello path. Minimal static JSON body, no
+   * validation, no DB, no auth. Kept as the canonical shape for
+   * the Zerly gateway's HTTP → NATS → Nest → NATS → HTTP round
+   * trip — same payload a vanilla Fastify / Express direct hit
+   * would return, so a harness can compare them apples-to-apples.
+   * @returns Static JSON body suitable for throughput benches.
+   */
+  @GatewayRoute({
+    pattern: 'bench.hello',
+    method: 'GET',
+    path: '/bench/hello',
+  })
+  public benchHello(): { readonly ok: true } {
+    return { ok: true };
+  }
+
+  /**
+   * Benchmark 418 teapot path. Throws NestJS's built-in
+   * `ImATeapotException` which the shared `GatewayExceptionFilter`
+   * catches, formats as an `IGatewayReply` envelope with status
+   * 418, and writes to the wire. Measures the exception-path
+   * throughput end-to-end: Nest's exception filter chain, the
+   * gateway-sdk exception filter, the envelope serialization,
+   * and the gateway-server reply decoder — all of which the
+   * success path does not pay for.
+   * @throws ImATeapotException Always. The stack under test is
+   *         the framework's error-formatting path, not the
+   *         handler body.
+   */
+  @GatewayRoute({
+    pattern: 'bench.teapot',
+    method: 'GET',
+    path: '/bench/teapot',
+  })
+  public benchTeapot(): never {
+    throw new ImATeapotException({ error: 'teapot' });
   }
 }

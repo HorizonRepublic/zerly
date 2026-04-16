@@ -1,4 +1,0 @@
-node_modules/
-results/*.md
-!results/.gitkeep
-package-lock.json

@@ -1,0 +1,24 @@
+{
+  "name": "bench-zerly-nest-app",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/main.js"
+  },
+  "dependencies": {
+    "@horizon-republic/nestjs-jetstream": "^2.9.0",
+    "@nestjs/common": "^11.1.0",
+    "@nestjs/core": "^11.1.0",
+    "@nestjs/microservices": "^11.1.0",
+    "@nestjs/platform-fastify": "^11.1.0",
+    "@zerly/gateway-sdk": "file:./vendor/gateway-sdk",
+    "nats": "^2.29.1",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "typescript": "^5.6.3"
+  }
+}

@@ -46,7 +46,7 @@ The gateway lets NestJS microservices expose HTTP endpoints **without** each ser
 
 ## Performance
 
-Numbers below come from the apples-to-apples harness committed at [`bench-compare/`](../../bench-compare/) — same hardware, same `wrk` invocation, same warm-up policy across every stack. Run it yourself with `./bench-compare/run-all.sh` and reproduce them in ~70 seconds.
+Numbers below come from an apples-to-apples harness: same hardware, same `wrk` invocation, same warm-up policy across every stack. The harness itself is kept out of the repo — it is a local tool, not something we ship — but the methodology is documented here and the microbenchmarks that guard regressions are version-controlled under [`benchmarks/`](benchmarks/).
 
 **Test environment**
 

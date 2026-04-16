@@ -1,0 +1,30 @@
+# Dependencies installed per-stack (per Dockerfile, node_modules may
+# still land on host when `docker compose up --build` uses buildkit
+# with mount caches). Keep them out of git either way.
+node_modules/
+dist/
+
+# Per-run markdown / JSON reports. Regenerated on every bench pass,
+# never meant to be reviewed historically inside the repo. Keep the
+# directory tracked via .gitkeep so `benchmarks/results/` survives a
+# fresh checkout.
+results/*.md
+results/*.json
+!results/.gitkeep
+
+# Lockfiles from the isolated bench-runner dir. The runner reinstalls
+# on first use; pinning the lockfile would couple bench results to
+# the lockfile's drift pattern, which is not what we want for a
+# short-lived tool.
+bench-runner/package-lock.json
+
+# Pre-built @zerly/gateway-sdk vendored into the zerly bench-app by
+# run-all.sh before each Docker build. Regenerated every run.
+stacks/zerly/nest-bench-app/vendor/
+
+# bench-runner node_modules (autocannon installed on first run).
+bench-runner/node_modules/
+
+# Build context cache from docker multi-stage local builds (macOS/
+# OrbStack writes some transient files here in rare cases).
+.docker-cache/

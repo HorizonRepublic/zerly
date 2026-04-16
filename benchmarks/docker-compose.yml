@@ -1,0 +1,197 @@
+# Per-stack isolated benchmark compose file. Every target runs in
+# its own profile so that `docker compose --profile <name> up`
+# starts *only* the services that profile needs — no rogue NATS
+# instance for the vanilla Nest stacks, no cross-talk between
+# stacks if two profiles are active at the same time.
+#
+# Ports are deliberately fixed, high, and non-overlapping with the
+# dev environment (which typically uses 3000/4000/8080). The
+# bench-runner on the host hits each stack on its assigned port:
+#
+#   nest-fastify      → 18091
+#   nest-express      → 18092
+#   zerly             → 18093  (gateway-server, NOT the bench-app)
+#   nest-fastify-bun  → 18094
+#   nest-express-bun  → 18095
+#   zerly-bun         → 18093  (reuses the same gateway-server, but
+#                                only one zerly variant runs at a time
+#                                because run-all.sh is sequential)
+#
+# Node vs Bun variants share their entire source tree — the only
+# thing that changes is the Dockerfile `target:` stage, so the src,
+# package.json and tsconfig.json are runtime-agnostic.
+
+services:
+  nest-fastify:
+    profiles: ['nest-fastify']
+    build:
+      context: ./stacks/nest-fastify
+      dockerfile: Dockerfile
+      target: node-runtime
+    ports:
+      - '18091:3000'
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '-O-', 'http://127.0.0.1:3000/bench/hello']
+      interval: 2s
+      timeout: 2s
+      retries: 30
+      start_period: 2s
+
+  nest-fastify-bun:
+    profiles: ['nest-fastify-bun']
+    build:
+      context: ./stacks/nest-fastify
+      dockerfile: Dockerfile
+      target: bun-runtime
+    ports:
+      - '18094:3000'
+    # oven/bun:1-alpine ships BusyBox wget, same as the Node image,
+    # so the HTTP healthcheck is identical to the Node variant.
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '-O-', 'http://127.0.0.1:3000/bench/hello']
+      interval: 2s
+      timeout: 2s
+      retries: 30
+      start_period: 2s
+
+  nest-express:
+    profiles: ['nest-express']
+    build:
+      context: ./stacks/nest-express
+      dockerfile: Dockerfile
+      target: node-runtime
+    ports:
+      - '18092:3000'
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '-O-', 'http://127.0.0.1:3000/bench/hello']
+      interval: 2s
+      timeout: 2s
+      retries: 30
+      start_period: 2s
+
+  nest-express-bun:
+    profiles: ['nest-express-bun']
+    build:
+      context: ./stacks/nest-express
+      dockerfile: Dockerfile
+      target: bun-runtime
+    ports:
+      - '18095:3000'
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '-O-', 'http://127.0.0.1:3000/bench/hello']
+      interval: 2s
+      timeout: 2s
+      retries: 30
+      start_period: 2s
+
+  nats:
+    profiles: ['zerly', 'zerly-bun']
+    image: nats:2.10-alpine
+    command: ['-js', '-m', '8222']
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '-O-', 'http://127.0.0.1:8222/healthz']
+      interval: 2s
+      timeout: 2s
+      retries: 30
+      start_period: 2s
+
+  zerly-nest-app:
+    profiles: ['zerly']
+    build:
+      context: ./stacks/zerly/nest-bench-app
+      dockerfile: Dockerfile
+      target: node-runtime
+    depends_on:
+      nats:
+        condition: service_healthy
+    # TCP-only healthcheck: the bench-app's routes are registered via
+    # `@GatewayRoute` → `@MessagePattern`, which means they live on the
+    # NATS transport, *not* on the Fastify HTTP adapter. Any HTTP probe
+    # would hit a Nest 404 and mark the container unhealthy. We only
+    # care that Node has bound :3000, so a TCP knock is enough — the
+    # gateway-server's own readiness is verified from the host by
+    # bench-runner's waitForReady loop against /bench/hello through
+    # the full HTTP → NATS → handler path.
+    healthcheck:
+      test: ['CMD', 'nc', '-z', '127.0.0.1', '3000']
+      interval: 2s
+      timeout: 2s
+      retries: 60
+      start_period: 5s
+
+  zerly-nest-app-bun:
+    profiles: ['zerly-bun']
+    build:
+      context: ./stacks/zerly/nest-bench-app
+      dockerfile: Dockerfile
+      target: bun-runtime
+    depends_on:
+      nats:
+        condition: service_healthy
+    # Same TCP-only knock as the Node variant: `@GatewayRoute` handlers
+    # live on the NATS transport, not on the HTTP adapter, so any
+    # HTTP probe would hit a Nest 404. BusyBox's `nc` is in the
+    # Alpine-based bun image by default.
+    healthcheck:
+      test: ['CMD', 'nc', '-z', '127.0.0.1', '3000']
+      interval: 2s
+      timeout: 2s
+      retries: 60
+      start_period: 5s
+
+  # Gateway is the Go Hertz server that fronts the zerly stack. It
+  # has to come up *after* the Nest bench-app has already run its
+  # `JetstreamModule` bootstrap, because gateway-server's startup
+  # does a blocking `jetstream.KeyValue("handler_registry")` call
+  # and Fatal-exits when the bucket doesn't exist yet. The bucket
+  # is lazily created by the Nest side on the first handler
+  # registration.
+  #
+  # To keep the ordering correct for both runtime variants — and
+  # to avoid a conditional `depends_on` that compose doesn't
+  # support — we publish two gateway services, one per profile,
+  # each depending on the matching bench-app. Both listen on the
+  # same host port 18093; run-all.sh is sequential so there is
+  # no port collision.
+  zerly-gateway:
+    profiles: ['zerly']
+    build:
+      context: ../apps/gateway-server
+      dockerfile: Dockerfile
+    environment:
+      NATS_URLS: 'nats://nats:4222'
+      HTTP_ADDR: ':8080'
+      LOG_LEVEL: 'warn'
+      LOG_REQUESTS: 'false'
+      METRICS_ENABLED: 'false'
+      HEALTH_ENABLED: 'true'
+    depends_on:
+      nats:
+        condition: service_healthy
+      zerly-nest-app:
+        condition: service_healthy
+    ports:
+      - '18093:8080'
+    # No container-side healthcheck: the gateway image is FROM scratch
+    # and has no shell or wget. Readiness is verified from the host
+    # via bench-runner's retry loop against http://localhost:18093/_gateway/live.
+
+  zerly-gateway-bun:
+    profiles: ['zerly-bun']
+    build:
+      context: ../apps/gateway-server
+      dockerfile: Dockerfile
+    environment:
+      NATS_URLS: 'nats://nats:4222'
+      HTTP_ADDR: ':8080'
+      LOG_LEVEL: 'warn'
+      LOG_REQUESTS: 'false'
+      METRICS_ENABLED: 'false'
+      HEALTH_ENABLED: 'true'
+    depends_on:
+      nats:
+        condition: service_healthy
+      zerly-nest-app-bun:
+        condition: service_healthy
+    ports:
+      - '18093:8080'
