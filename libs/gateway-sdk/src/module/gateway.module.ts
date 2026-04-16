@@ -6,6 +6,7 @@ import { GatewayResponseInterceptor } from '../interceptors/gateway-response.int
 import { DefaultErrorBodyFactory } from '../normalization/default-error-body.factory';
 import { DefaultGatewayReplyBuilder } from '../normalization/default-reply.builder';
 import { DefaultStatusResolver } from '../normalization/default-status.resolver';
+import { GatewayMetadataEnricher } from '../runtime/gateway-metadata-enricher';
 import {
   GATEWAY_DEFAULTS,
   GATEWAY_ERROR_BODY_FACTORY,
@@ -81,6 +82,7 @@ export class GatewayModule {
         replyBuilderProvider,
         statusResolverProvider,
         errorBodyFactoryProvider,
+        GatewayMetadataEnricher,
         GatewayResponseInterceptor,
         GatewayExceptionFilter,
       ],
@@ -153,6 +155,7 @@ export class GatewayModule {
           provide: GATEWAY_ERROR_BODY_FACTORY,
           useClass: DefaultErrorBodyFactory,
         },
+        GatewayMetadataEnricher,
         GatewayResponseInterceptor,
         GatewayExceptionFilter,
       ],
