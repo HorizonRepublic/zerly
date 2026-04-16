@@ -91,3 +91,46 @@ func TestHandlerEntry_ParsePureRpc(t *testing.T) {
 	assert.Nil(t, sut.Auth)
 	assert.Nil(t, sut.Verifier)
 }
+
+func TestHandlerEntry_DeserializeExtendedFields(t *testing.T) {
+	raw := `{
+		"http":{"method":"POST","path":"/users"},
+		"cors":{"origins":["https://app.example.com"],"methods":["POST"],"credentials":true,"maxAge":3600},
+		"rateLimit":{"rps":10,"burst":20,"keyBy":["user:id","ip"]},
+		"headers":{"x-frame-options":"DENY","cache-control":"no-store"},
+		"timeout":5000
+	}`
+
+	var entry HandlerEntry
+	err := json.Unmarshal([]byte(raw), &entry)
+	require.NoError(t, err)
+
+	require.NotNil(t, entry.CORS)
+	assert.Equal(t, []string{"https://app.example.com"}, entry.CORS.Origins)
+	assert.Equal(t, []string{"POST"}, entry.CORS.Methods)
+	assert.True(t, entry.CORS.Credentials)
+	assert.Equal(t, 3600, entry.CORS.MaxAge)
+
+	require.NotNil(t, entry.RateLimit)
+	assert.Equal(t, 10, entry.RateLimit.RPS)
+	assert.Equal(t, 20, entry.RateLimit.Burst)
+	assert.Equal(t, []string{"user:id", "ip"}, entry.RateLimit.KeyBy)
+
+	assert.Equal(t, map[string]string{"x-frame-options": "DENY", "cache-control": "no-store"}, entry.Headers)
+
+	require.NotNil(t, entry.Timeout)
+	assert.Equal(t, 5000, *entry.Timeout)
+}
+
+func TestHandlerEntry_OmitsExtendedFieldsWhenAbsent(t *testing.T) {
+	raw := `{"http":{"method":"GET","path":"/hello"}}`
+
+	var entry HandlerEntry
+	err := json.Unmarshal([]byte(raw), &entry)
+	require.NoError(t, err)
+
+	assert.Nil(t, entry.CORS)
+	assert.Nil(t, entry.RateLimit)
+	assert.Nil(t, entry.Headers)
+	assert.Nil(t, entry.Timeout)
+}

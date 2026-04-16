@@ -1,6 +1,8 @@
 package routing
 
 import (
+	"time"
+
 	"github.com/rs/zerolog"
 
 	"github.com/HorizonRepublic/zerly/apps/gateway-server/internal/auth"
@@ -55,6 +57,14 @@ func CollectRoutes(
 			Subject:      subject,
 			Method:       entry.HTTP.Method,
 			PathTemplate: entry.HTTP.Path,
+		}
+
+		route.CORS = entry.CORS
+		route.RateLimit = entry.RateLimit
+		route.Headers = entry.Headers
+
+		if entry.Timeout != nil {
+			route.Timeout = time.Duration(*entry.Timeout) * time.Millisecond
 		}
 
 		if entry.Auth != nil {

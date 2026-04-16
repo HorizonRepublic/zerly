@@ -3,6 +3,7 @@ package routing
 import (
 	"io"
 	"testing"
+	"time"
 
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
@@ -220,4 +221,34 @@ func TestCollectRoutes_PublicRouteUnaffectedByVerifierRegistry(t *testing.T) {
 
 	require.Len(t, routes, 1)
 	assert.Nil(t, routes[0].Auth)
+}
+
+func TestCollectRoutes_PropagatesExtendedFields(t *testing.T) {
+	timeout := 5000
+	snapshot := &registry.Snapshot{
+		Entries: map[string]registry.HandlerEntry{
+			"svc__microservice.cmd.users.create": {
+				HTTP:      &registry.HTTPMeta{Method: "POST", Path: "/users"},
+				CORS:      &registry.CORSMeta{Origins: []string{"https://app.com"}, Credentials: true},
+				RateLimit: &registry.RateLimitMeta{RPS: 10, Burst: 20, KeyBy: []string{"ip"}},
+				Headers:   map[string]string{"x-frame-options": "DENY"},
+				Timeout:   &timeout,
+			},
+		},
+	}
+
+	routes := CollectRoutes(snapshot, emptyVerifiers(), silentLogger())
+
+	require.Len(t, routes, 1)
+	route := routes[0]
+
+	require.NotNil(t, route.CORS)
+	assert.Equal(t, []string{"https://app.com"}, route.CORS.Origins)
+	assert.True(t, route.CORS.Credentials)
+
+	require.NotNil(t, route.RateLimit)
+	assert.Equal(t, 10, route.RateLimit.RPS)
+
+	assert.Equal(t, "DENY", route.Headers["x-frame-options"])
+	assert.Equal(t, 5*time.Second, route.Timeout)
 }

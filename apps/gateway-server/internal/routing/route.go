@@ -3,6 +3,12 @@
 // everything upstream (proxy, transport) consumes Route values by reference.
 package routing
 
+import (
+	"time"
+
+	"github.com/HorizonRepublic/zerly/apps/gateway-server/internal/registry"
+)
+
 // Route is the immutable descriptor of a single HTTP endpoint exposed by
 // the gateway. It is produced by BuildTable from a registry.HandlerEntry
 // and consumed by the proxy layer, which uses the Subject field to
@@ -35,6 +41,22 @@ type Route struct {
 	// referenced verifier existed in the VerifierRegistry. nil means
 	// the route is public — no verifier sub-request is issued.
 	Auth *RouteAuth
+
+	// CORS policy from the handler registry. Nil means no CORS
+	// handling — the request passes through without CORS headers.
+	CORS *registry.CORSMeta
+
+	// RateLimit policy from the handler registry. Nil means no
+	// rate limiting for this route.
+	RateLimit *registry.RateLimitMeta
+
+	// Headers are static response headers from the handler registry.
+	// Applied before envelope headers (which take priority).
+	Headers map[string]string
+
+	// Timeout overrides the global request timeout for this route.
+	// Zero means use the global default.
+	Timeout time.Duration
 }
 
 // RouteAuth is the pre-resolved auth contract a protected Route

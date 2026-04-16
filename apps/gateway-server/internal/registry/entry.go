@@ -85,6 +85,24 @@ type VerifierMeta struct {
 	Default bool `json:"default"`
 }
 
+// CORSMeta holds the CORS policy for a route, written by the SDK.
+// The gateway uses it to handle OPTIONS preflight and set response
+// headers without a NATS round-trip.
+type CORSMeta struct {
+	Origins     []string `json:"origins"`
+	Methods     []string `json:"methods,omitempty"`
+	Headers     []string `json:"headers,omitempty"`
+	Credentials bool     `json:"credentials,omitempty"`
+	MaxAge      int      `json:"maxAge,omitempty"`
+}
+
+// RateLimitMeta holds the rate-limiting policy for a route.
+type RateLimitMeta struct {
+	RPS   int      `json:"rps"`
+	Burst int      `json:"burst,omitempty"`
+	KeyBy []string `json:"keyBy,omitempty"`
+}
+
 // HandlerEntry is a single deserialized record from the handler_registry
 // KV bucket.
 //
@@ -100,7 +118,11 @@ type VerifierMeta struct {
 // extensions (rate-limit rules, schema references, etc.) without
 // requiring a gateway upgrade in lockstep.
 type HandlerEntry struct {
-	HTTP     *HTTPMeta      `json:"http,omitempty"`
-	Auth     *RouteAuthMeta `json:"auth,omitempty"`
-	Verifier *VerifierMeta  `json:"verifier,omitempty"`
+	HTTP      *HTTPMeta         `json:"http,omitempty"`
+	Auth      *RouteAuthMeta    `json:"auth,omitempty"`
+	Verifier  *VerifierMeta     `json:"verifier,omitempty"`
+	CORS      *CORSMeta         `json:"cors,omitempty"`
+	RateLimit *RateLimitMeta    `json:"rateLimit,omitempty"`
+	Headers   map[string]string `json:"headers,omitempty"`
+	Timeout   *int              `json:"timeout,omitempty"`
 }
