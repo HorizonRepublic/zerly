@@ -21,8 +21,8 @@ importers:
         specifier: ^13.0.2
         version: 13.0.2
       '@horizon-republic/nestjs-jetstream':
-        specifier: ^2.9.0
-        version: 2.9.0(@nestjs/common@12.0.0-alpha.2(class-validator@0.14.3)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.0-alpha.2)(@nestjs/microservices@12.0.0-alpha.2)(reflect-metadata@0.2.2)(rxjs@7.8.2)
+        specifier: 2.9.1
+        version: 2.9.1(@nestjs/common@12.0.0-alpha.2(class-validator@0.14.3)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.0-alpha.2)(@nestjs/microservices@12.0.0-alpha.2)(reflect-metadata@0.2.2)(rxjs@7.8.2)
       '@mikro-orm/core':
         specifier: ^6.6.6
         version: 6.6.12
@@ -1314,15 +1314,19 @@ packages:
   '@golevelup/ts-jest@3.0.0':
     resolution: {integrity: sha512-ei0cvUKrVv8cJBW6df54yeod8PyzR2LTYG6wJ1xm+213p7HnThw5ShQcRH0/hhhnXnJCLrpmJM7e6fkRjHUF1g==}
 
-  '@horizon-republic/nestjs-jetstream@2.9.0':
-    resolution: {integrity: sha512-7yHNw0BzsnpbKhMIT6BwVQ4CaF+cmXJnpa/Rne4QgQVvDShKRNtMU9l0cBgP9/TS/IorBEha5JQQBi4AJhr7ng==}
+  '@horizon-republic/nestjs-jetstream@2.9.1':
+    resolution: {integrity: sha512-4cRI0XXgJtekHiAghhljgfJxZiW30vB9vtUfNBEbvZ56C+3XzvztHQn25HOTCguVIdjnmJpGeGowDfjMIWa7UQ==}
     engines: {node: '>= 20.0.0'}
     peerDependencies:
       '@nestjs/common': ^10.2.0 || ^11.0.0
       '@nestjs/core': ^10.2.0 || ^11.0.0
       '@nestjs/microservices': ^10.2.0 || ^11.0.0
+      msgpackr: ^1.11.0
       reflect-metadata: ^0.2.0
       rxjs: ^7.8.0
+    peerDependenciesMeta:
+      msgpackr:
+        optional: true
 
   '@humanfs/core@0.19.1':
     resolution: {integrity: sha512-5DyQ4+1JEUzejeK1JGICcideyfUbGixgS9jNgex5nqkW+cY7WZhxBigmieN5Qnw9ZosSNVC9KQKyb+GUaGyKUA==}
@@ -9905,7 +9909,7 @@ snapshots:
 
   '@golevelup/ts-jest@3.0.0': {}
 
-  '@horizon-republic/nestjs-jetstream@2.9.0(@nestjs/common@12.0.0-alpha.2(class-validator@0.14.3)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.0-alpha.2)(@nestjs/microservices@12.0.0-alpha.2)(reflect-metadata@0.2.2)(rxjs@7.8.2)':
+  '@horizon-republic/nestjs-jetstream@2.9.1(@nestjs/common@12.0.0-alpha.2(class-validator@0.14.3)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.0-alpha.2)(@nestjs/microservices@12.0.0-alpha.2)(reflect-metadata@0.2.2)(rxjs@7.8.2)':
     dependencies:
       '@nats-io/jetstream': 3.3.1
       '@nats-io/kv': 3.3.1
