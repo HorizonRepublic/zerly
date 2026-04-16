@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	gerrors "github.com/HorizonRepublic/zerly/apps/gateway-server/internal/errors"
+	"github.com/HorizonRepublic/zerly/apps/gateway-server/internal/registry"
 	"github.com/HorizonRepublic/zerly/apps/gateway-server/internal/routing"
 )
 
@@ -34,11 +35,13 @@ func (f *fakeTable) Lookup(method, path string) (routing.Route, map[string]strin
 func (f *fakeTable) Methods(string) []string { return nil }
 
 // recordedCall captures a single NATS request issued by the handler
-// under test. Tests assert on .subject to verify call ordering and on
-// .payload to inspect the encoded envelope.
+// under test. Tests assert on .subject to verify call ordering, on
+// .payload to inspect the encoded envelope, and on .timeout to verify
+// per-route timeout overrides.
 type recordedCall struct {
 	subject string
 	payload []byte
+	timeout time.Duration
 }
 
 // programmedReply is a canned (reply, err) tuple keyed to a specific
@@ -76,11 +79,12 @@ func (f *fakeRequester) program(subject string, reply []byte, err error) {
 	f.programmed[subject] = programmedReply{reply: reply, err: err}
 }
 
-func (f *fakeRequester) Request(subject string, payload []byte, _ time.Duration) ([]byte, error) {
-	// Record the call with a defensive copy of the payload — the
-	// handler pools its encode buffer and will overwrite these bytes
-	// before the test assertion runs.
-	recorded := recordedCall{subject: subject, payload: append([]byte(nil), payload...)}
+func (f *fakeRequester) Request(subject string, payload []byte, timeout time.Duration) ([]byte, error) {
+	recorded := recordedCall{
+		subject: subject,
+		payload: append([]byte(nil), payload...),
+		timeout: timeout,
+	}
 	f.requests = append(f.requests, recorded)
 
 	if p, ok := f.programmed[subject]; ok {
@@ -633,4 +637,374 @@ func TestHandler_OverwritesUpstreamRequestID(t *testing.T) {
 	result := h.Handle(emptyServeInput("GET", "/users"))
 
 	assert.Equal(t, []string{"r1"}, result.Headers["x-request-id"])
+}
+
+// --- CORS preflight tests ---
+
+func TestHandler_PreflightReturns204WithCORSHeaders(t *testing.T) {
+	cors := &registry.CORSMeta{
+		Origins:     []string{"https://example.com"},
+		Methods:     []string{"GET", "POST"},
+		Headers:     []string{"Authorization", "Content-Type"},
+		Credentials: true,
+		MaxAge:      3600,
+	}
+	table := &fakeTable{routes: map[string]routing.Route{
+		"GET /users": {
+			Subject: "svc.cmd.users.list", PathTemplate: "/users",
+			Method: "GET", CORS: cors,
+		},
+	}}
+	h := buildHandler(table, nil, nil)
+
+	in := emptyServeInput("OPTIONS", "/users")
+	in.Headers["origin"] = "https://example.com"
+	in.Headers["access-control-request-method"] = "GET"
+
+	result := h.Handle(in)
+
+	assert.Equal(t, 204, result.Status)
+	assert.Equal(t, []string{"https://example.com"}, result.Headers["Access-Control-Allow-Origin"])
+	assert.Equal(t, []string{"GET, POST"}, result.Headers["Access-Control-Allow-Methods"])
+	assert.Equal(t, []string{"Authorization, Content-Type"}, result.Headers["Access-Control-Allow-Headers"])
+	assert.Equal(t, []string{"true"}, result.Headers["Access-Control-Allow-Credentials"])
+	assert.Equal(t, []string{"3600"}, result.Headers["Access-Control-Max-Age"])
+	assert.Nil(t, result.Body)
+}
+
+func TestHandler_PreflightReturns404WhenNoCORSConfig(t *testing.T) {
+	table := &fakeTable{routes: map[string]routing.Route{
+		"GET /users": {
+			Subject: "svc.cmd.users.list", PathTemplate: "/users",
+			Method: "GET",
+		},
+	}}
+	h := buildHandler(table, nil, nil)
+
+	in := emptyServeInput("OPTIONS", "/users")
+	in.Headers["origin"] = "https://example.com"
+	in.Headers["access-control-request-method"] = "GET"
+
+	result := h.Handle(in)
+
+	assert.Equal(t, 404, result.Status)
+}
+
+func TestHandler_PreflightReturns404WithoutACRM(t *testing.T) {
+	cors := &registry.CORSMeta{Origins: []string{"*"}}
+	table := &fakeTable{routes: map[string]routing.Route{
+		"GET /users": {
+			Subject: "svc.cmd.users.list", PathTemplate: "/users",
+			Method: "GET", CORS: cors,
+		},
+	}}
+	h := buildHandler(table, nil, nil)
+
+	in := emptyServeInput("OPTIONS", "/users")
+	in.Headers["origin"] = "https://example.com"
+
+	result := h.Handle(in)
+
+	assert.Equal(t, 404, result.Status)
+}
+
+func TestHandler_PreflightReturns404OnOriginMismatch(t *testing.T) {
+	cors := &registry.CORSMeta{Origins: []string{"https://allowed.com"}}
+	table := &fakeTable{routes: map[string]routing.Route{
+		"GET /users": {
+			Subject: "svc.cmd.users.list", PathTemplate: "/users",
+			Method: "GET", CORS: cors,
+		},
+	}}
+	h := buildHandler(table, nil, nil)
+
+	in := emptyServeInput("OPTIONS", "/users")
+	in.Headers["origin"] = "https://evil.com"
+	in.Headers["access-control-request-method"] = "GET"
+
+	result := h.Handle(in)
+
+	assert.Equal(t, 404, result.Status)
+}
+
+// --- Rate limiting tests ---
+
+// fakeRateLimiter implements ratelimit.Store for unit tests.
+type fakeRateLimiter struct {
+	allowed bool
+	calls   []rateLimitCall
+}
+
+type rateLimitCall struct {
+	key   string
+	rps   int
+	burst int
+}
+
+func (f *fakeRateLimiter) Allow(key string, rps int, burst int) bool {
+	f.calls = append(f.calls, rateLimitCall{key: key, rps: rps, burst: burst})
+
+	return f.allowed
+}
+
+func TestHandler_RateLimitReturns429(t *testing.T) {
+	rl := &fakeRateLimiter{allowed: false}
+	table := &fakeTable{routes: map[string]routing.Route{
+		"GET /users": {
+			Subject: "svc.cmd.users.list", PathTemplate: "/users",
+			Method: "GET",
+			RateLimit: &registry.RateLimitMeta{RPS: 10, Burst: 20},
+		},
+	}}
+	nats := newFakeNats()
+	nats.reply = []byte(`{"status":200,"headers":{},"body":null}`)
+
+	h := NewHandler(HandlerConfig{
+		Table:       func() routing.Table { return table },
+		Nats:        nats,
+		Encoder:     NewDefaultEncoder(),
+		Decoder:     NewDefaultDecoder(),
+		Timeout:     30 * time.Second,
+		Logger:      zerolog.Nop(),
+		RateLimiter: rl,
+	})
+
+	in := emptyServeInput("GET", "/users")
+	in.RemoteAddr = "1.2.3.4"
+
+	result := h.Handle(in)
+
+	assert.Equal(t, 429, result.Status)
+	assert.Equal(t, gerrors.TooManyRequests.Body, result.Body)
+	assert.Equal(t, []string{"1"}, result.Headers["retry-after"])
+
+	require.Len(t, rl.calls, 1)
+	assert.Equal(t, "GET:/users:1.2.3.4", rl.calls[0].key)
+	assert.Equal(t, 10, rl.calls[0].rps)
+	assert.Equal(t, 20, rl.calls[0].burst)
+
+	assert.Empty(t, nats.requests, "NATS must not be called when rate-limited")
+}
+
+func TestHandler_RateLimitDefaultBurstIs2xRPS(t *testing.T) {
+	rl := &fakeRateLimiter{allowed: false}
+	table := &fakeTable{routes: map[string]routing.Route{
+		"GET /users": {
+			Subject: "svc.cmd.users.list", PathTemplate: "/users",
+			Method: "GET",
+			RateLimit: &registry.RateLimitMeta{RPS: 5},
+		},
+	}}
+
+	h := NewHandler(HandlerConfig{
+		Table:       func() routing.Table { return table },
+		Nats:        newFakeNats(),
+		Encoder:     NewDefaultEncoder(),
+		Decoder:     NewDefaultDecoder(),
+		Timeout:     30 * time.Second,
+		Logger:      zerolog.Nop(),
+		RateLimiter: rl,
+	})
+
+	h.Handle(emptyServeInput("GET", "/users"))
+
+	require.Len(t, rl.calls, 1)
+	assert.Equal(t, 10, rl.calls[0].burst, "default burst = 2 * RPS")
+}
+
+func TestHandler_RateLimitSkippedWhenNoStore(t *testing.T) {
+	table := &fakeTable{routes: map[string]routing.Route{
+		"GET /users": {
+			Subject: "svc.cmd.users.list", PathTemplate: "/users",
+			Method: "GET",
+			RateLimit: &registry.RateLimitMeta{RPS: 10},
+		},
+	}}
+	reply := []byte(`{"status":200,"headers":{},"body":null}`)
+	h := buildHandler(table, reply, nil)
+
+	result := h.Handle(emptyServeInput("GET", "/users"))
+
+	assert.Equal(t, 200, result.Status, "request proceeds when RateLimiter is nil")
+}
+
+// --- Per-route timeout tests ---
+
+func TestHandler_PerRouteTimeoutOverridesGlobal(t *testing.T) {
+	routeTimeout := 5 * time.Second
+	globalTimeout := 30 * time.Second
+
+	nats := newFakeNats()
+	nats.reply = []byte(`{"status":200,"headers":{},"body":null}`)
+
+	table := &fakeTable{routes: map[string]routing.Route{
+		"GET /slow": {
+			Subject: "svc.cmd.slow", PathTemplate: "/slow",
+			Method: "GET", Timeout: routeTimeout,
+		},
+	}}
+
+	h := NewHandler(HandlerConfig{
+		Table:   func() routing.Table { return table },
+		Nats:    nats,
+		Encoder: NewDefaultEncoder(),
+		Decoder: NewDefaultDecoder(),
+		Timeout: globalTimeout,
+		Logger:  zerolog.Nop(),
+	})
+
+	result := h.Handle(emptyServeInput("GET", "/slow"))
+
+	assert.Equal(t, 200, result.Status)
+	require.Len(t, nats.requests, 1)
+	assert.Equal(t, routeTimeout, nats.requests[0].timeout)
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(nats.requests[0].payload, &payload))
+	meta, ok := payload["meta"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, float64(routeTimeout.Milliseconds()), meta["timeoutMs"])
+}
+
+func TestHandler_ZeroRouteTimeoutUsesGlobal(t *testing.T) {
+	globalTimeout := 30 * time.Second
+
+	nats := newFakeNats()
+	nats.reply = []byte(`{"status":200,"headers":{},"body":null}`)
+
+	table := &fakeTable{routes: map[string]routing.Route{
+		"GET /fast": {
+			Subject: "svc.cmd.fast", PathTemplate: "/fast",
+			Method: "GET",
+		},
+	}}
+
+	h := NewHandler(HandlerConfig{
+		Table:   func() routing.Table { return table },
+		Nats:    nats,
+		Encoder: NewDefaultEncoder(),
+		Decoder: NewDefaultDecoder(),
+		Timeout: globalTimeout,
+		Logger:  zerolog.Nop(),
+	})
+
+	result := h.Handle(emptyServeInput("GET", "/fast"))
+
+	assert.Equal(t, 200, result.Status)
+	require.Len(t, nats.requests, 1)
+	assert.Equal(t, globalTimeout, nats.requests[0].timeout)
+}
+
+// --- Static headers tests ---
+
+func TestHandler_StaticRouteHeadersAppearOnResponse(t *testing.T) {
+	table := &fakeTable{routes: map[string]routing.Route{
+		"GET /users": {
+			Subject: "svc.cmd.users.list", PathTemplate: "/users",
+			Method: "GET",
+			Headers: map[string]string{
+				"x-custom-header": "static-value",
+				"cache-control":   "public, max-age=60",
+			},
+		},
+	}}
+	reply := []byte(`{"status":200,"headers":{},"body":null}`)
+	h := buildHandler(table, reply, nil)
+
+	result := h.Handle(emptyServeInput("GET", "/users"))
+
+	assert.Equal(t, 200, result.Status)
+	assert.Equal(t, []string{"static-value"}, result.Headers["x-custom-header"])
+	assert.Equal(t, []string{"public, max-age=60"}, result.Headers["cache-control"])
+}
+
+func TestHandler_EnvelopeHeadersOverrideStaticHeaders(t *testing.T) {
+	table := &fakeTable{routes: map[string]routing.Route{
+		"GET /users": {
+			Subject: "svc.cmd.users.list", PathTemplate: "/users",
+			Method: "GET",
+			Headers: map[string]string{
+				"cache-control": "public, max-age=60",
+				"x-fallback":    "from-config",
+			},
+		},
+	}}
+	reply := []byte(`{"status":200,"headers":{"cache-control":["no-store"]},"body":null}`)
+	h := buildHandler(table, reply, nil)
+
+	result := h.Handle(emptyServeInput("GET", "/users"))
+
+	assert.Equal(t, 200, result.Status)
+	assert.Equal(t, []string{"no-store"}, result.Headers["cache-control"],
+		"envelope header wins over static header")
+	assert.Equal(t, []string{"from-config"}, result.Headers["x-fallback"],
+		"static header applied when no conflict")
+}
+
+// --- CORS response headers on non-OPTIONS requests ---
+
+func TestHandler_CORSResponseHeadersOnNonOptions(t *testing.T) {
+	cors := &registry.CORSMeta{
+		Origins:     []string{"https://example.com"},
+		Credentials: true,
+	}
+	table := &fakeTable{routes: map[string]routing.Route{
+		"GET /users": {
+			Subject: "svc.cmd.users.list", PathTemplate: "/users",
+			Method: "GET", CORS: cors,
+		},
+	}}
+	reply := []byte(`{"status":200,"headers":{},"body":null}`)
+	h := buildHandler(table, reply, nil)
+
+	in := emptyServeInput("GET", "/users")
+	in.Headers["origin"] = "https://example.com"
+
+	result := h.Handle(in)
+
+	assert.Equal(t, 200, result.Status)
+	assert.Equal(t, []string{"https://example.com"}, result.Headers["Access-Control-Allow-Origin"])
+	assert.Equal(t, []string{"true"}, result.Headers["Access-Control-Allow-Credentials"])
+	assert.Equal(t, []string{"Origin"}, result.Headers["Vary"])
+}
+
+func TestHandler_CORSResponseHeadersOmittedOnOriginMismatch(t *testing.T) {
+	cors := &registry.CORSMeta{Origins: []string{"https://allowed.com"}}
+	table := &fakeTable{routes: map[string]routing.Route{
+		"GET /users": {
+			Subject: "svc.cmd.users.list", PathTemplate: "/users",
+			Method: "GET", CORS: cors,
+		},
+	}}
+	reply := []byte(`{"status":200,"headers":{},"body":null}`)
+	h := buildHandler(table, reply, nil)
+
+	in := emptyServeInput("GET", "/users")
+	in.Headers["origin"] = "https://evil.com"
+
+	result := h.Handle(in)
+
+	assert.Equal(t, 200, result.Status)
+	_, hasCORS := result.Headers["Access-Control-Allow-Origin"]
+	assert.False(t, hasCORS, "CORS headers must not appear when origin does not match")
+}
+
+func TestHandler_CORSResponseHeadersOmittedWhenNoCORSConfig(t *testing.T) {
+	table := &fakeTable{routes: map[string]routing.Route{
+		"GET /users": {
+			Subject: "svc.cmd.users.list", PathTemplate: "/users",
+			Method: "GET",
+		},
+	}}
+	reply := []byte(`{"status":200,"headers":{},"body":null}`)
+	h := buildHandler(table, reply, nil)
+
+	in := emptyServeInput("GET", "/users")
+	in.Headers["origin"] = "https://example.com"
+
+	result := h.Handle(in)
+
+	assert.Equal(t, 200, result.Status)
+	_, hasCORS := result.Headers["Access-Control-Allow-Origin"]
+	assert.False(t, hasCORS)
 }

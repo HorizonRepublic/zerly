@@ -2,11 +2,13 @@ package proxy
 
 import (
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/rs/zerolog"
 
 	gerrors "github.com/HorizonRepublic/zerly/apps/gateway-server/internal/errors"
+	"github.com/HorizonRepublic/zerly/apps/gateway-server/internal/ratelimit"
 	"github.com/HorizonRepublic/zerly/apps/gateway-server/internal/routing"
 )
 
@@ -21,15 +23,16 @@ import (
 type TableProvider func() routing.Table
 
 // HandlerConfig bundles the dependencies of a Handler. Passed by value
-// at construction; all fields are required and the zero value of a
-// HandlerConfig is NOT safe to use.
+// at construction; all fields are required (except RateLimiter) and the
+// zero value of a HandlerConfig is NOT safe to use.
 type HandlerConfig struct {
-	Table   TableProvider
-	Nats    NatsRequester
-	Encoder Encoder
-	Decoder Decoder
-	Timeout time.Duration
-	Logger  zerolog.Logger
+	Table       TableProvider
+	Nats        NatsRequester
+	Encoder     Encoder
+	Decoder     Decoder
+	Timeout     time.Duration
+	Logger      zerolog.Logger
+	RateLimiter ratelimit.Store // nil = rate limiting disabled globally
 }
 
 // Handler is the HTTP→NATS→HTTP orchestrator. It owns one request from
@@ -92,6 +95,11 @@ type ServeResult struct {
 // payload slice alive beyond this function MUST stop using the pool.
 func (h *Handler) Handle(in *ServeInput) *ServeResult {
 	table := h.cfg.Table()
+
+	if in.Method == "OPTIONS" {
+		return h.handlePreflight(table, in)
+	}
+
 	route, params, ok := table.Lookup(in.Method, in.Path)
 	if !ok {
 		return toServeResult(gerrors.NotFound)
@@ -110,6 +118,28 @@ func (h *Handler) Handle(in *ServeInput) *ServeResult {
 		authHeaders = authOutcome.AuthHeaders
 	}
 
+	if route.RateLimit != nil && h.cfg.RateLimiter != nil {
+		rlKey := h.resolveRateLimitKey(in, route, claims)
+
+		burst := route.RateLimit.Burst
+		if burst == 0 {
+			burst = route.RateLimit.RPS * 2
+		}
+
+		fullKey := route.Method + ":" + route.PathTemplate + ":" + rlKey
+		if !h.cfg.RateLimiter.Allow(fullKey, route.RateLimit.RPS, burst) {
+			result := toServeResult(gerrors.TooManyRequests)
+			result.Headers["retry-after"] = []string{"1"}
+
+			return result
+		}
+	}
+
+	timeout := h.cfg.Timeout
+	if route.Timeout > 0 {
+		timeout = route.Timeout
+	}
+
 	payload := acquirePayload()
 	defer releasePayload(payload)
 
@@ -125,7 +155,7 @@ func (h *Handler) Handle(in *ServeInput) *ServeResult {
 		Traceparent: in.Traceparent,
 		RemoteAddr:  in.RemoteAddr,
 		ReceivedAt:  in.ReceivedAt,
-		TimeoutMs:   h.cfg.Timeout.Milliseconds(),
+		TimeoutMs:   timeout.Milliseconds(),
 		Auth:        claims,
 	})
 	if err != nil {
@@ -133,7 +163,7 @@ func (h *Handler) Handle(in *ServeInput) *ServeResult {
 		return toServeResult(gerrors.InternalError)
 	}
 
-	replyBytes, err := h.cfg.Nats.Request(route.Subject, *payload, h.cfg.Timeout)
+	replyBytes, err := h.cfg.Nats.Request(route.Subject, *payload, timeout)
 	if err != nil {
 		if isTimeoutErr(err) {
 			return toServeResult(gerrors.GatewayTimeout)
@@ -151,11 +181,101 @@ func (h *Handler) Handle(in *ServeInput) *ServeResult {
 	mergedHeaders := mergeHeaders(reply.Headers, in.RequestID)
 	mergeAuthHeaders(mergedHeaders, authHeaders)
 
+	for k, v := range route.Headers {
+		if _, exists := mergedHeaders[k]; !exists {
+			mergedHeaders[k] = []string{v}
+		}
+	}
+
+	if route.CORS != nil {
+		origin := in.Headers["origin"]
+		if matched := MatchOrigin(route.CORS, origin); matched != "" {
+			for k, v := range BuildResponseCORSHeaders(route.CORS, matched) {
+				mergedHeaders[k] = []string{v}
+			}
+		}
+	}
+
 	return &ServeResult{
 		Status:  reply.Status,
 		Headers: mergedHeaders,
 		Body:    reply.Body,
 	}
+}
+
+// handlePreflight handles CORS OPTIONS preflight requests. It uses the
+// Access-Control-Request-Method header to find the actual route, then
+// returns 204 with the appropriate CORS headers if the origin matches.
+func (h *Handler) handlePreflight(table routing.Table, in *ServeInput) *ServeResult {
+	acrm := in.Headers["access-control-request-method"]
+	if acrm == "" {
+		return toServeResult(gerrors.NotFound)
+	}
+
+	route, _, ok := table.Lookup(strings.ToUpper(acrm), in.Path)
+	if !ok || route.CORS == nil {
+		return toServeResult(gerrors.NotFound)
+	}
+
+	origin := in.Headers["origin"]
+	matched := MatchOrigin(route.CORS, origin)
+	if matched == "" {
+		return toServeResult(gerrors.NotFound)
+	}
+
+	preflight := BuildPreflightHeaders(route.CORS, matched)
+
+	headers := make(map[string][]string, len(preflight))
+	for k, v := range preflight {
+		headers[k] = []string{v}
+	}
+
+	return &ServeResult{Status: 204, Headers: headers}
+}
+
+// resolveRateLimitKey computes the rate-limit bucket key from the
+// route's keyBy chain, falling back to clientIP if nothing resolves.
+func (h *Handler) resolveRateLimitKey(
+	in *ServeInput,
+	route routing.Route,
+	claims json.RawMessage,
+) string {
+	keyBy := route.RateLimit.KeyBy
+	if len(keyBy) == 0 {
+		keyBy = []string{"ip"}
+	}
+
+	var claimsMap map[string]any
+	if len(claims) > 0 {
+		_ = json.Unmarshal(claims, &claimsMap)
+	}
+
+	return ratelimit.ResolveKey(
+		keyBy,
+		in.RemoteAddr,
+		func(name string) string { return in.Headers[name] },
+		func(name string) string { return extractCookie(in.Headers, name) },
+		claimsMap,
+	)
+}
+
+// extractCookie parses a single named cookie from the Cookie header.
+// Avoids allocating a full cookie map per request — most rate-limit
+// keyBy chains resolve before reaching the cookie strategy.
+func extractCookie(headers map[string]string, name string) string {
+	cookieHeader := headers["cookie"]
+	if cookieHeader == "" {
+		return ""
+	}
+
+	for _, part := range strings.Split(cookieHeader, ";") {
+		part = strings.TrimSpace(part)
+		if eqIdx := strings.IndexByte(part, '='); eqIdx > 0 && part[:eqIdx] == name {
+			return part[eqIdx+1:]
+		}
+	}
+
+	return ""
 }
 
 // authFlowResult captures the outcome of a pre-flight verifier

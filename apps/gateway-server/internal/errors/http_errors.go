@@ -43,6 +43,7 @@ type HTTPError struct {
 // directly without hard-coding magic numbers, and to make the full
 // set of statuses the gateway may produce obvious at a glance.
 const (
+	StatusTooManyRequests    = 429
 	StatusNotFound           = 404
 	StatusMethodNotAllowed   = 405
 	StatusPayloadTooLarge    = 413
@@ -82,6 +83,10 @@ var (
 	// carries a Content-Type the gateway cannot forward. Reserved
 	// for a future content-negotiation layer.
 	UnsupportedMedia HTTPError
+	// TooManyRequests is the 429 response returned when a client
+	// exceeds the per-route rate limit configured in the handler
+	// registry.
+	TooManyRequests HTTPError
 	// InternalError is the generic 500 response returned when the
 	// proxy fails to encode the outbound envelope or hits an
 	// unexpected internal condition.
@@ -105,6 +110,7 @@ func init() {
 	MethodNotAllowed = build(StatusMethodNotAllowed, "Method Not Allowed")
 	PayloadTooLarge = build(StatusPayloadTooLarge, "Payload Too Large")
 	UnsupportedMedia = build(StatusUnsupportedMedia, "Unsupported Media Type")
+	TooManyRequests = build(StatusTooManyRequests, "Too Many Requests")
 	InternalError = build(StatusInternalError, "Internal Server Error")
 	ServiceUnavailable = build(StatusServiceUnavailable, "Service Unavailable")
 	GatewayTimeout = build(StatusGatewayTimeout, "Gateway Timeout")

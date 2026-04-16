@@ -30,6 +30,7 @@ import (
 	"github.com/HorizonRepublic/zerly/apps/gateway-server/internal/lifecycle"
 	"github.com/HorizonRepublic/zerly/apps/gateway-server/internal/observability"
 	"github.com/HorizonRepublic/zerly/apps/gateway-server/internal/proxy"
+	"github.com/HorizonRepublic/zerly/apps/gateway-server/internal/ratelimit"
 	"github.com/HorizonRepublic/zerly/apps/gateway-server/internal/registry"
 	"github.com/HorizonRepublic/zerly/apps/gateway-server/internal/routing"
 	httptransport "github.com/HorizonRepublic/zerly/apps/gateway-server/internal/transport/http"
@@ -62,8 +63,11 @@ func main() {
 		logger.Fatal().Err(err).Msg("registry watcher start failed")
 	}
 
+	rateLimiterStore := ratelimit.NewMemoryStore()
+	defer rateLimiterStore.Stop()
+
 	requester := buildRequesterOrDie(nc, logger)
-	handler := buildProxyHandler(cfg, currentTable, requester, logger)
+	handler := buildProxyHandler(cfg, currentTable, requester, rateLimiterStore, logger)
 	httpServer := httptransport.NewServer(cfg, handler)
 
 	// Run the Hertz server directly instead of Spin() so that its
@@ -253,16 +257,18 @@ func buildProxyHandler(
 	cfg *config.Config,
 	currentTable *atomic.Value,
 	requester *natstransport.Requester,
+	rateLimiterStore ratelimit.Store,
 	logger zerolog.Logger,
 ) *proxy.Handler {
 	return proxy.NewHandler(proxy.HandlerConfig{
 		Table: func() routing.Table {
 			return currentTable.Load().(routing.Table)
 		},
-		Nats:    requester,
-		Encoder: proxy.NewDefaultEncoder(),
-		Decoder: proxy.NewDefaultDecoder(),
-		Timeout: cfg.RequestTimeout,
-		Logger:  logger,
+		Nats:        requester,
+		Encoder:     proxy.NewDefaultEncoder(),
+		Decoder:     proxy.NewDefaultDecoder(),
+		Timeout:     cfg.RequestTimeout,
+		Logger:      logger,
+		RateLimiter: rateLimiterStore,
 	})
 }

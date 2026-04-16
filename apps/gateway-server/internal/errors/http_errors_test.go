@@ -21,6 +21,7 @@ func TestHTTPError_StatusAndBodyPaired(t *testing.T) {
 		{"MethodNotAllowed", MethodNotAllowed, StatusMethodNotAllowed},
 		{"PayloadTooLarge", PayloadTooLarge, StatusPayloadTooLarge},
 		{"UnsupportedMedia", UnsupportedMedia, StatusUnsupportedMedia},
+		{"TooManyRequests", TooManyRequests, StatusTooManyRequests},
 		{"InternalError", InternalError, StatusInternalError},
 		{"ServiceUnavailable", ServiceUnavailable, StatusServiceUnavailable},
 		{"GatewayTimeout", GatewayTimeout, StatusGatewayTimeout},
@@ -43,7 +44,7 @@ func TestHTTPError_StatusAndBodyPaired(t *testing.T) {
 func TestHTTPError_BodiesAreSingleFieldObjects(t *testing.T) {
 	errs := []HTTPError{
 		NotFound, MethodNotAllowed, PayloadTooLarge, UnsupportedMedia,
-		InternalError, ServiceUnavailable, GatewayTimeout, BadGateway,
+		TooManyRequests, InternalError, ServiceUnavailable, GatewayTimeout, BadGateway,
 	}
 	for _, e := range errs {
 		var parsed map[string]string
@@ -67,6 +68,7 @@ func TestHTTPError_ReasonPhrases(t *testing.T) {
 		{"MethodNotAllowed", MethodNotAllowed, "Method Not Allowed"},
 		{"PayloadTooLarge", PayloadTooLarge, "Payload Too Large"},
 		{"UnsupportedMedia", UnsupportedMedia, "Unsupported Media Type"},
+		{"TooManyRequests", TooManyRequests, "Too Many Requests"},
 		{"InternalError", InternalError, "Internal Server Error"},
 		{"ServiceUnavailable", ServiceUnavailable, "Service Unavailable"},
 		{"GatewayTimeout", GatewayTimeout, "Gateway Timeout"},
