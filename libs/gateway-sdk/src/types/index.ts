@@ -24,3 +24,9 @@ export type { IGatewayRequestMeta } from './gateway-request-meta.interface';
 export type { IGatewayRouteContext } from './gateway-route-context.interface';
 
 export type { HttpMethod } from './http-method.type';
+
+export type { IGatewayCorsConfig } from './gateway-cors-config.interface';
+
+export type { IGatewayRateLimitConfig, RateLimitKey } from './gateway-rate-limit-config.interface';
+
+export type { IGatewayDefaults } from './gateway-defaults.interface';
