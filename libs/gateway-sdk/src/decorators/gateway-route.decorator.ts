@@ -107,7 +107,14 @@ export const GatewayRoute = (options: IGatewayRouteOptions): MethodDecorator => 
         };
 
   const auth = normalizeAuth(options.auth);
-  const meta = auth === undefined ? { http } : { http, auth };
+
+  const meta: Record<string, unknown> = { http };
+
+  if (auth !== undefined) meta['auth'] = auth;
+  if (options.cors !== undefined) meta['cors'] = options.cors;
+  if (options.rateLimit !== undefined) meta['rateLimit'] = options.rateLimit;
+  if (options.headers !== undefined) meta['headers'] = options.headers;
+  if (options.timeout !== undefined) meta['timeout'] = options.timeout;
 
   return applyDecorators(
     MessagePattern(options.pattern, { meta }),

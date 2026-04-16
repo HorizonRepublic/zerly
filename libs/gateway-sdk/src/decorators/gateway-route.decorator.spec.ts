@@ -13,6 +13,10 @@ describe('GatewayRoute decorator', () => {
       method: 'POST',
       path: '/users',
       statusCode: 201,
+      cors: { origins: ['https://app.example.com'], credentials: true },
+      rateLimit: { rps: 10, burst: 20, keyBy: ['user:id', 'ip'] },
+      headers: { 'cache-control': 'no-store' },
+      timeout: 5000,
     })
     public createUser(): { id: number } {
       return { id: 1 };
@@ -33,6 +37,10 @@ describe('GatewayRoute decorator', () => {
     expect(extras).toEqual({
       meta: {
         http: { method: 'POST', path: '/users', statusCode: 201 },
+        cors: { origins: ['https://app.example.com'], credentials: true },
+        rateLimit: { rps: 10, burst: 20, keyBy: ['user:id', 'ip'] },
+        headers: { 'cache-control': 'no-store' },
+        timeout: 5000,
       },
     });
   });
@@ -49,5 +57,17 @@ describe('GatewayRoute decorator', () => {
       },
     });
     expect(extras.meta.http).not.toHaveProperty('statusCode');
+  });
+
+  it('omits cors, rateLimit, headers, timeout from metadata when not provided', () => {
+    const handler = TestController.prototype.getUser;
+    const extras = Reflect.getMetadata(PATTERN_EXTRAS_METADATA, handler) as {
+      meta: Record<string, unknown>;
+    };
+
+    expect(extras.meta).not.toHaveProperty('cors');
+    expect(extras.meta).not.toHaveProperty('rateLimit');
+    expect(extras.meta).not.toHaveProperty('headers');
+    expect(extras.meta).not.toHaveProperty('timeout');
   });
 });

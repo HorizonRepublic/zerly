@@ -1,3 +1,5 @@
+import type { IGatewayCorsConfig } from './gateway-cors-config.interface';
+import type { IGatewayRateLimitConfig } from './gateway-rate-limit-config.interface';
 import type { GatewayRouteAuth } from './gateway-route-auth-options.interface';
 import type { HttpMethod } from './http-method.type';
 
@@ -58,4 +60,37 @@ export interface IGatewayRouteOptions {
    * the design spec §4.1/§5 for semantics.
    */
   readonly auth?: GatewayRouteAuth;
+
+  /**
+   * CORS policy for this route. Overrides `forRoot` defaults (shallow replace).
+   * @remarks
+   * When provided, the gateway applies this policy instead of the global CORS
+   * configuration. Omit to inherit the application-wide defaults.
+   */
+  readonly cors?: IGatewayCorsConfig;
+
+  /**
+   * Rate-limit policy for this route. Overrides `forRoot` defaults (shallow replace).
+   * @remarks
+   * When provided, the gateway enforces this limit instead of the global
+   * rate-limit configuration. Omit to inherit the application-wide defaults.
+   */
+  readonly rateLimit?: IGatewayRateLimitConfig;
+
+  /**
+   * Static response headers. Deep-merged with `forRoot` defaults per-key.
+   * @remarks
+   * Keys defined here take precedence over same-named keys from the global
+   * header defaults. Use this to set `cache-control`, `x-content-type-options`,
+   * and similar per-route overrides.
+   */
+  readonly headers?: Readonly<Record<string, string>>;
+
+  /**
+   * Per-route request timeout in milliseconds. Overrides global timeout.
+   * @remarks
+   * When omitted, the gateway applies the application-wide timeout.
+   * Set to `0` to disable the timeout for this route entirely.
+   */
+  readonly timeout?: number;
 }
