@@ -212,7 +212,7 @@ func installRoutingRebuild(
 			firstLoad = false
 		} else {
 			delta := routing.ComputeDelta(prevRoutes, nextRoutes)
-			routing.LogDelta(delta, logger)
+			routing.LogDelta(delta, nextRoutes, logger)
 		}
 
 		// The routing builder pre-resolves every verifier id into the
