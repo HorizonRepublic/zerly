@@ -15,6 +15,7 @@ import { GatewayResponseInterceptor } from './gateway-response.interceptor';
 
 import type { IGatewayReplyBuilder } from '../normalization/contracts/reply-builder.interface';
 import type { IStatusResolver } from '../normalization/contracts/status-resolver.interface';
+import type { IGatewayDefaults } from '../types/gateway-defaults.interface';
 import type { IGatewayHttpMeta } from '../types/gateway-http-meta.interface';
 import type { IGatewayReply } from '../types/gateway-reply.interface';
 import type { CallHandler, ExecutionContext } from '@nestjs/common';
@@ -81,7 +82,7 @@ describe('GatewayResponseInterceptor', () => {
       resolveSuccess: jest.fn(),
     } as unknown as jest.Mocked<IStatusResolver>;
 
-    sut = new GatewayResponseInterceptor(reflector, replyBuilder, statusResolver);
+    sut = new GatewayResponseInterceptor(reflector, replyBuilder, statusResolver, undefined);
   });
 
   describe('route handler fast path (no accumulator)', () => {
@@ -116,7 +117,7 @@ describe('GatewayResponseInterceptor', () => {
       expect(replyBuilder.success).toHaveBeenCalledWith(204, null, {});
     });
 
-    it('does not touch the pool when no @GatewayResponse was injected', async () => {
+    it('pre-acquires and returns an accumulator to the pool even when @GatewayResponse is not injected', async () => {
       reflector.get.mockReturnValue({ meta: { http: httpMeta } });
       statusResolver.resolveSuccess.mockReturnValue(201);
       replyBuilder.success.mockReturnValue({ status: 201, headers: {}, body: null });
@@ -128,7 +129,7 @@ describe('GatewayResponseInterceptor', () => {
         sut.intercept(buildContext(handler, envelope), buildCallHandler({ id: 1 })),
       );
 
-      expect(getPoolSizeForTesting()).toBe(poolSizeBefore);
+      expect(getPoolSizeForTesting()).toBe(poolSizeBefore + 1);
       expect(envelope[RESPONSE_ACCUMULATOR_KEY]).toBeUndefined();
     });
   });
@@ -337,6 +338,110 @@ describe('GatewayResponseInterceptor', () => {
       expect(result.headers['x-verifier']).toEqual(['true']);
       expect(getPoolSizeForTesting()).toBe(poolSizeBefore + 1);
       expect(envelope[RESPONSE_ACCUMULATOR_KEY]).toBeUndefined();
+    });
+  });
+
+  describe('cookie defaults propagation', () => {
+    const buildCookieCallHandler = (
+      envelope: EnvelopeWithAccumulatorSlot,
+      cookieName: string,
+      cookieValue: string,
+      options?: Parameters<GatewayResponseAccumulator['cookie']>[2],
+    ): CallHandler =>
+      ({
+        handle: () => {
+          const acc = envelope[RESPONSE_ACCUMULATOR_KEY] as GatewayResponseAccumulator | undefined;
+
+          acc?.cookie(cookieName, cookieValue, options);
+
+          return of({ id: 1 });
+        },
+      }) as unknown as CallHandler;
+
+    it('applies module-level cookie defaults when no per-cookie options are given', async () => {
+      const defaults: IGatewayDefaults = { cookies: { httpOnly: true, secure: true, path: '/' } };
+
+      reflector.get.mockReturnValue({ meta: { http: httpMeta } });
+      statusResolver.resolveSuccess.mockReturnValue(200);
+      replyBuilder.success.mockImplementation((status, body, headers) => ({
+        status,
+        headers: headers ?? {},
+        body: body ?? null,
+      }));
+
+      const sutWithDefaults = new GatewayResponseInterceptor(
+        reflector,
+        replyBuilder,
+        statusResolver,
+        defaults,
+      );
+
+      const envelope: EnvelopeWithAccumulatorSlot = {};
+
+      const result = (await firstValueFrom(
+        sutWithDefaults.intercept(
+          buildContext(handler, envelope),
+          buildCookieCallHandler(envelope, 'sid', 'abc'),
+        ),
+      )) as IGatewayReply<{ id: number }>;
+
+      expect(result.headers['set-cookie']).toEqual(['sid=abc; Path=/; HttpOnly; Secure']);
+    });
+
+    it('per-cookie options override module-level defaults', async () => {
+      const defaults: IGatewayDefaults = { cookies: { secure: true, path: '/' } };
+
+      reflector.get.mockReturnValue({ meta: { http: httpMeta } });
+      statusResolver.resolveSuccess.mockReturnValue(200);
+      replyBuilder.success.mockImplementation((status, body, headers) => ({
+        status,
+        headers: headers ?? {},
+        body: body ?? null,
+      }));
+
+      const sutWithDefaults = new GatewayResponseInterceptor(
+        reflector,
+        replyBuilder,
+        statusResolver,
+        defaults,
+      );
+
+      const envelope: EnvelopeWithAccumulatorSlot = {};
+
+      const result = (await firstValueFrom(
+        sutWithDefaults.intercept(
+          buildContext(handler, envelope),
+          buildCookieCallHandler(envelope, 'sid', 'abc', { secure: false, sameSite: 'strict' }),
+        ),
+      )) as IGatewayReply<{ id: number }>;
+
+      expect(result.headers['set-cookie']).toEqual(['sid=abc; Path=/; SameSite=Strict']);
+    });
+
+    it('sets cookieDefaults on a pre-existing accumulator without double-acquiring from pool', async () => {
+      const defaults: IGatewayDefaults = { cookies: { httpOnly: true } };
+
+      reflector.get.mockReturnValue({ meta: { http: httpMeta } });
+      statusResolver.resolveSuccess.mockReturnValue(200);
+      replyBuilder.success.mockReturnValue({ status: 200, headers: {}, body: null });
+
+      const sutWithDefaults = new GatewayResponseInterceptor(
+        reflector,
+        replyBuilder,
+        statusResolver,
+        defaults,
+      );
+
+      const envelope: EnvelopeWithAccumulatorSlot = {};
+      const acc = plantAccumulator(envelope);
+      const poolSizeBefore = getPoolSizeForTesting();
+
+      await firstValueFrom(
+        sutWithDefaults.intercept(buildContext(handler, envelope), buildCallHandler({ id: 1 })),
+      );
+
+      expect(getPoolSizeForTesting()).toBe(poolSizeBefore + 1);
+      expect(acc.cookieDefaults).toEqual({});
     });
   });
 

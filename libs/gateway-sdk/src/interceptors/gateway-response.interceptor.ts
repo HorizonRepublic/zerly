@@ -1,6 +1,7 @@
 import {
   Inject,
   Injectable,
+  Optional,
   type CallHandler,
   type ExecutionContext,
   type NestInterceptor,
@@ -10,13 +11,18 @@ import { PATTERN_EXTRAS_METADATA } from '@nestjs/microservices/constants';
 
 import { finalize, map, type Observable } from 'rxjs';
 
-import { releaseAccumulator } from '../runtime/gateway-response-pool';
+import { acquireAccumulator, releaseAccumulator } from '../runtime/gateway-response-pool';
 import { RESPONSE_ACCUMULATOR_KEY } from '../runtime/response-accumulator-symbol';
-import { GATEWAY_REPLY_BUILDER, GATEWAY_STATUS_RESOLVER } from '../tokens/gateway-tokens.constant';
+import {
+  GATEWAY_DEFAULTS,
+  GATEWAY_REPLY_BUILDER,
+  GATEWAY_STATUS_RESOLVER,
+} from '../tokens/gateway-tokens.constant';
 
 import type { IGatewayReplyBuilder } from '../normalization/contracts/reply-builder.interface';
 import type { IStatusResolver } from '../normalization/contracts/status-resolver.interface';
 import type { GatewayResponseAccumulator } from '../runtime/gateway-response-accumulator';
+import type { IGatewayDefaults } from '../types/gateway-defaults.interface';
 import type { IGatewayHttpMeta } from '../types/gateway-http-meta.interface';
 
 /**
@@ -190,6 +196,9 @@ export class GatewayResponseInterceptor implements NestInterceptor {
     private readonly replyBuilder: IGatewayReplyBuilder,
     @Inject(GATEWAY_STATUS_RESOLVER)
     private readonly statusResolver: IStatusResolver,
+    @Optional()
+    @Inject(GATEWAY_DEFAULTS)
+    private readonly gatewayDefaults: IGatewayDefaults | undefined,
   ) {}
 
   public intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
@@ -205,6 +214,8 @@ export class GatewayResponseInterceptor implements NestInterceptor {
     }
 
     const envelope = context.switchToRpc().getData<IEnvelopeWithAccumulatorSlot>();
+
+    this.preAcquireAccumulator(envelope);
 
     if (httpMeta !== undefined) {
       return next.handle().pipe(
@@ -232,6 +243,34 @@ export class GatewayResponseInterceptor implements NestInterceptor {
         this.releaseAccumulatorIfPresent(envelope);
       }),
     );
+  }
+
+  /**
+   * Eagerly checkout an accumulator from the pool and stash it on
+   * the envelope before the handler runs. Setting `cookieDefaults`
+   * here ensures that the per-request defaults from
+   * `GatewayModule.forRoot({ defaults: { cookies } })` are in place
+   * before the handler's first `res.cookie()` call. The
+   * `@GatewayResponse()` decorator detects the pre-stashed instance
+   * and returns it directly without a second pool checkout. Handlers
+   * that do not inject `@GatewayResponse()` still complete
+   * correctly: the `finalize` operator releases the accumulator back
+   * to the pool so the allocation cost is bounded to one object per
+   * request on the gateway path.
+   */
+  private preAcquireAccumulator(envelope: IEnvelopeWithAccumulatorSlot): void {
+    const existing = readAccumulator(envelope);
+
+    if (existing !== undefined) {
+      existing.cookieDefaults = this.gatewayDefaults?.cookies ?? {};
+
+      return;
+    }
+
+    const acc = acquireAccumulator();
+
+    acc.cookieDefaults = this.gatewayDefaults?.cookies ?? {};
+    envelope[RESPONSE_ACCUMULATOR_KEY] = acc;
   }
 
   /**

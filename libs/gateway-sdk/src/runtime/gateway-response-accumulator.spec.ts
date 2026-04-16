@@ -118,6 +118,28 @@ describe('GatewayResponseAccumulator', () => {
 
       expect(sut.headers['set-cookie']).toEqual(['sid=abc; HttpOnly', 'tenant=demo; Path=/']);
     });
+
+    it('merges cookieDefaults into each serialized cookie', () => {
+      const sut = new GatewayResponseAccumulator();
+
+      sut.cookieDefaults = { httpOnly: true, secure: true, path: '/' };
+      sut.cookie('sid', 'abc');
+
+      expect(sut.headers['set-cookie']).toEqual(['sid=abc; Path=/; HttpOnly; Secure']);
+    });
+
+    it('per-cookie options override cookieDefaults', () => {
+      const sut = new GatewayResponseAccumulator();
+
+      sut.cookieDefaults = { secure: true, path: '/' };
+      sut.cookie('sid', 'abc', { secure: false, sameSite: 'strict' });
+
+      const cookie = (sut.headers['set-cookie'] ?? [])[0] ?? '';
+
+      expect(cookie).toContain('Path=/');
+      expect(cookie).not.toContain('Secure');
+      expect(cookie).toContain('SameSite=Strict');
+    });
   });
 
   describe('clearCookie', () => {
@@ -178,9 +200,10 @@ describe('GatewayResponseAccumulator', () => {
   });
 
   describe('reset', () => {
-    it('clears status, headers, and all cookies for pool reuse', () => {
+    it('clears status, headers, cookieDefaults, and all cookies for pool reuse', () => {
       const sut = new GatewayResponseAccumulator();
 
+      sut.cookieDefaults = { httpOnly: true, secure: true };
       sut
         .status(201)
         .header('x-foo', 'bar')
@@ -191,6 +214,7 @@ describe('GatewayResponseAccumulator', () => {
 
       expect(sut.statusCode).toBeUndefined();
       expect(Object.keys(sut.headers)).toHaveLength(0);
+      expect(sut.cookieDefaults).toEqual({});
     });
 
     it('preserves the headers object identity so pooled users see the same shape', () => {

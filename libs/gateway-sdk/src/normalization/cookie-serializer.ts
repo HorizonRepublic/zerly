@@ -26,6 +26,10 @@ const SAME_SITE_LABELS = {
  * @param value - Cookie value. Same encoding rule as the name.
  * @param options - Optional RFC 6265 attributes. Missing fields
  *                  omit the corresponding attribute.
+ * @param defaults - Module-level cookie defaults from
+ *                   `GatewayModule.forRoot({ defaults: { cookies } })`.
+ *                   Per-cookie `options` fields take precedence over
+ *                   `defaults` on a key-by-key basis.
  * @returns The serialized header value, ready to be stored in a
  *          reply envelope under `set-cookie`.
  * @example
@@ -38,38 +42,41 @@ export const serializeCookie = (
   name: string,
   value: string,
   options: ICookieOptions = {},
+  defaults: Partial<ICookieOptions> = {},
 ): string => {
+  const merged: ICookieOptions = { ...defaults, ...options };
+
   const encodedName = TOKEN_SAFE.test(name) ? name : encodeURIComponent(name);
   const encodedValue = TOKEN_SAFE.test(value) ? value : encodeURIComponent(value);
 
   let out = `${encodedName}=${encodedValue}`;
 
-  if (options.domain !== undefined) {
-    out += `; Domain=${options.domain}`;
+  if (merged.domain !== undefined) {
+    out += `; Domain=${merged.domain}`;
   }
 
-  if (options.path !== undefined) {
-    out += `; Path=${options.path}`;
+  if (merged.path !== undefined) {
+    out += `; Path=${merged.path}`;
   }
 
-  if (options.expires !== undefined) {
-    out += `; Expires=${options.expires.toUTCString()}`;
+  if (merged.expires !== undefined) {
+    out += `; Expires=${merged.expires.toUTCString()}`;
   }
 
-  if (options.maxAge !== undefined) {
-    out += `; Max-Age=${Math.floor(options.maxAge)}`;
+  if (merged.maxAge !== undefined) {
+    out += `; Max-Age=${Math.floor(merged.maxAge)}`;
   }
 
-  if (options.httpOnly === true) {
+  if (merged.httpOnly === true) {
     out += `; HttpOnly`;
   }
 
-  if (options.secure === true) {
+  if (merged.secure === true) {
     out += `; Secure`;
   }
 
-  if (options.sameSite !== undefined) {
-    out += `; SameSite=${SAME_SITE_LABELS[options.sameSite]}`;
+  if (merged.sameSite !== undefined) {
+    out += `; SameSite=${SAME_SITE_LABELS[merged.sameSite]}`;
   }
 
   return out;

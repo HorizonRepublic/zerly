@@ -52,6 +52,16 @@ export class GatewayResponseAccumulator implements IGatewayResponse {
    */
   public readonly headers: Record<string, string[]> = {};
 
+  /**
+   * Cookie attribute defaults from `GatewayModule.forRoot({ defaults: { cookies } })`.
+   * Merged under per-cookie `options` in `cookie()` so that module-level
+   * settings (e.g. `{ httpOnly: true, secure: true, path: '/' }`) are
+   * applied without repeating them on every `res.cookie()` call.
+   * Reset to an empty object by `reset()` so that pooled instances
+   * do not leak defaults across requests.
+   */
+  public cookieDefaults: Partial<ICookieOptions> = {};
+
   public status(code: number): this {
     this.statusCode = code;
 
@@ -84,7 +94,10 @@ export class GatewayResponseAccumulator implements IGatewayResponse {
   }
 
   public cookie(name: string, value: string, options?: ICookieOptions): this {
-    return this.appendHeader('set-cookie', serializeCookie(name, value, options));
+    return this.appendHeader(
+      'set-cookie',
+      serializeCookie(name, value, options, this.cookieDefaults),
+    );
   }
 
   public clearCookie(name: string, options?: Pick<ICookieOptions, 'path' | 'domain'>): this {
@@ -114,6 +127,7 @@ export class GatewayResponseAccumulator implements IGatewayResponse {
    */
   public reset(): void {
     this.statusCode = undefined;
+    this.cookieDefaults = {};
 
     for (const key of Object.keys(this.headers)) {
       Reflect.deleteProperty(this.headers, key);

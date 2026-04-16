@@ -99,4 +99,32 @@ describe('serializeCookie', () => {
 
     expect(sut).toBe('sid=; Max-Age=0');
   });
+
+  describe('defaults merging', () => {
+    it('applies defaults when no per-cookie options given', () => {
+      const sut = serializeCookie('sid', 'abc', {}, { secure: true, httpOnly: true, path: '/' });
+
+      expect(sut).toBe('sid=abc; Path=/; HttpOnly; Secure');
+    });
+
+    it('per-cookie options override defaults', () => {
+      const sut = serializeCookie(
+        'sid',
+        'abc',
+        { secure: false, sameSite: 'strict' },
+        { secure: true, path: '/' },
+      );
+
+      expect(sut).toContain('Path=/');
+      expect(sut).not.toContain('Secure');
+      expect(sut).toContain('SameSite=Strict');
+    });
+
+    it('empty defaults produce the same result as no defaults', () => {
+      const withEmptyDefaults = serializeCookie('sid', 'abc', { httpOnly: true }, {});
+      const withoutDefaults = serializeCookie('sid', 'abc', { httpOnly: true });
+
+      expect(withEmptyDefaults).toBe(withoutDefaults);
+    });
+  });
 });
