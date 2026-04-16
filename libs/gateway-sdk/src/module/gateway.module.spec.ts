@@ -6,6 +6,7 @@ import { DefaultErrorBodyFactory } from '../normalization/default-error-body.fac
 import { DefaultGatewayReplyBuilder } from '../normalization/default-reply.builder';
 import { DefaultStatusResolver } from '../normalization/default-status.resolver';
 import {
+  GATEWAY_DEFAULTS,
   GATEWAY_ERROR_BODY_FACTORY,
   GATEWAY_REPLY_BUILDER,
   GATEWAY_STATUS_RESOLVER,
@@ -15,7 +16,7 @@ import { GatewayModule } from './gateway.module';
 
 import type { IErrorBodyFactory } from '../normalization/contracts/error-body-factory.interface';
 import type { IGatewayReplyBuilder } from '../normalization/contracts/reply-builder.interface';
-import type { ClassProvider, Provider } from '@nestjs/common';
+import type { ClassProvider, Provider, ValueProvider } from '@nestjs/common';
 
 const findUseClassProvider = (
   providers: readonly Provider[],
@@ -119,6 +120,64 @@ describe('GatewayModule', () => {
           GatewayExceptionFilter,
         ]),
       );
+    });
+
+    it('provides GATEWAY_DEFAULTS with a frozen defaults object', () => {
+      const mod = GatewayModule.forRoot({
+        defaults: {
+          cors: { origins: ['https://example.com'] },
+          timeout: 5000,
+        },
+      });
+
+      const provider = (mod.providers as Provider[]).find(
+        (p): p is ValueProvider =>
+          typeof p === 'object' && 'provide' in p && p.provide === GATEWAY_DEFAULTS,
+      ) as ValueProvider;
+
+      expect(provider).toBeDefined();
+      expect(provider.useValue).toEqual({
+        cors: { origins: ['https://example.com'] },
+        timeout: 5000,
+      });
+      expect(Object.isFrozen(provider.useValue)).toBe(true);
+    });
+
+    it('provides empty frozen defaults when no defaults option given', () => {
+      const mod = GatewayModule.forRoot();
+
+      const provider = (mod.providers as Provider[]).find(
+        (p): p is ValueProvider =>
+          typeof p === 'object' && 'provide' in p && p.provide === GATEWAY_DEFAULTS,
+      ) as ValueProvider;
+
+      expect(provider.useValue).toEqual({});
+      expect(Object.isFrozen(provider.useValue)).toBe(true);
+    });
+
+    it('exports GATEWAY_DEFAULTS', () => {
+      const mod = GatewayModule.forRoot();
+
+      expect(mod.exports).toContain(GATEWAY_DEFAULTS);
+    });
+  });
+
+  describe('forRootAsync()', () => {
+    it('returns a DynamicModule with global: true', () => {
+      const mod = GatewayModule.forRootAsync({
+        useFactory: () => ({ defaults: { timeout: 3000 } }),
+      });
+
+      expect(mod.module).toBe(GatewayModule);
+      expect(mod.global).toBe(true);
+    });
+
+    it('exports GATEWAY_DEFAULTS', () => {
+      const mod = GatewayModule.forRootAsync({
+        useFactory: () => ({}),
+      });
+
+      expect(mod.exports).toContain(GATEWAY_DEFAULTS);
     });
   });
 });

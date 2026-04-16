@@ -1,4 +1,5 @@
 import { Global, Module, type DynamicModule, type Provider } from '@nestjs/common';
+import { DiscoveryModule } from '@nestjs/core';
 
 import { GatewayExceptionFilter } from '../filters/gateway-exception.filter';
 import { GatewayResponseInterceptor } from '../interceptors/gateway-response.interceptor';
@@ -6,12 +7,16 @@ import { DefaultErrorBodyFactory } from '../normalization/default-error-body.fac
 import { DefaultGatewayReplyBuilder } from '../normalization/default-reply.builder';
 import { DefaultStatusResolver } from '../normalization/default-status.resolver';
 import {
+  GATEWAY_DEFAULTS,
   GATEWAY_ERROR_BODY_FACTORY,
   GATEWAY_REPLY_BUILDER,
   GATEWAY_STATUS_RESOLVER,
 } from '../tokens/gateway-tokens.constant';
 
-import type { IGatewayModuleOptions } from './gateway-module-options.interface';
+import type {
+  IGatewayModuleAsyncOptions,
+  IGatewayModuleOptions,
+} from './gateway-module-options.interface';
 
 /**
  * Global NestJS module that wires the gateway SDK building blocks into the
@@ -42,6 +47,9 @@ export class GatewayModule {
    * @param options - Configuration for the gateway SDK. Override any of the
    *                  three normalization contracts by passing a class
    *                  reference; the remaining slots use their defaults.
+   *                  Pass `defaults` to apply module-level endpoint defaults
+   *                  merged into every `@GatewayRoute` handler at registration
+   *                  time.
    */
   public static forRoot(options: IGatewayModuleOptions = {}): DynamicModule {
     const replyBuilderProvider: Provider = {
@@ -59,10 +67,17 @@ export class GatewayModule {
       useClass: options.errorBodyFactory ?? DefaultErrorBodyFactory,
     };
 
+    const defaultsProvider: Provider = {
+      provide: GATEWAY_DEFAULTS,
+      useValue: Object.freeze(options.defaults ?? {}),
+    };
+
     return {
       module: GatewayModule,
       global: true,
+      imports: [DiscoveryModule],
       providers: [
+        defaultsProvider,
         replyBuilderProvider,
         statusResolverProvider,
         errorBodyFactoryProvider,
@@ -70,6 +85,79 @@ export class GatewayModule {
         GatewayExceptionFilter,
       ],
       exports: [
+        GATEWAY_DEFAULTS,
+        GATEWAY_REPLY_BUILDER,
+        GATEWAY_STATUS_RESOLVER,
+        GATEWAY_ERROR_BODY_FACTORY,
+        GatewayResponseInterceptor,
+        GatewayExceptionFilter,
+      ],
+    };
+  }
+
+  /**
+   * Build a dynamic module descriptor from async configuration.
+   * @param asyncOptions - Async options including an optional `imports` array,
+   *                       an optional `inject` array, and a `useFactory`
+   *                       function that returns `IGatewayModuleOptions` or a
+   *                       `Promise` of it.
+   * @remarks
+   * Use this variant when options depend on providers that must be resolved
+   * by NestJS DI at startup — for example when timeout or CORS origins come
+   * from a config service backed by environment variables.
+   *
+   * Note: the three normalization contract slots (`replyBuilder`,
+   * `statusResolver`, `errorBodyFactory`) always use their default
+   * implementations in the async variant. Only `defaults` is resolved
+   * asynchronously.
+   * @example
+   * ```ts
+   * GatewayModule.forRootAsync({
+   *   imports: [ConfigModule],
+   *   inject: [APP_CONFIG],
+   *   useFactory: (config: IAppConfig) => ({
+   *     defaults: {
+   *       cors: { origins: config.corsOrigins },
+   *       timeout: config.requestTimeout,
+   *     },
+   *   }),
+   * })
+   * ```
+   */
+  public static forRootAsync(asyncOptions: IGatewayModuleAsyncOptions): DynamicModule {
+    const defaultsProvider: Provider = {
+      provide: GATEWAY_DEFAULTS,
+      useFactory: async (...args: unknown[]) => {
+        const resolved = await asyncOptions.useFactory(...args);
+
+        return Object.freeze(resolved.defaults ?? {});
+      },
+      inject: asyncOptions.inject ?? [],
+    };
+
+    return {
+      module: GatewayModule,
+      global: true,
+      imports: [DiscoveryModule, ...(asyncOptions.imports ?? [])],
+      providers: [
+        defaultsProvider,
+        {
+          provide: GATEWAY_REPLY_BUILDER,
+          useClass: DefaultGatewayReplyBuilder,
+        },
+        {
+          provide: GATEWAY_STATUS_RESOLVER,
+          useClass: DefaultStatusResolver,
+        },
+        {
+          provide: GATEWAY_ERROR_BODY_FACTORY,
+          useClass: DefaultErrorBodyFactory,
+        },
+        GatewayResponseInterceptor,
+        GatewayExceptionFilter,
+      ],
+      exports: [
+        GATEWAY_DEFAULTS,
         GATEWAY_REPLY_BUILDER,
         GATEWAY_STATUS_RESOLVER,
         GATEWAY_ERROR_BODY_FACTORY,

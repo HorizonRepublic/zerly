@@ -36,3 +36,14 @@ export const GATEWAY_STATUS_RESOLVER = Symbol('gateway-status-resolver');
  * back to `DEFAULT_STATUS_INTERNAL_ERROR` for everything else.
  */
 export const GATEWAY_ERROR_BODY_FACTORY = Symbol('gateway-error-body-factory');
+
+/**
+ * Dependency injection token for module-level endpoint defaults
+ * configured via `GatewayModule.forRoot({ defaults })`.
+ * @remarks
+ * The value behind this token is a frozen `IGatewayDefaults` object.
+ * It is consumed by `GatewayMetadataEnricher` at module initialization
+ * time to merge defaults into every `@GatewayRoute` handler's metadata
+ * before `nestjs-jetstream` writes it to the `handler_registry` KV bucket.
+ */
+export const GATEWAY_DEFAULTS: unique symbol = Symbol('gateway-defaults');
