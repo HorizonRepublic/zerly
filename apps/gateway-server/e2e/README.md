@@ -146,7 +146,7 @@ Since 2026-04-17 the `e2e` suite has two profiles driven by the
    NATS_URL=nats://localhost:4222 pnpm nx serve example-app
    # in another terminal:
    NATS_URLS=nats://localhost:4222 HTTP_ADDR=:8080 ./dist/apps/gateway-server/gateway
-   pnpm nx run gateway-server:e2e-default
+   pnpm nx run gateway-server:e2e
    ```
 2. Restart only the gateway with `TRUSTED_PROXIES=""`:
    ```
@@ -158,7 +158,10 @@ Since 2026-04-17 the `e2e` suite has two profiles driven by the
    pnpm nx run gateway-server:e2e-down
    ```
 
-`nx run gateway-server:e2e` runs both targets in sequence but
-still requires a manual gateway restart between them — the composite
-target is a scripted reminder, not an automation. A future CI
-workflow should own the restart orchestration.
+The two profiles are deliberately separate nx targets — there is no
+composite "run everything" wrapper because it would require
+orchestrating a gateway restart between profiles, and silently
+running the empty-trust tests against a default-profile gateway
+would produce a confusing false failure. A future CI workflow
+should own the restart orchestration if automated two-profile
+runs are needed.

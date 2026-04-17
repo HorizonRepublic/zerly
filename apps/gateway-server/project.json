@@ -58,16 +58,6 @@
     "e2e": {
       "executor": "nx:run-commands",
       "options": {
-        "commands": [
-          "nx run gateway-server:e2e-default",
-          "nx run gateway-server:e2e-empty-trust"
-        ],
-        "parallel": false
-      }
-    },
-    "e2e-default": {
-      "executor": "nx:run-commands",
-      "options": {
         "command": "go test -tags=e2e -race -count=1 ./e2e/...",
         "cwd": "apps/gateway-server"
       }
