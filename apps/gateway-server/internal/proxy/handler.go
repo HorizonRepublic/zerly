@@ -108,8 +108,13 @@ func (h *Handler) Handle(in *ServeInput) *ServeResult {
 	var claims json.RawMessage
 	var authHeaders map[string][]string
 
+	timeout := h.cfg.Timeout
+	if route.Timeout > 0 {
+		timeout = route.Timeout
+	}
+
 	if route.Auth != nil {
-		authOutcome := h.runAuthFlow(in, route, params)
+		authOutcome := h.runAuthFlow(in, route, params, timeout)
 		if !authOutcome.Proceed {
 			return authOutcome.ShortCircuit
 		}
@@ -133,11 +138,6 @@ func (h *Handler) Handle(in *ServeInput) *ServeResult {
 
 			return result
 		}
-	}
-
-	timeout := h.cfg.Timeout
-	if route.Timeout > 0 {
-		timeout = route.Timeout
 	}
 
 	payload := acquirePayload()
@@ -315,6 +315,7 @@ func (h *Handler) runAuthFlow(
 	in *ServeInput,
 	route routing.Route,
 	params map[string]string,
+	timeout time.Duration,
 ) *authFlowResult {
 	verifyPayload := acquirePayload()
 	defer releasePayload(verifyPayload)
@@ -334,14 +335,14 @@ func (h *Handler) runAuthFlow(
 		Traceparent: in.Traceparent,
 		RemoteAddr:  in.RemoteAddr,
 		ReceivedAt:  in.ReceivedAt,
-		TimeoutMs:   h.cfg.Timeout.Milliseconds(),
+		TimeoutMs:   timeout.Milliseconds(),
 	})
 	if err != nil {
 		h.cfg.Logger.Error().Err(err).Msg("auth: verify encode failed")
 		return &authFlowResult{Proceed: false, ShortCircuit: toServeResult(gerrors.InternalError)}
 	}
 
-	replyBytes, err := h.cfg.Nats.Request(route.Auth.VerifierSubject, *verifyPayload, h.cfg.Timeout)
+	replyBytes, err := h.cfg.Nats.Request(route.Auth.VerifierSubject, *verifyPayload, timeout)
 	if err != nil {
 		if isTimeoutErr(err) {
 			return &authFlowResult{Proceed: false, ShortCircuit: toServeResult(gerrors.GatewayTimeout)}
