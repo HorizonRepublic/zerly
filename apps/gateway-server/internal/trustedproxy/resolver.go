@@ -103,3 +103,102 @@ func parseCIDRs(entries []string) ([]*net.IPNet, error) {
 
 	return out, nil
 }
+
+// ResolveClientIP returns the client IP after X-Forwarded-For trust
+// resolution per RFC 7239 §7.1 (rightmost untrusted).
+//
+// Algorithm:
+//  1. If peerIP is nil or not in trusted → return peerIP.String()
+//     (or "" if peerIP was nil). XFF is ignored — an untrusted peer
+//     cannot vouch for headers it attached. This is the spoofing
+//     defence.
+//  2. If peerIP is trusted → walk XFF right-to-left. Skip trusted
+//     IPs and malformed entries. Return the first untrusted IP.
+//  3. Fallback (empty XFF, all-trusted chain, all entries malformed,
+//     chain exceeds MaxHops) → return peerIP.String().
+//
+// IPv4-mapped IPv6 peer addresses (e.g. ::ffff:10.0.0.1) are
+// normalised to IPv4 before CIDR matching so dual-stack hosts with
+// IPv4 peers get matched against IPv4 CIDRs correctly.
+func ResolveClientIP(peerIP net.IP, xff string, trusted []*net.IPNet) string {
+	peerStr := ipString(peerIP)
+
+	if !ipIn(peerIP, trusted) {
+		return peerStr
+	}
+
+	entries := splitXFF(xff)
+	if len(entries) > MaxHops {
+		return peerStr
+	}
+
+	// Walk right-to-left: the rightmost entry is the IP closest to
+	// the gateway, and we want the first untrusted entry going
+	// backwards through the chain.
+	for i := len(entries) - 1; i >= 0; i-- {
+		candidate := net.ParseIP(entries[i])
+		if candidate == nil {
+			continue
+		}
+		if !ipIn(candidate, trusted) {
+			return candidate.String()
+		}
+	}
+
+	return peerStr
+}
+
+// ipIn reports whether ip falls inside any network in the trusted
+// list. Nil IP is never trusted. IPv4-mapped IPv6 addresses are
+// converted to IPv4 before matching so operators who configure an
+// IPv4 CIDR still see matches when the peer arrived as IPv4-mapped
+// IPv6 (a common situation on dual-stack Linux hosts).
+func ipIn(ip net.IP, trusted []*net.IPNet) bool {
+	if ip == nil {
+		return false
+	}
+
+	normalized := ip
+	if v4 := ip.To4(); v4 != nil {
+		normalized = v4
+	}
+
+	for _, network := range trusted {
+		if network.Contains(normalized) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// ipString returns ip.String() with nil handling so callers can
+// treat the result as a plain string without panicking.
+func ipString(ip net.IP) string {
+	if ip == nil {
+		return ""
+	}
+
+	return ip.String()
+}
+
+// splitXFF parses an X-Forwarded-For header value into a slice of
+// trimmed IP strings. Empty and whitespace-only entries are dropped
+// up front so the caller can use len() as a hop count.
+func splitXFF(xff string) []string {
+	if xff == "" {
+		return nil
+	}
+
+	raw := strings.Split(xff, ",")
+	out := make([]string, 0, len(raw))
+	for _, entry := range raw {
+		trimmed := strings.TrimSpace(entry)
+		if trimmed == "" {
+			continue
+		}
+		out = append(out, trimmed)
+	}
+
+	return out
+}

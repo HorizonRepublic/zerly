@@ -1,6 +1,8 @@
 package trustedproxy_test
 
 import (
+	"net"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -75,4 +77,141 @@ func TestParseCIDRList_OneValidOneInvalidReturnsError(t *testing.T) {
 	_, err := trustedproxy.ParseCIDRList("10.0.0.0/8,garbage")
 	require.Error(t, err,
 		"any single invalid entry must fail the whole parse (fail-closed)")
+}
+
+// ---------- ResolveClientIP ----------
+
+// resolverFixture bundles a private-CIDR parse so every resolver
+// test doesn't repeat the parse inline.
+func resolverFixture(t *testing.T) []*net.IPNet {
+	t.Helper()
+	out, err := trustedproxy.ParseCIDRList("private")
+	require.NoError(t, err)
+
+	return out
+}
+
+func TestResolveClientIP_NoXFF_PeerTrusted_ReturnsPeer(t *testing.T) {
+	trusted := resolverFixture(t)
+	got := trustedproxy.ResolveClientIP(net.ParseIP("10.0.0.1"), "", trusted)
+	assert.Equal(t, "10.0.0.1", got, "peer trusted + empty XFF → peer")
+}
+
+func TestResolveClientIP_NoXFF_PeerUntrusted_ReturnsPeer(t *testing.T) {
+	trusted := resolverFixture(t)
+	got := trustedproxy.ResolveClientIP(net.ParseIP("5.5.5.5"), "", trusted)
+	assert.Equal(t, "5.5.5.5", got, "peer untrusted + empty XFF → peer")
+}
+
+func TestResolveClientIP_XFFSpoofAttempt_PeerUntrusted_IgnoresXFF(t *testing.T) {
+	trusted := resolverFixture(t)
+	got := trustedproxy.ResolveClientIP(net.ParseIP("5.5.5.5"), "1.2.3.4", trusted)
+	assert.Equal(t, "5.5.5.5", got,
+		"untrusted peer must NOT honour XFF — this is the spoofing defence")
+}
+
+func TestResolveClientIP_XFFSingleClient_PeerTrusted_ReturnsClient(t *testing.T) {
+	trusted := resolverFixture(t)
+	got := trustedproxy.ResolveClientIP(net.ParseIP("10.0.0.1"), "1.2.3.4", trusted)
+	assert.Equal(t, "1.2.3.4", got, "trusted peer + single-client XFF → client")
+}
+
+func TestResolveClientIP_XFFChain_PeerTrusted_ReturnsRightmostUntrusted(t *testing.T) {
+	trusted := resolverFixture(t)
+	got := trustedproxy.ResolveClientIP(
+		net.ParseIP("10.0.0.1"),
+		"1.2.3.4, 10.0.0.5",
+		trusted,
+	)
+	assert.Equal(t, "1.2.3.4", got,
+		"rightmost-untrusted walk: 10.0.0.5 trusted → skip → 1.2.3.4 untrusted → return")
+}
+
+func TestResolveClientIP_XFFAllTrusted_ReturnsPeer(t *testing.T) {
+	trusted := resolverFixture(t)
+	got := trustedproxy.ResolveClientIP(
+		net.ParseIP("10.0.0.1"),
+		"10.0.0.5, 172.16.0.1",
+		trusted,
+	)
+	assert.Equal(t, "10.0.0.1", got,
+		"all-trusted chain exhausts without finding an untrusted entry → peer fallback")
+}
+
+func TestResolveClientIP_IPv6_PeerTrusted_ReturnsIPv6Client(t *testing.T) {
+	trusted := resolverFixture(t)
+	got := trustedproxy.ResolveClientIP(net.ParseIP("::1"), "2001:db8::1", trusted)
+	assert.Equal(t, "2001:db8::1", got, "IPv6 chain resolves symmetrically")
+}
+
+func TestResolveClientIP_IPv4MappedIPv6_PeerTrusted_ReturnsClient(t *testing.T) {
+	trusted := resolverFixture(t)
+	// ::ffff:10.0.0.1 is the IPv4-mapped form of 10.0.0.1 which IS
+	// in the private sentinel. Normalisation must strip the v6 prefix
+	// so the IPv4-private CIDR match succeeds.
+	got := trustedproxy.ResolveClientIP(
+		net.ParseIP("::ffff:10.0.0.1"),
+		"1.2.3.4",
+		trusted,
+	)
+	assert.Equal(t, "1.2.3.4", got,
+		"IPv4-mapped IPv6 peer must normalise to IPv4 for CIDR match")
+}
+
+func TestResolveClientIP_MalformedXFFEntry_Skipped(t *testing.T) {
+	trusted := resolverFixture(t)
+	got := trustedproxy.ResolveClientIP(
+		net.ParseIP("10.0.0.1"),
+		"garbage, 1.2.3.4",
+		trusted,
+	)
+	assert.Equal(t, "1.2.3.4", got,
+		"malformed entries in XFF must be skipped, resolver continues walking")
+}
+
+func TestResolveClientIP_WhitespaceAndEmptyEntries_Tolerated(t *testing.T) {
+	trusted := resolverFixture(t)
+	got := trustedproxy.ResolveClientIP(
+		net.ParseIP("10.0.0.1"),
+		"1.2.3.4,  ,  10.0.0.5",
+		trusted,
+	)
+	assert.Equal(t, "1.2.3.4", got,
+		"extra whitespace and empty entries between commas must not derail the walk")
+}
+
+func TestResolveClientIP_ChainExceedsMaxHops_ReturnsPeer(t *testing.T) {
+	trusted := resolverFixture(t)
+	// Build a chain with MaxHops+1 entries, each untrusted. The
+	// resolver must refuse to walk past MaxHops and fall back to
+	// peer rather than spend unbounded CPU on the header.
+	entries := make([]string, 0, trustedproxy.MaxHops+1)
+	for i := 0; i < trustedproxy.MaxHops+1; i++ {
+		entries = append(entries, "1.2.3.4")
+	}
+	xff := strings.Join(entries, ", ")
+
+	got := trustedproxy.ResolveClientIP(net.ParseIP("10.0.0.1"), xff, trusted)
+	assert.Equal(t, "10.0.0.1", got,
+		"chain > MaxHops must trigger peer fallback (DoS inflation guard)")
+}
+
+func TestResolveClientIP_EmptyTrustedList_AlwaysReturnsPeer(t *testing.T) {
+	got := trustedproxy.ResolveClientIP(
+		net.ParseIP("10.0.0.1"),
+		"1.2.3.4",
+		nil,
+	)
+	assert.Equal(t, "10.0.0.1", got,
+		"empty trusted list → peer is never trusted → XFF always ignored")
+}
+
+func TestResolveClientIP_NilPeerIP_FallbackEmptyString(t *testing.T) {
+	trusted := resolverFixture(t)
+	// A nil peer (non-TCP connection in exotic test setup) is
+	// treated as untrusted; XFF is ignored; resolver returns the
+	// empty string rather than panic. Middleware wrapper handles
+	// the empty string defensively.
+	got := trustedproxy.ResolveClientIP(nil, "1.2.3.4", trusted)
+	assert.Empty(t, got, "nil peer IP → empty string (non-panic safe degradation)")
 }
