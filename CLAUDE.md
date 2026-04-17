@@ -150,6 +150,25 @@ The project uses strict TypeScript settings including `noUncheckedIndexedAccess`
 - **Default to writing no inline comments.** Add one only when the WHY is non-obvious: a hidden constraint, a subtle invariant, a workaround for a specific bug, behavior that would surprise a reader. If removing the comment wouldn't confuse a future reader, don't write it.
 - **Never explain WHAT the code does** — names do that. Never reference the current task, fix, or callers ("used by X", "added for Y flow", "handles issue #123") — those belong in the PR description and rot as the codebase evolves.
 
+### Documentation-first development
+
+The codebase will generate a full Docusaurus documentation site. TSDoc is the primary input — write it for the **end user of the library**, not for the internal developer. Every piece of documentation should help a consumer answer "how do I use this?" and "what happens when...?".
+
+**What to document in TSDoc (mandatory for every exported symbol):**
+- **Interfaces/types**: what the type represents, which component consumes it, what happens when fields are omitted (defaults), merge semantics if applicable.
+- **Decorator options**: every field with its default value, interaction with `forRoot` defaults (override vs merge), and the side effects on the wire format (what gets written to KV, what Go gateway does with it).
+- **DI tokens**: what value sits behind the token, who provides it, who consumes it.
+- **Module methods** (`forRoot`, `forRootAsync`): full usage example with env-driven config, what providers are registered, what happens with zero-config.
+- **Behavioral contracts**: things like "auth verifier and route handler share one timeout deadline", "per-route timeout overrides global but auth sub-request uses the same budget", "CORS preflight is handled by Go without NATS round-trip". These are non-obvious to end users and MUST be in `@remarks`.
+- **Wire format notes**: when a TypeScript type mirrors a Go struct (e.g., `IGatewayHttpMeta` ↔ `HTTPMeta`, `IGatewayCorsConfig` �� `CORSMeta`), document the cross-boundary contract in `@remarks` with a pointer to the Go file. Any rename on either side requires a synchronized update.
+
+**Go godoc**: same standard — every exported type, function, and method gets a comment. For structs that mirror TypeScript interfaces, reference the SDK type name so grep finds both sides.
+
+**What NOT to put in TSDoc:**
+- Implementation details that don't affect the consumer (pool internals, RxJS pipe shape).
+- Temporary state ("added in PR #42", "workaround for NestJS bug").
+- Anything derivable from the type signature alone.
+
 ## Testing Conventions
 
 - **Test runner:** Jest 30 with `@jest/globals` explicit imports — no globals pattern.
