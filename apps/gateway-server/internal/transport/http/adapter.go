@@ -109,7 +109,7 @@ func buildServeInput(ctx *app.RequestContext) *proxy.ServeInput {
 		Headers:     headers,
 		RequestID:   requestID,
 		Traceparent: headers["traceparent"],
-		RemoteAddr:  ctx.ClientIP(),
+		RemoteAddr:  resolveRemoteAddr(ctx),
 		ReceivedAt:  time.Now().UnixMilli(),
 	}
 }
@@ -180,4 +180,27 @@ func writeServeResult(ctx *app.RequestContext, result *proxy.ServeResult) {
 	ctx.Response.Header.SetContentType(consts.MIMEApplicationJSON)
 	ctx.SetStatusCode(result.Status)
 	ctx.Response.SetBody(result.Body)
+}
+
+// resolveRemoteAddr returns the client IP the handler should see.
+//
+// The trusted-proxy middleware stamps the resolved IP on the
+// request context via ctx.Set(clientIPUserKey, ...). This helper
+// reads that value; if the middleware did not run (unit tests that
+// drive the adapter directly, or a future startup path that forgets
+// to register it) we fall back to Hertz's built-in ClientIP() so
+// the request still serves with a best-effort IP.
+//
+// The empty-string guard exists because a buggy middleware writing
+// "" would otherwise propagate an empty RemoteAddr into the
+// envelope meta — the fallback preserves the "always return
+// something" contract.
+func resolveRemoteAddr(ctx *app.RequestContext) string {
+	if raw, ok := ctx.Get(clientIPUserKey); ok {
+		if v, ok := raw.(string); ok && v != "" {
+			return v
+		}
+	}
+
+	return ctx.ClientIP()
 }

@@ -63,6 +63,7 @@ func NewServer(cfg *config.Config, handler *proxy.Handler) *server.Hertz {
 		withNoDefaultServerHeader(),
 	)
 
+	h.Use(newTrustedProxyMiddleware(cfg.TrustedProxies))
 	h.Any("/*path", NewHertzAdapter(handler))
 
 	return h
