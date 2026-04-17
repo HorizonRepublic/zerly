@@ -80,8 +80,7 @@ export class GatewayDemoController {
     method: 'GET',
     path: '/users/:id',
   })
-  public getUser(@GatewayQuery() query: unknown, @GatewayParam('id') id: string): IDemoUser {
-    console.log('QUERY', query);
+  public getUser(@GatewayQuery() _query: unknown, @GatewayParam('id') id: string): IDemoUser {
     const user = this.service.findById(id);
 
     if (!user) {
@@ -107,7 +106,6 @@ export class GatewayDemoController {
     @GatewayBody() dto: ICreateDemoUserDto,
     @GatewayRequestId() requestId: string,
   ): IDemoUserWithRequestId {
-    console.log('BODY', dto);
     return { ...this.service.create(dto.name), requestId };
   }
 

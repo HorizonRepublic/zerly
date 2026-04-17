@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 
 import { AuthVerifierController } from './auth-verifier.controller';
+import { GatewayContractDemoController } from './gateway-contract-demo.controller';
 import { GatewayDemoController } from './gateway-demo.controller';
 import { GatewayDemoService } from './gateway-demo.service';
 
@@ -15,7 +16,7 @@ import { GatewayDemoService } from './gateway-demo.service';
  * `GatewayDemoController` can opt in with a bare `auth: true`.
  */
 @Module({
-  controllers: [AuthVerifierController, GatewayDemoController],
+  controllers: [AuthVerifierController, GatewayDemoController, GatewayContractDemoController],
   providers: [GatewayDemoService],
 })
 export class GatewayDemoModule {}

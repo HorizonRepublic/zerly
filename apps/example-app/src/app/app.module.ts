@@ -23,7 +23,19 @@ import { JetstreamBootstrapProvider } from './transport/jetstream-bootstrap.prov
     }),
 
     // gateway SDK
-    GatewayModule.forRoot(),
+    GatewayModule.forRoot({
+      defaults: {
+        headers: { 'x-frame-options': 'DENY' },
+        cookies: {
+          httpOnly: true,
+          sameSite: 'lax',
+          path: '/',
+          maxAge: 7200,
+          secure: false,
+        },
+        timeout: 30_000,
+      },
+    }),
 
     // app layer
     SubModule,
