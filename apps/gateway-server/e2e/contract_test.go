@@ -323,3 +323,54 @@ func TestE2E_CookieDefaults_AreMergedIntoSetCookie(t *testing.T) {
 	assert.Equal(t, 7200, sid.MaxAge, "forRoot cookie default MaxAge must merge in")
 	assert.False(t, sid.Secure, "forRoot default Secure=false must apply for local dev")
 }
+
+// TestE2E_RateLimit_KeyByIpIsolatesBuckets pins the honest-operator
+// per-IP isolation path under the default TRUSTED_PROXIES=private
+// profile. The `/rate-limit/basic` route has `rateLimit: { rps: 1,
+// burst: 1 }` and no explicit keyBy, so §13 falls back to ['ip'].
+// With the private sentinel in effect, loopback peer (127.0.0.1) ∈
+// private → XFF is honoured, so three DIFFERENT X-Forwarded-For
+// values resolve to three DIFFERENT client IPs, each landing in
+// its own bucket.
+//
+// This is the mirror of
+// TestE2E_TrustedProxyEmpty_SpoofingBypassBlocked: same endpoint,
+// same three XFF values, opposite profile. The empty-trust profile
+// ignores XFF and all three bucket to peer; the default profile
+// honours XFF and all three get independent buckets. Together they
+// pin the full trust-resolution contract for §13 per-IP RL.
+//
+// The request targets the gateway via 127.0.0.1 (not localhost) to
+// guarantee the peer observed by the gateway is IPv4 loopback and
+// therefore trusted by the default profile's `private` sentinel —
+// on dual-stack hosts `localhost` resolves to ::1, which is also
+// private but makes the test host-dependent.
+func TestE2E_RateLimit_KeyByIpIsolatesBuckets(t *testing.T) {
+	waitForGateway(t)
+
+	// Let any lingering bucket from a previous run refill.
+	time.Sleep(1100 * time.Millisecond)
+
+	issue := func(xff string) int {
+		req, err := http.NewRequest(
+			http.MethodGet,
+			"http://127.0.0.1:8080/rate-limit/basic",
+			nil,
+		)
+		require.NoError(t, err)
+		req.Header.Set("X-Forwarded-For", xff)
+
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		defer func() { _ = resp.Body.Close() }()
+
+		return resp.StatusCode
+	}
+
+	assert.Equal(t, http.StatusOK, issue("1.1.1.1"),
+		"tenant A (1.1.1.1) first request passes")
+	assert.Equal(t, http.StatusOK, issue("2.2.2.2"),
+		"tenant B (2.2.2.2) first request passes — separate bucket from A")
+	assert.Equal(t, http.StatusOK, issue("3.3.3.3"),
+		"tenant C (3.3.3.3) first request passes — separate bucket from A and B")
+}
