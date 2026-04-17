@@ -127,3 +127,38 @@ watcher → delta → routing-table refresh pipeline end-to-end.
 | 9 | Per-route `headers` + forRoot default deep-merge             | both headers land on wire |
 | 10 | forRoot header default reaches undecorated routes           | header applied globally |
 | 11 | Bare `res.cookie(...)` merges forRoot cookie defaults       | `HttpOnly` / `SameSite` / `Path` / `Max-Age` flow through |
+
+## Two-profile trusted-proxy protocol
+
+Since 2026-04-17 the `e2e` suite has two profiles driven by the
+`TRUSTED_PROXIES` env var:
+
+| Profile | Env | Covered by | Purpose |
+|---|---|---|---|
+| **default** | `TRUSTED_PROXIES=private` (or unset) | `trustedproxy_test.go` + every other e2e file | Honest-operator happy path: loopback peer ∈ private trusts XFF, resolver returns the declared client. |
+| **empty-trust** | `TRUSTED_PROXIES=""` | `trustedproxy_empty_test.go` | Security proof: loopback peer ∉ `""` means XFF is ignored; two requests with different XFF bucket to the same peer IP and the second triggers 429 on the `rps:1, burst:1` route. |
+
+### Running both profiles locally
+
+1. Bring the stack up with the default profile:
+   ```
+   pnpm nx run gateway-server:e2e-up
+   NATS_URL=nats://localhost:4222 pnpm nx serve example-app
+   # in another terminal:
+   NATS_URLS=nats://localhost:4222 HTTP_ADDR=:8080 ./dist/apps/gateway-server/gateway
+   pnpm nx run gateway-server:e2e-default
+   ```
+2. Restart only the gateway with `TRUSTED_PROXIES=""`:
+   ```
+   TRUSTED_PROXIES="" NATS_URLS=nats://localhost:4222 HTTP_ADDR=:8080 ./dist/apps/gateway-server/gateway
+   pnpm nx run gateway-server:e2e-empty-trust
+   ```
+3. Tear down:
+   ```
+   pnpm nx run gateway-server:e2e-down
+   ```
+
+`nx run gateway-server:e2e` runs both targets in sequence but
+still requires a manual gateway restart between them — the composite
+target is a scripted reminder, not an automation. A future CI
+workflow should own the restart orchestration.

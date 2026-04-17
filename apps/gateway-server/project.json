@@ -58,7 +58,24 @@
     "e2e": {
       "executor": "nx:run-commands",
       "options": {
+        "commands": [
+          "nx run gateway-server:e2e-default",
+          "nx run gateway-server:e2e-empty-trust"
+        ],
+        "parallel": false
+      }
+    },
+    "e2e-default": {
+      "executor": "nx:run-commands",
+      "options": {
         "command": "go test -tags=e2e -race -count=1 ./e2e/...",
+        "cwd": "apps/gateway-server"
+      }
+    },
+    "e2e-empty-trust": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "echo 'RESTART GATEWAY with TRUSTED_PROXIES=\"\" BEFORE RUNNING THIS TARGET' && go test -tags='e2e e2e_empty_trust' -race -count=1 -run TestE2E_TrustedProxyEmpty ./e2e/...",
         "cwd": "apps/gateway-server"
       }
     },
