@@ -3,12 +3,13 @@ import { Controller } from '@nestjs/common';
 import {
   GatewayBody,
   GatewayHeader,
+  GatewayMeta,
   GatewayQuery,
   GatewayResponse,
   GatewayRoute,
 } from '@zerly/gateway-sdk';
 
-import type { IGatewayResponse } from '@zerly/gateway-sdk';
+import type { IGatewayRequestMeta, IGatewayResponse } from '@zerly/gateway-sdk';
 
 /**
  * Response body for the simple contract endpoints. Kept trivially small so
@@ -177,5 +178,24 @@ export class GatewayContractDemoController {
     res.cookie('sid', 'contract-probe');
 
     return { ok: true };
+  }
+
+  /**
+   * Echoes the gateway-resolved client IP via `@GatewayMeta()`.
+   * @remarks
+   * Consumed exclusively by the `trustedproxy_test.go` /
+   * `trustedproxy_empty_test.go` e2e suites. The handler body is a
+   * single-field response so the tests can assert on a stable
+   * shape regardless of future envelope additions.
+   * @param meta - Full gateway request metadata; tests read `remoteAddr`.
+   * @returns The resolved client IP as observed on the Nest side.
+   */
+  @GatewayRoute({
+    pattern: 'contract.whoami',
+    method: 'GET',
+    path: '/whoami',
+  })
+  public whoami(@GatewayMeta() meta: IGatewayRequestMeta): { readonly ip: string } {
+    return { ip: meta.remoteAddr };
   }
 }
