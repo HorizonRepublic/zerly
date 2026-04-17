@@ -436,12 +436,20 @@ describe('GatewayResponseInterceptor', () => {
       const acc = plantAccumulator(envelope);
       const poolSizeBefore = getPoolSizeForTesting();
 
-      await firstValueFrom(
-        sutWithDefaults.intercept(buildContext(handler, envelope), buildCallHandler({ id: 1 })),
-      );
+      let capturedDefaults: unknown;
 
+      const callHandler: CallHandler = {
+        handle: () => {
+          capturedDefaults = { ...acc.cookieDefaults };
+
+          return of({ id: 1 });
+        },
+      };
+
+      await firstValueFrom(sutWithDefaults.intercept(buildContext(handler, envelope), callHandler));
+
+      expect(capturedDefaults).toEqual({ httpOnly: true });
       expect(getPoolSizeForTesting()).toBe(poolSizeBefore + 1);
-      expect(acc.cookieDefaults).toEqual({});
     });
   });
 

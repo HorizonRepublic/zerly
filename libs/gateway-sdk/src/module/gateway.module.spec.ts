@@ -1,3 +1,5 @@
+import { Test } from '@nestjs/testing';
+
 import { describe, expect, it } from '@jest/globals';
 
 import { GatewayExceptionFilter } from '../filters/gateway-exception.filter';
@@ -16,7 +18,8 @@ import { GatewayModule } from './gateway.module';
 
 import type { IErrorBodyFactory } from '../normalization/contracts/error-body-factory.interface';
 import type { IGatewayReplyBuilder } from '../normalization/contracts/reply-builder.interface';
-import type { ClassProvider, Provider, ValueProvider } from '@nestjs/common';
+import type { IGatewayDefaults } from '../types/gateway-defaults.interface';
+import type { ClassProvider, DynamicModule, Provider, ValueProvider } from '@nestjs/common';
 
 const findUseClassProvider = (
   providers: readonly Provider[],
@@ -178,6 +181,89 @@ describe('GatewayModule', () => {
       });
 
       expect(mod.exports).toContain(GATEWAY_DEFAULTS);
+    });
+  });
+
+  describe('forRootAsync integration', () => {
+    it('should resolve GATEWAY_DEFAULTS from async factory', async () => {
+      const moduleRef = await Test.createTestingModule({
+        imports: [
+          GatewayModule.forRootAsync({
+            useFactory: () => ({
+              defaults: {
+                cors: { origins: ['https://async.example.com'] },
+                timeout: 7000,
+              },
+            }),
+          }),
+        ],
+      }).compile();
+
+      const defaults = moduleRef.get<IGatewayDefaults>(GATEWAY_DEFAULTS);
+
+      expect(defaults).toEqual({
+        cors: { origins: ['https://async.example.com'] },
+        timeout: 7000,
+      });
+      expect(Object.isFrozen(defaults)).toBe(true);
+
+      await moduleRef.close();
+    });
+
+    it('should resolve GATEWAY_DEFAULTS from async factory with inject', async () => {
+      const CONFIG_TOKEN = Symbol('test-config');
+      const configValue = {
+        corsOrigins: ['https://injected.example.com'],
+        requestTimeout: 15000,
+      };
+
+      const configModule: DynamicModule = {
+        module: class ConfigStubModule {},
+        providers: [{ provide: CONFIG_TOKEN, useValue: configValue }],
+        exports: [CONFIG_TOKEN],
+        global: true,
+      };
+
+      const moduleRef = await Test.createTestingModule({
+        imports: [
+          configModule,
+          GatewayModule.forRootAsync({
+            inject: [CONFIG_TOKEN],
+            useFactory: (config: typeof configValue) => ({
+              defaults: {
+                cors: { origins: config.corsOrigins },
+                timeout: config.requestTimeout,
+              },
+            }),
+          }),
+        ],
+      }).compile();
+
+      const defaults = moduleRef.get<IGatewayDefaults>(GATEWAY_DEFAULTS);
+
+      expect(defaults).toEqual({
+        cors: { origins: ['https://injected.example.com'] },
+        timeout: 15000,
+      });
+
+      await moduleRef.close();
+    });
+
+    it('should provide empty frozen defaults when async factory returns no defaults', async () => {
+      const moduleRef = await Test.createTestingModule({
+        imports: [
+          GatewayModule.forRootAsync({
+            useFactory: () => ({}),
+          }),
+        ],
+      }).compile();
+
+      const defaults = moduleRef.get<IGatewayDefaults>(GATEWAY_DEFAULTS);
+
+      expect(defaults).toEqual({});
+      expect(Object.isFrozen(defaults)).toBe(true);
+
+      await moduleRef.close();
     });
   });
 });

@@ -41,6 +41,24 @@ class StubController {
   public other(): void {}
 }
 
+@Controller()
+class ControllerA {
+  @GatewayRoute({ pattern: 'a.hello', method: 'GET', path: '/a/hello' })
+  public hello(): void {}
+}
+
+@Controller()
+class ControllerB {
+  @GatewayRoute({ pattern: 'b.hello', method: 'GET', path: '/b/hello' })
+  public hello(): void {}
+}
+
+@Controller()
+class RateLimitController {
+  @GatewayRoute({ pattern: 'rl.hello', method: 'GET', path: '/rl/hello' })
+  public hello(): void {}
+}
+
 describe('GatewayMetadataEnricher', () => {
   const defaults: IGatewayDefaults = {
     cors: { origins: ['https://global.com'] },
@@ -98,6 +116,79 @@ describe('GatewayMetadataEnricher', () => {
     expect(extras.meta['headers']).toEqual({
       'x-frame-options': 'DENY',
       'cache-control': 'no-store',
+    });
+  });
+
+  describe('multi-controller enrichment', () => {
+    let multiSut: GatewayMetadataEnricher;
+
+    beforeEach(async () => {
+      const module = await Test.createTestingModule({
+        imports: [DiscoveryModule],
+        controllers: [ControllerA, ControllerB],
+        providers: [
+          GatewayMetadataEnricher,
+          { provide: GATEWAY_DEFAULTS, useValue: Object.freeze(defaults) },
+          { provide: GATEWAY_REPLY_BUILDER, useClass: DefaultGatewayReplyBuilder },
+          { provide: GATEWAY_STATUS_RESOLVER, useClass: DefaultStatusResolver },
+          { provide: GATEWAY_ERROR_BODY_FACTORY, useClass: DefaultErrorBodyFactory },
+        ],
+      }).compile();
+
+      multiSut = module.get(GatewayMetadataEnricher);
+    });
+
+    it('should enrich handlers across multiple controllers', () => {
+      multiSut.onModuleInit();
+
+      const extrasA = Reflect.getMetadata(PATTERN_EXTRAS_METADATA, ControllerA.prototype.hello) as {
+        meta: Record<string, unknown>;
+      };
+
+      const extrasB = Reflect.getMetadata(PATTERN_EXTRAS_METADATA, ControllerB.prototype.hello) as {
+        meta: Record<string, unknown>;
+      };
+
+      expect(extrasA.meta['cors']).toEqual({ origins: ['https://global.com'] });
+      expect(extrasA.meta['timeout']).toBe(30_000);
+      expect(extrasA.meta['headers']).toEqual({ 'x-frame-options': 'DENY' });
+
+      expect(extrasB.meta['cors']).toEqual({ origins: ['https://global.com'] });
+      expect(extrasB.meta['timeout']).toBe(30_000);
+      expect(extrasB.meta['headers']).toEqual({ 'x-frame-options': 'DENY' });
+    });
+  });
+
+  describe('rateLimit defaults', () => {
+    it('should merge rateLimit defaults into route metadata', async () => {
+      const rateLimitDefaults: IGatewayDefaults = {
+        rateLimit: { rps: 100, keyBy: ['ip'] },
+        timeout: 5000,
+      };
+
+      const module = await Test.createTestingModule({
+        imports: [DiscoveryModule],
+        controllers: [RateLimitController],
+        providers: [
+          GatewayMetadataEnricher,
+          { provide: GATEWAY_DEFAULTS, useValue: Object.freeze(rateLimitDefaults) },
+          { provide: GATEWAY_REPLY_BUILDER, useClass: DefaultGatewayReplyBuilder },
+          { provide: GATEWAY_STATUS_RESOLVER, useClass: DefaultStatusResolver },
+          { provide: GATEWAY_ERROR_BODY_FACTORY, useClass: DefaultErrorBodyFactory },
+        ],
+      }).compile();
+
+      const rateLimitSut = module.get(GatewayMetadataEnricher);
+
+      rateLimitSut.onModuleInit();
+
+      const extras = Reflect.getMetadata(
+        PATTERN_EXTRAS_METADATA,
+        RateLimitController.prototype.hello,
+      ) as { meta: Record<string, unknown> };
+
+      expect(extras.meta['rateLimit']).toEqual({ rps: 100, keyBy: ['ip'] });
+      expect(extras.meta['timeout']).toBe(5000);
     });
   });
 });
