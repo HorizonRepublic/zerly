@@ -101,3 +101,51 @@ func TestLoad_HonorsCustomHTTPAddr(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, ":9000", cfg.HTTPAddr)
 }
+
+func TestLoad_TrustedProxies_DefaultsToPrivateSentinel(t *testing.T) {
+	t.Setenv("NATS_URLS", "nats://localhost:4222")
+
+	cfg, err := Load()
+	require.NoError(t, err)
+
+	assert.Equal(t, "private", cfg.TrustedProxiesRaw,
+		"raw env value preserved for diagnostics")
+	require.Len(t, cfg.TrustedProxies, 7,
+		"private sentinel expands to 7 CIDRs at Load() time")
+}
+
+func TestLoad_TrustedProxies_EmptyString_TrustsNothing(t *testing.T) {
+	t.Setenv("NATS_URLS", "nats://localhost:4222")
+	t.Setenv("TRUSTED_PROXIES", "")
+
+	cfg, err := Load()
+	require.NoError(t, err)
+
+	assert.Empty(t, cfg.TrustedProxies,
+		"empty string means trust nothing — always use peer IP")
+}
+
+func TestLoad_TrustedProxies_LiteralCIDRList(t *testing.T) {
+	t.Setenv("NATS_URLS", "nats://localhost:4222")
+	t.Setenv("TRUSTED_PROXIES", "10.0.0.0/8,192.168.0.0/16")
+
+	cfg, err := Load()
+	require.NoError(t, err)
+
+	require.Len(t, cfg.TrustedProxies, 2)
+	assert.Equal(t, "10.0.0.0/8", cfg.TrustedProxies[0].String())
+	assert.Equal(t, "192.168.0.0/16", cfg.TrustedProxies[1].String())
+}
+
+func TestLoad_TrustedProxies_InvalidCIDR_FailsStartupClosed(t *testing.T) {
+	t.Setenv("NATS_URLS", "nats://localhost:4222")
+	t.Setenv("TRUSTED_PROXIES", "garbage")
+
+	_, err := Load()
+	require.Error(t, err,
+		"invalid CIDR must fail Load() so main.go aborts startup rather than running in an unsafe state")
+	assert.Contains(t, err.Error(), "TRUSTED_PROXIES",
+		"error must name the offending env var for operator diagnosis")
+	assert.Contains(t, err.Error(), "garbage",
+		"error must include the invalid value")
+}

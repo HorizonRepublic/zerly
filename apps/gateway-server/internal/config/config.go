@@ -20,9 +20,13 @@ package config
 
 import (
 	"fmt"
+	"net"
+	"os"
 	"time"
 
 	"github.com/caarlos0/env/v11"
+
+	"github.com/HorizonRepublic/zerly/apps/gateway-server/internal/trustedproxy"
 )
 
 // Config is the complete set of operator-controlled gateway parameters.
@@ -59,6 +63,19 @@ type Config struct {
 	// HTTP listener. Disable if sitting behind a proxy that terminates
 	// HTTP/2 upstream.
 	EnableHTTP2 bool `env:"HTTP_ENABLE_H2"        envDefault:"true"`
+
+	// TrustedProxiesRaw is the operator-facing `TRUSTED_PROXIES` env
+	// value kept verbatim for diagnostics (log dumps, future
+	// /_gateway/config endpoint). Parsed into TrustedProxies by
+	// Load(). Supported forms: "" (trust nothing), "private" (the
+	// 7-range private-network sentinel), or a literal comma-separated
+	// CIDR list (`"10.0.0.0/8,172.16.0.0/12"`).
+	TrustedProxiesRaw string `env:"TRUSTED_PROXIES"`
+
+	// TrustedProxies is the parsed CIDR list consumed by the HTTP
+	// trusted-proxy middleware. Populated by Load() at startup; not
+	// an env field (derived from TrustedProxiesRaw).
+	TrustedProxies []*net.IPNet `env:"-"`
 
 	// NATSUrls is the comma-separated list of NATS server URLs to
 	// connect to. Supports a single URL, a static cluster list, or a
@@ -168,11 +185,29 @@ type Config struct {
 // sensible default suitable for local development. Callers are expected
 // to treat any returned error as fatal and exit the process immediately
 // rather than attempt partial startup.
+//
+// TrustedProxies are parsed from TRUSTED_PROXIES at startup; invalid
+// CIDR input fails Load() with an error naming the offending value so
+// startup aborts fail-closed. If TRUSTED_PROXIES is unset, it defaults
+// to "private".
 func Load() (*Config, error) {
 	cfg := &Config{}
 	if err := env.Parse(cfg); err != nil {
 		return nil, fmt.Errorf("parse gateway config: %w", err)
 	}
+
+	// Apply default for TRUSTED_PROXIES if not set (not in environment at all)
+	if _, ok := os.LookupEnv("TRUSTED_PROXIES"); !ok {
+		cfg.TrustedProxiesRaw = "private"
+	}
+
+	trusted, err := trustedproxy.ParseCIDRList(cfg.TrustedProxiesRaw)
+	if err != nil {
+		return nil, fmt.Errorf("parse TRUSTED_PROXIES=%q: %w",
+			cfg.TrustedProxiesRaw, err)
+	}
+	cfg.TrustedProxies = trusted
+
 	return cfg, nil
 }
 
