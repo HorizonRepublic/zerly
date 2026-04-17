@@ -54,6 +54,7 @@ func NewServer(cfg *config.Config, handler *proxy.Handler) *server.Hertz {
 	h := server.Default(
 		server.WithHostPorts(cfg.HTTPAddr),
 		server.WithMaxRequestBodySize(int(cfg.MaxBodyBytes)),
+		server.WithMaxHeaderBytes(cfg.MaxHeaderBytes),
 		server.WithReadTimeout(cfg.ReadTimeout),
 		server.WithWriteTimeout(cfg.WriteTimeout),
 		server.WithIdleTimeout(cfg.IdleTimeout),
