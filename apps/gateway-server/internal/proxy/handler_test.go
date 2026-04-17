@@ -1008,3 +1008,280 @@ func TestHandler_CORSResponseHeadersOmittedWhenNoCORSConfig(t *testing.T) {
 	_, hasCORS := result.Headers["Access-Control-Allow-Origin"]
 	assert.False(t, hasCORS)
 }
+
+// --- Rate limit keyBy integration tests ---
+
+// oncePerKeyLimiter allows exactly one request per unique key, then
+// denies all subsequent requests for the same key. This models the
+// "second request is rate-limited" scenario without coupling to a
+// real token-bucket implementation.
+type oncePerKeyLimiter struct {
+	seen  map[string]bool
+	calls []rateLimitCall
+}
+
+func newOncePerKeyLimiter() *oncePerKeyLimiter {
+	return &oncePerKeyLimiter{seen: map[string]bool{}}
+}
+
+func (o *oncePerKeyLimiter) Allow(key string, rps int, burst int) bool {
+	o.calls = append(o.calls, rateLimitCall{key: key, rps: rps, burst: burst})
+	if o.seen[key] {
+		return false
+	}
+
+	o.seen[key] = true
+
+	return true
+}
+
+func TestHandler_RateLimitKeyByHeader(t *testing.T) {
+	rl := newOncePerKeyLimiter()
+	nats := newFakeNats()
+	nats.reply = []byte(`{"status":200,"headers":{},"body":null}`)
+
+	table := &fakeTable{routes: map[string]routing.Route{
+		"GET /api": {
+			Subject: "svc.cmd.api", PathTemplate: "/api",
+			Method: "GET",
+			RateLimit: &registry.RateLimitMeta{
+				RPS: 10, Burst: 20,
+				KeyBy: []string{"header:x-api-key", "ip"},
+			},
+		},
+	}}
+
+	h := NewHandler(HandlerConfig{
+		Table:       func() routing.Table { return table },
+		Nats:        nats,
+		Encoder:     NewDefaultEncoder(),
+		Decoder:     NewDefaultDecoder(),
+		Timeout:     30 * time.Second,
+		Logger:      zerolog.Nop(),
+		RateLimiter: rl,
+	})
+
+	// First request: IP=1.1.1.1, x-api-key=shared-key → allowed
+	in1 := emptyServeInput("GET", "/api")
+	in1.RemoteAddr = "1.1.1.1"
+	in1.Headers["x-api-key"] = "shared-key"
+
+	r1 := h.Handle(in1)
+
+	assert.Equal(t, 200, r1.Status)
+
+	// Second request: different IP, same x-api-key → rate-limited
+	// because keyBy resolves on header:x-api-key before falling back
+	// to ip.
+	in2 := emptyServeInput("GET", "/api")
+	in2.RemoteAddr = "2.2.2.2"
+	in2.Headers["x-api-key"] = "shared-key"
+
+	r2 := h.Handle(in2)
+
+	assert.Equal(t, 429, r2.Status)
+	require.Len(t, rl.calls, 2)
+	assert.Equal(t, "GET:/api:shared-key", rl.calls[0].key)
+	assert.Equal(t, "GET:/api:shared-key", rl.calls[1].key,
+		"both requests keyed on header value, not IP")
+}
+
+func TestHandler_RateLimitKeyByUserField(t *testing.T) {
+	rl := newOncePerKeyLimiter()
+	nats := newFakeNats()
+
+	verifierSubject := "auth-svc__microservice.cmd.auth.verifier.jwt"
+	routeSubject := "users-svc__microservice.cmd.users.me"
+
+	nats.program(
+		verifierSubject,
+		[]byte(`{"status":200,"headers":{},"body":{"id":"user-123","email":"u@test.com"}}`),
+		nil,
+	)
+	nats.program(
+		routeSubject,
+		[]byte(`{"status":200,"headers":{},"body":{"greeting":"hi"}}`),
+		nil,
+	)
+
+	route := routing.Route{
+		Subject:      routeSubject,
+		Method:       "GET",
+		PathTemplate: "/users/me",
+		Auth: &routing.RouteAuth{
+			VerifierSubject: verifierSubject,
+		},
+		RateLimit: &registry.RateLimitMeta{
+			RPS: 5, Burst: 10,
+			KeyBy: []string{"user:id", "ip"},
+		},
+	}
+
+	h := NewHandler(HandlerConfig{
+		Table:       func() routing.Table { return stubTable(route) },
+		Nats:        nats,
+		Encoder:     NewDefaultEncoder(),
+		Decoder:     NewDefaultDecoder(),
+		Timeout:     30 * time.Second,
+		Logger:      zerolog.Nop(),
+		RateLimiter: rl,
+	})
+
+	// First request: IP=10.0.0.1, user:id=user-123 → allowed
+	in1 := authServeInput("GET", "/users/me")
+	in1.RemoteAddr = "10.0.0.1"
+	in1.Headers["authorization"] = "Bearer tok1"
+
+	r1 := h.Handle(in1)
+
+	assert.Equal(t, 200, r1.Status)
+
+	// Second request: different IP, same user:id → rate-limited
+	in2 := authServeInput("GET", "/users/me")
+	in2.RemoteAddr = "10.0.0.2"
+	in2.Headers["authorization"] = "Bearer tok2"
+
+	r2 := h.Handle(in2)
+
+	assert.Equal(t, 429, r2.Status)
+	require.Len(t, rl.calls, 2)
+	assert.Equal(t, "GET:/users/me:user-123", rl.calls[0].key)
+	assert.Equal(t, "GET:/users/me:user-123", rl.calls[1].key,
+		"both requests keyed on user:id, not IP")
+}
+
+func TestHandler_RateLimitKeyByCookie(t *testing.T) {
+	rl := newOncePerKeyLimiter()
+	nats := newFakeNats()
+	nats.reply = []byte(`{"status":200,"headers":{},"body":null}`)
+
+	table := &fakeTable{routes: map[string]routing.Route{
+		"GET /dashboard": {
+			Subject: "svc.cmd.dashboard", PathTemplate: "/dashboard",
+			Method: "GET",
+			RateLimit: &registry.RateLimitMeta{
+				RPS: 10, Burst: 20,
+				KeyBy: []string{"cookie:session", "ip"},
+			},
+		},
+	}}
+
+	h := NewHandler(HandlerConfig{
+		Table:       func() routing.Table { return table },
+		Nats:        nats,
+		Encoder:     NewDefaultEncoder(),
+		Decoder:     NewDefaultDecoder(),
+		Timeout:     30 * time.Second,
+		Logger:      zerolog.Nop(),
+		RateLimiter: rl,
+	})
+
+	// First request with session cookie
+	in1 := emptyServeInput("GET", "/dashboard")
+	in1.RemoteAddr = "3.3.3.3"
+	in1.Headers["cookie"] = "session=abc; theme=dark"
+
+	r1 := h.Handle(in1)
+
+	assert.Equal(t, 200, r1.Status)
+
+	// Second request from a different IP but same session cookie
+	in2 := emptyServeInput("GET", "/dashboard")
+	in2.RemoteAddr = "4.4.4.4"
+	in2.Headers["cookie"] = "session=abc"
+
+	r2 := h.Handle(in2)
+
+	assert.Equal(t, 429, r2.Status)
+	require.Len(t, rl.calls, 2)
+	assert.Equal(t, "GET:/dashboard:abc", rl.calls[0].key)
+	assert.Equal(t, "GET:/dashboard:abc", rl.calls[1].key,
+		"both requests keyed on cookie value, not IP")
+}
+
+func TestHandler_RateLimitKeyByFallsBackToIP(t *testing.T) {
+	rl := newOncePerKeyLimiter()
+	nats := newFakeNats()
+	nats.reply = []byte(`{"status":200,"headers":{},"body":null}`)
+
+	table := &fakeTable{routes: map[string]routing.Route{
+		"GET /api": {
+			Subject: "svc.cmd.api", PathTemplate: "/api",
+			Method: "GET",
+			RateLimit: &registry.RateLimitMeta{
+				RPS: 10, Burst: 20,
+				KeyBy: []string{"header:x-api-key"},
+			},
+		},
+	}}
+
+	h := NewHandler(HandlerConfig{
+		Table:       func() routing.Table { return table },
+		Nats:        nats,
+		Encoder:     NewDefaultEncoder(),
+		Decoder:     NewDefaultDecoder(),
+		Timeout:     30 * time.Second,
+		Logger:      zerolog.Nop(),
+		RateLimiter: rl,
+	})
+
+	// Request WITHOUT x-api-key header → falls back to IP
+	in := emptyServeInput("GET", "/api")
+	in.RemoteAddr = "5.5.5.5"
+
+	result := h.Handle(in)
+
+	assert.Equal(t, 200, result.Status)
+	require.Len(t, rl.calls, 1)
+	assert.Equal(t, "GET:/api:5.5.5.5", rl.calls[0].key,
+		"falls back to IP when header:x-api-key is absent")
+}
+
+// --- CORS edge case tests ---
+
+func TestHandler_CORSResponseOmittedWhenNoOriginHeader(t *testing.T) {
+	cors := &registry.CORSMeta{
+		Origins:     []string{"https://app.example.com"},
+		Credentials: true,
+		MaxAge:      3600,
+	}
+	table := &fakeTable{routes: map[string]routing.Route{
+		"GET /users": {
+			Subject: "svc.cmd.users.list", PathTemplate: "/users",
+			Method: "GET", CORS: cors,
+		},
+	}}
+	reply := []byte(`{"status":200,"headers":{},"body":{"ok":true}}`)
+	h := buildHandler(table, reply, nil)
+
+	// Server-to-server call: no Origin header
+	in := emptyServeInput("GET", "/users")
+
+	result := h.Handle(in)
+
+	assert.Equal(t, 200, result.Status)
+	assert.JSONEq(t, `{"ok":true}`, string(result.Body))
+	_, hasCORS := result.Headers["Access-Control-Allow-Origin"]
+	assert.False(t, hasCORS, "no CORS headers when Origin header is absent")
+	_, hasVary := result.Headers["Vary"]
+	assert.False(t, hasVary, "no Vary header when Origin header is absent")
+}
+
+func TestHandler_PreflightOnRouteWithoutCORSConfig(t *testing.T) {
+	table := &fakeTable{routes: map[string]routing.Route{
+		"GET /users": {
+			Subject: "svc.cmd.users.list", PathTemplate: "/users",
+			Method: "GET",
+		},
+	}}
+	h := buildHandler(table, nil, nil)
+
+	in := emptyServeInput("OPTIONS", "/users")
+	in.Headers["origin"] = "https://example.com"
+	in.Headers["access-control-request-method"] = "GET"
+
+	result := h.Handle(in)
+
+	assert.Equal(t, 404, result.Status,
+		"preflight on a route without CORS config returns 404")
+}

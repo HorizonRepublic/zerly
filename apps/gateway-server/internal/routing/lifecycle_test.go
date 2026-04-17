@@ -2,6 +2,7 @@ package routing
 
 import (
 	"bytes"
+	"encoding/json"
 	"testing"
 
 	"github.com/HorizonRepublic/zerly/apps/gateway-server/internal/registry"
@@ -231,6 +232,38 @@ func TestLogInitialLoad_DoesNotPanic(t *testing.T) {
 	assert.NotPanics(t, func() {
 		LogInitialLoad(routes, zerolog.Nop())
 	})
+}
+
+func TestLogInitialLoad_IncludesAllRoutes(t *testing.T) {
+	var buf bytes.Buffer
+	logger := zerolog.New(&buf)
+
+	routes := []Route{
+		{Subject: "svc.cmd.users.list", Method: "GET", PathTemplate: "/users"},
+		{Subject: "svc.cmd.users.create", Method: "POST", PathTemplate: "/users"},
+	}
+
+	LogInitialLoad(routes, logger)
+
+	var entry map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &entry))
+
+	var count int
+	require.NoError(t, json.Unmarshal(entry["count"], &count))
+	assert.Equal(t, 2, count)
+
+	var routesArr []map[string]any
+	require.NoError(t, json.Unmarshal(entry["routes"], &routesArr))
+	require.Len(t, routesArr, 2)
+
+	// LogInitialLoad sorts by method+path, so GET /users comes first.
+	assert.Equal(t, "GET", routesArr[0]["method"])
+	assert.Equal(t, "/users", routesArr[0]["path"])
+	assert.Equal(t, "svc.cmd.users.list", routesArr[0]["subject"])
+
+	assert.Equal(t, "POST", routesArr[1]["method"])
+	assert.Equal(t, "/users", routesArr[1]["path"])
+	assert.Equal(t, "svc.cmd.users.create", routesArr[1]["subject"])
 }
 
 func TestLogDelta_DoesNotPanic(t *testing.T) {

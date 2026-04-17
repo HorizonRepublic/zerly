@@ -134,3 +134,81 @@ func TestHandlerEntry_OmitsExtendedFieldsWhenAbsent(t *testing.T) {
 	assert.Nil(t, entry.Headers)
 	assert.Nil(t, entry.Timeout)
 }
+
+// TestHandlerEntry_SDKWireFormatContract pins the exact JSON shape
+// emitted by the @zerly/gateway-sdk metadata enricher after merging
+// forRoot defaults with per-route @GatewayRoute options. If the SDK
+// changes any field name or nesting, this test MUST be updated in
+// lockstep — it is the cross-boundary contract guard.
+func TestHandlerEntry_SDKWireFormatContract(t *testing.T) {
+	raw := `{
+		"http": {
+			"method": "POST",
+			"path": "/users",
+			"statusCode": 201
+		},
+		"auth": {
+			"verifier": "jwt-default",
+			"optional": false
+		},
+		"cors": {
+			"origins": ["https://app.example.com", "https://admin.example.com"],
+			"methods": ["POST", "PUT"],
+			"headers": ["Content-Type", "Authorization", "X-Request-Id"],
+			"credentials": true,
+			"maxAge": 3600
+		},
+		"rateLimit": {
+			"rps": 50,
+			"burst": 100,
+			"keyBy": ["user:id", "header:x-api-key", "ip"]
+		},
+		"headers": {
+			"x-frame-options": "DENY",
+			"x-content-type-options": "nosniff",
+			"strict-transport-security": "max-age=31536000; includeSubDomains",
+			"cache-control": "no-store"
+		},
+		"timeout": 15000
+	}`
+
+	var entry HandlerEntry
+	require.NoError(t, json.Unmarshal([]byte(raw), &entry))
+
+	// HTTP
+	require.NotNil(t, entry.HTTP)
+	assert.Equal(t, "POST", entry.HTTP.Method)
+	assert.Equal(t, "/users", entry.HTTP.Path)
+	require.NotNil(t, entry.HTTP.StatusCode)
+	assert.Equal(t, 201, *entry.HTTP.StatusCode)
+
+	// Auth
+	require.NotNil(t, entry.Auth)
+	assert.Equal(t, "jwt-default", entry.Auth.Verifier)
+	assert.False(t, entry.Auth.Optional)
+
+	// CORS
+	require.NotNil(t, entry.CORS)
+	assert.Equal(t, []string{"https://app.example.com", "https://admin.example.com"}, entry.CORS.Origins)
+	assert.Equal(t, []string{"POST", "PUT"}, entry.CORS.Methods)
+	assert.Equal(t, []string{"Content-Type", "Authorization", "X-Request-Id"}, entry.CORS.Headers)
+	assert.True(t, entry.CORS.Credentials)
+	assert.Equal(t, 3600, entry.CORS.MaxAge)
+
+	// Rate limit
+	require.NotNil(t, entry.RateLimit)
+	assert.Equal(t, 50, entry.RateLimit.RPS)
+	assert.Equal(t, 100, entry.RateLimit.Burst)
+	assert.Equal(t, []string{"user:id", "header:x-api-key", "ip"}, entry.RateLimit.KeyBy)
+
+	// Headers
+	assert.Len(t, entry.Headers, 4)
+	assert.Equal(t, "DENY", entry.Headers["x-frame-options"])
+	assert.Equal(t, "nosniff", entry.Headers["x-content-type-options"])
+	assert.Contains(t, entry.Headers["strict-transport-security"], "max-age=31536000")
+	assert.Equal(t, "no-store", entry.Headers["cache-control"])
+
+	// Timeout
+	require.NotNil(t, entry.Timeout)
+	assert.Equal(t, 15000, *entry.Timeout)
+}
