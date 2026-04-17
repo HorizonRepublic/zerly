@@ -196,7 +196,11 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("parse gateway config: %w", err)
 	}
 
-	// Apply default for TRUSTED_PROXIES if not set (not in environment at all)
+	// caarlos0/env v11 treats an explicitly empty env value the same
+	// as unset and applies envDefault, which would silently turn
+	// TRUSTED_PROXIES="" into "private" and break the spec §3.3
+	// contract that "" means "trust nothing". LookupEnv distinguishes
+	// the two cases so only a truly absent variable gets the default.
 	if _, ok := os.LookupEnv("TRUSTED_PROXIES"); !ok {
 		cfg.TrustedProxiesRaw = "private"
 	}
