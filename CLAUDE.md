@@ -8,6 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **NEVER add "Generated with Claude Code" or any AI attribution** to PR descriptions, commit messages, or documentation.
 - **Communicate with the user in Ukrainian.** Code, comments, docs, commit messages, and PR titles/bodies stay in **English**.
 - **Full orthographic correctness.** Preserve diacritics, accents, and special characters in Ukrainian and other non-English text. Never substitute `nao` for `não`, `fur` for `für`, or similar ASCII fallbacks.
+- **NEVER reference internal plan/spec/brainstorm documents from code, tests, or godoc/TSDoc.** Phrases like "see spec §5.3", "per Task 3.2", "from the plan", "per the roadmap" are forbidden in any artifact that ships (source files, comments, commit bodies that will be read by external contributors). Plans and specs are **internal scaffolding**; the reader of `@zerly/*` and the gateway source has no access to them and the references become noise when the plan is archived. If you are tempted to cite a plan section, instead **inline the concrete rationale, constraint, or invariant** into the comment itself (e.g., `// Rejections do not advance TAT` instead of `// See spec §3.1`). Commit message subjects are fine (`feat(x): add Y`), but commit bodies MUST NOT cite internal docs either.
 
 ## Design Philosophy
 

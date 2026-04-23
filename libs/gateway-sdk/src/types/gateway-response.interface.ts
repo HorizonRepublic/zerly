@@ -15,8 +15,7 @@ import type { ICookieOptions } from './cookie-options.interface';
  * `GatewayExceptionFilter` builds its reply envelope purely from
  * the thrown exception and never reads the accumulator. Handlers
  * that need headers on an error path must throw an `HttpException`
- * whose response object carries a `headers` field. See design
- * spec §9.2 for the full contract.
+ * whose response object carries a `headers` field.
  */
 export interface IGatewayResponse {
   /**

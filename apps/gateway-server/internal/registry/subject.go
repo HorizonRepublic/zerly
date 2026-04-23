@@ -25,10 +25,10 @@ const kvKeySeparator = ".cmd."
 //
 // COMPATIBILITY NOTE: if nestjs-jetstream ever changes this convention,
 // this file MUST be updated in lockstep and the gateway's major version
-// MUST be bumped. The design spec §4.3 treats this as the single desync
-// risk in the gateway integration — every other cross-repo contract is
-// driven by data (KV entries, envelope JSON), but subject naming is a
-// hardcoded convention.
+// MUST be bumped. Subject naming is the single desync risk in the
+// gateway integration — every other cross-repo contract is driven by
+// data (KV entries, envelope JSON), but this one is a hardcoded
+// convention shared between both sides.
 const subjectSuffix = "__microservice.cmd."
 
 // SubjectFromKey reconstructs the full NATS RPC subject from a KV key in

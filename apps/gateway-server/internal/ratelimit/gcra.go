@@ -28,7 +28,8 @@ type Decision struct {
 	// ResetAt is the wall-clock time at which the bucket will be
 	// fully replenished. Emitted as X-RateLimit-Reset (Unix secs).
 	// Computed as max(currentTAT, now) when rejected, or newTAT
-	// when allowed — see spec §12.2.
+	// when allowed. Always >= now, so callers can emit it as a
+	// Unix timestamp without additional clamping.
 	ResetAt time.Time
 }
 
@@ -40,7 +41,10 @@ type Decision struct {
 // zero time.Time for keys with no prior state.
 //
 // now is the pod's wall-clock time. Clock drift across pods is
-// bounded by NTP SLA — see spec §11.
+// bounded by NTP SLA (<10ms in a healthy Kubernetes cluster);
+// pathological skew causes soft anomalies (over-admit on the
+// faster pod, over-reject on the slower) but never corrupts
+// state, since TAT advances monotonically on each CAS write.
 //
 // rps MUST be >= 1. Behavior is undefined when rps <= 0 (the
 // function divides time.Second by rps and will panic on zero);

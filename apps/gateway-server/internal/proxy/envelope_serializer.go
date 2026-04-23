@@ -6,11 +6,10 @@ package proxy
 // This is the codec seam for the encoder's hot path: swapping the
 // serializer implementation changes the wire format (JSON, msgpack,
 // protobuf, …) without touching the proxy Handler, the envelope
-// pool, or the HTTP transport adapter. The interface exists so the
-// design spec's "swap codec = localised change" invariant holds
-// even though the default JSON path bypasses the codec package for
-// performance reasons (sonic's map-iteration cost violates the
-// zero-allocation budget).
+// pool, or the HTTP transport adapter. The interface exists so that
+// swapping the codec is a localised change, even though the default
+// JSON path bypasses the codec package for performance reasons
+// (sonic's map-iteration cost violates the zero-allocation budget).
 //
 // The contract is kept deliberately narrow:
 //

@@ -9,10 +9,10 @@ import type { IGatewayReply } from '../types/gateway-reply.interface';
  * envelopes with an empty headers map on both the success and error paths.
  * @remarks
  * This class is the only place in the SDK allowed to construct `IGatewayReply`
- * values — see spec §6.2. All other code paths (response interceptor,
- * exception filter) delegate here via the `IGatewayReplyBuilder` interface so
- * that envelope shape stays a single-source-of-truth concern. Whenever the
- * wire format evolves, this is the single file to audit.
+ * values. All other code paths (response interceptor, exception filter)
+ * delegate here via the `IGatewayReplyBuilder` interface so that envelope
+ * shape stays a single-source-of-truth concern. Whenever the wire format
+ * evolves, this is the single file to audit.
  *
  * Both success and error replies ship with an empty headers map. The Go
  * gateway transport layer stamps `Content-Type: application/json` and

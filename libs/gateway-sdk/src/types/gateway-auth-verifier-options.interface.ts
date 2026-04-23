@@ -4,9 +4,8 @@
  * The verifier id is the logical handle that routes reference via
  * `auth: { verifier: '<id>' }`. It must be unique within one
  * `handler_registry` KV bucket; collisions are a build-time `WARN` on
- * the gateway side and result in deterministic but non-configurable
- * first-match resolution. See the gateway auth design spec §4.2 and
- * §7.4 for the full registration and uniqueness policy.
+ * the gateway side and resolve deterministically to the entry under
+ * the lexicographically-smallest KV key.
  */
 export interface IGatewayAuthVerifierOptions {
   /**

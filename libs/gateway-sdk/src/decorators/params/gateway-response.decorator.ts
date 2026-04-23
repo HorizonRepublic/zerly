@@ -28,8 +28,7 @@ type IEnvelopeWithAccumulatorSlot = Record<symbol, unknown>;
  * after calling any `res.*` method, the accumulator state is
  * discarded. The exception filter ignores the accumulator and
  * builds its reply purely from the thrown exception. This
- * matches Express / Fastify and is documented in design spec
- * §4.4.
+ * matches Express / Fastify.
  *
  * **Per-request lifecycle.** The first `@GatewayResponse()`
  * injection on a request lazily checks out an accumulator from

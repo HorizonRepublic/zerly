@@ -33,8 +33,8 @@ import (
 //
 // Fields are grouped by concern (HTTP, NATS, registry, request lifecycle,
 // logging, observability, health, runtime). The groupings match the
-// environment-variable prefixes in the design spec section 7.5 and are
-// the contract operators use to configure a running gateway pod.
+// environment-variable prefixes documented on each field and are the
+// contract operators use to configure a running gateway pod.
 //
 // The struct is loaded once at startup by Load. After that it is treated
 // as effectively immutable — no code should mutate fields on a live
@@ -198,9 +198,9 @@ func Load() (*Config, error) {
 
 	// caarlos0/env v11 treats an explicitly empty env value the same
 	// as unset and applies envDefault, which would silently turn
-	// TRUSTED_PROXIES="" into "private" and break the spec §3.3
-	// contract that "" means "trust nothing". LookupEnv distinguishes
-	// the two cases so only a truly absent variable gets the default.
+	// TRUSTED_PROXIES="" into "private" and break the contract that
+	// "" means "trust nothing". LookupEnv distinguishes the two cases
+	// so only a truly absent variable gets the default.
 	if _, ok := os.LookupEnv("TRUSTED_PROXIES"); !ok {
 		cfg.TrustedProxiesRaw = "private"
 	}

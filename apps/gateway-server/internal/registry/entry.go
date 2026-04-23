@@ -16,10 +16,10 @@ package registry
 //
 // This struct mirrors the IGatewayHttpMeta interface published by
 // @zerly/gateway-sdk. Any field addition, rename, or removal is a breaking
-// change for BOTH packages and requires a synchronized release. The design
-// spec §4.2 documents the extensibility policy: new optional fields may be
-// added without a major version bump, but both sides must tolerate unknown
-// fields gracefully (Go's encoding/json does this by default).
+// change for BOTH packages and requires a synchronized release. New
+// optional fields may be added without a major version bump, but both
+// sides must tolerate unknown fields gracefully (Go's encoding/json
+// does this by default).
 type HTTPMeta struct {
 	// Method is the HTTP verb (GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS)
 	// the gateway accepts for this handler.
@@ -42,11 +42,10 @@ type HTTPMeta struct {
 // declared with a non-null `auth` block on the TypeScript side.
 //
 // Zero-valued Verifier means "use the default verifier". Optional is
-// the route-level opt-in for the "anonymous proceed" behavior
-// documented in design spec §5.1: when true, the gateway still calls
-// the verifier but treats a 401 reply as "proceed anonymously" rather
-// than short-circuiting. 403 and transport errors still short-circuit
-// regardless of this flag.
+// the route-level opt-in for "anonymous proceed" behavior: when true,
+// the gateway still calls the verifier but treats a 401 reply as
+// "proceed anonymously" rather than short-circuiting. 403 and transport
+// errors still short-circuit regardless of this flag.
 type RouteAuthMeta struct {
 	// Verifier is the id of the verifier the gateway must invoke
 	// before forwarding this route. Empty string selects the default

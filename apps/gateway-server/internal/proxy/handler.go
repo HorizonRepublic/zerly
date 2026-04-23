@@ -134,7 +134,9 @@ func (h *Handler) Handle(in *ServeInput) *ServeResult {
 		}
 
 		fullKey := route.Method + ":" + route.PathTemplate + ":" + rlKey
-		// Task 6.1 swaps this to Router + fail-policy + full header emission.
+		// Scaffolding: the RL error path is intentionally ignored here.
+		// A later change wires this through a per-route store router,
+		// fail-policy resolution, and full X-RateLimit-* header emission.
 		decision, _ := h.cfg.RateLimiter.Allow(context.Background(), fullKey, route.RateLimit.RPS, burst)
 		if !decision.Allowed {
 			result := toServeResult(gerrors.TooManyRequests)
@@ -326,7 +328,9 @@ func (h *Handler) runAuthFlow(
 
 	// The verify-request envelope is identical to the main envelope
 	// except Body is always nil — verifiers never see the request
-	// body by design (auth design spec §4.2).
+	// body by design. Auth decisions must stay independent of body
+	// content so the verifier path can be cached without cache-key
+	// explosion on body variance.
 	err := h.cfg.Encoder.Encode(verifyPayload, &EncodeInput{
 		Method:      in.Method,
 		Path:        in.Path,
@@ -411,13 +415,12 @@ func mergeHeaders(reply map[string][]string, requestID string) map[string][]stri
 }
 
 // mergeAuthHeaders layers a verifier reply's response headers onto
-// an already-merged main reply headers map per the design spec §6.6
-// rules:
+// an already-merged main reply headers map using these rules:
 //
 //   - set-cookie is appended with verifier values first, then the
 //     route's existing values — so the client sees the verifier's
-//     rotated cookies alongside any cookies the main handler set
-//     in the order declared by the spec.
+//     rotated cookies alongside any cookies the main handler set,
+//     in a stable order that matches the canonical auth contract.
 //   - Other headers from the verifier are added only when the
 //     merged map does not already contain the key. The main route
 //     reply (and the gateway's x-request-id / content-type stamps

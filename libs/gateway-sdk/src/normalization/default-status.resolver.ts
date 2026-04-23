@@ -7,7 +7,7 @@ import type { IGatewayHttpMeta } from '../types/gateway-http-meta.interface';
 
 /**
  * Default `IStatusResolver` implementation applying the standard resolution
- * rules described in the design spec §6.2.
+ * rules.
  * @remarks
  * Rules, in precedence order:
  *

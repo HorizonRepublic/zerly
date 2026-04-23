@@ -114,7 +114,7 @@ func TestE2E_Auth_InvalidCredentialReturns401(t *testing.T) {
 // separation: a valid `demo-*` token whose name is `banned` has
 // a recognisable identity — the verifier returns ForbiddenException
 // instead of UnauthorizedException, and the gateway forwards 403.
-// This is the "I know you, you can't do this" path from spec §9.1.
+// This is the "I know you, you can't do this" path.
 func TestE2E_Auth_BannedUserReturns403(t *testing.T) {
 	waitForGateway(t)
 
@@ -179,11 +179,11 @@ func TestE2E_OptionalAuth_AuthenticatedEnrichesResponse(t *testing.T) {
 	assert.Equal(t, "user-alice", viewer["id"])
 }
 
-// TestE2E_OptionalAuth_BannedUserStillForwards403 pins the design
-// spec §5.1 invariant: optional-auth swallows 401 but never 403.
-// A banned user on an optional-auth route must still see 403 —
-// otherwise the handler would be asked to render content for
-// someone explicitly denied access.
+// TestE2E_OptionalAuth_BannedUserStillForwards403 pins the core
+// optional-auth invariant: it swallows 401 but never 403. A banned
+// user on an optional-auth route must still see 403 — otherwise
+// the handler would be asked to render content for someone
+// explicitly denied access.
 func TestE2E_OptionalAuth_BannedUserStillForwards403(t *testing.T) {
 	waitForGateway(t)
 

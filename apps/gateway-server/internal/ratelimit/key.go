@@ -19,9 +19,11 @@ const base32Alphabet = "abcdefghijklmnopqrstuvwxyz234567"
 // The hash is non-cryptographic and used purely to compress arbitrary
 // user-supplied identifiers (path templates, IPs, header values,
 // cookie values, JWT claim fragments) into a uniform, NATS-KV-safe
-// token. xxHash64 is collision-safe at the cardinalities expected for
-// rate-limit buckets (~10k-100k active keys). See spec §9.3 for the
-// rationale over SHA-256.
+// token. xxHash64 is collision-safe at the cardinalities expected
+// for rate-limit buckets (~10k-100k active keys; 64-bit birthday
+// bound is ~4 billion keys) and ~5x faster than SHA-256 on the hot
+// path — cryptographic strength is irrelevant because the output
+// never travels to a trust boundary.
 func hashKey(input string) string {
 	return encodeBase32(xxhash.Sum64String(input))
 }
@@ -48,8 +50,10 @@ func encodeBase32(h uint64) string {
 // Both MemoryStore and NATSKVStore use this identical schema so that
 // switching the store backend preserves bucket identity across a
 // migration — a user rate-limited on one backend remains rate-limited
-// after a hot-swap without losing their TAT. See spec §9 for the full
-// schema and charset rationale.
+// after a hot-swap without losing their TAT. The charset is the
+// lowercase base32 alphabet plus '.' as separator — all NATS KV key
+// constraints (no ':', no whitespace, no wildcard characters) are
+// satisfied by construction.
 //
 // method is emitted verbatim (e.g. "GET", "POST") — HTTP method names
 // are already NATS-KV-safe. Both pathTemplate and resolvedKey are

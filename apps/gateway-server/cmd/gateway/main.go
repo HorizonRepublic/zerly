@@ -222,8 +222,8 @@ func installRoutingRebuild(
 		// it reads the subject directly off the matched route. The
 		// VerifierRegistry itself is short-lived: only the routing
 		// builder consumes it, and it is discarded at the end of each
-		// rebuild. Future result caching (spec §12.1) can reintroduce
-		// a long-lived registry handle if id-keyed lookups become
+		// rebuild. Future verifier-result caching can reintroduce a
+		// long-lived registry handle if id-keyed lookups become
 		// necessary at request time.
 		current.Store(routing.BuildTableFromRoutes(nextRoutes))
 		prevRoutes = nextRoutes

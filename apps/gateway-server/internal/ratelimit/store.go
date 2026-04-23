@@ -27,8 +27,10 @@ type Store interface {
 	Allow(ctx context.Context, key string, rps, burst int) (Decision, error)
 
 	// FlushPrefix removes all buckets whose key starts with prefix.
-	// Retained for administrative reset; hot-reload does NOT flush
-	// (spec §10 — no free pass on config change).
+	// Intended for administrative reset paths (e.g., operator CLI).
+	// Hot-reload of a route's rate-limit config does NOT flush —
+	// flushing on config change would let a client reset their
+	// bucket by provoking any config update, defeating the limit.
 	FlushPrefix(ctx context.Context, prefix string) error
 
 	// Close releases resources. MUST be idempotent.

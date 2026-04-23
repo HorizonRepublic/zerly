@@ -7,10 +7,6 @@
  *   - `IGatewayRouteAuthOptions` object — explicit control over which
  *     verifier to call and whether the verification is required or
  *     optional for the route
- *
- * See the gateway auth design spec §5 for the full decision matrix
- * covering required vs optional and the interaction with client-side
- * credentials.
  */
 export type GatewayRouteAuth = true | IGatewayRouteAuthOptions;
 

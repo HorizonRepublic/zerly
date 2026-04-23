@@ -83,9 +83,9 @@ func (t *linearTable) Methods(path string) []string {
 // match routes (zero parameters) allocate nothing and return a nil
 // params map; parameterized routes allocate the map lazily on the first
 // ":param" segment encountered, sized to fit the remaining segments.
-// This matches the zero-alloc hot-path goal in the design spec for the
-// common case of static routes and keeps parameter extraction proportional
-// to the number of parameters actually present.
+// This keeps the zero-alloc hot path for the common case of static
+// routes and makes parameter extraction proportional to the number of
+// parameters actually present.
 func matchTemplate(template, path string) (map[string]string, bool) {
 	templateSegments := splitPath(template)
 	pathSegments := splitPath(path)

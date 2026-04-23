@@ -29,7 +29,7 @@ import type { IGatewayRequest } from '../types/gateway-request.interface';
  * `@UseInterceptors` / `@UseFilters` / `@UseGuards` declarations on the same
  * handler. The goal is to catch a future NestJS version bump that silently
  * changes decorator-metadata merging, interceptor chain ordering, or filter
- * resolution — all three are behaviors the design spec §12.6 depends on.
+ * resolution — all three behaviors the SDK's composed decorators depend on.
  *
  * The locked-in contract these tests defend:
  *

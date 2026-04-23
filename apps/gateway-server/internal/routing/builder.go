@@ -24,8 +24,8 @@ import (
 //  2. Malformed KV keys produce a WARN log and are skipped.
 //  3. Routes whose auth block references an unknown verifier produce
 //     a WARN log and are skipped. Once the verifier registers, the
-//     next rebuild reinstates the route — this is the cold-boot race
-//     self-healing documented in the design spec §10.3.
+//     next rebuild reinstates the route — this self-heals the cold-
+//     boot race where a route entry lands in KV before its verifier.
 //
 // The returned slice is in Go-map iteration order, i.e. effectively
 // random. Callers that need a deterministic order must sort it

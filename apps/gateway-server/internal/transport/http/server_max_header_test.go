@@ -92,7 +92,7 @@ func TestServer_MaxHeaderBytes_RejectsOversizedHeaderWith431(t *testing.T) {
 
 	// Pin the wire shape Hertz uses for 431. If Hertz defaults change
 	// in a future upgrade, this test forces a conscious decision on
-	// whether to normalise the shape through gerrors (see spec §5.1).
+	// whether to normalise the shape through gerrors.
 	body, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
 	t.Logf("Hertz 431 body shape: Content-Type=%q Body=%q",

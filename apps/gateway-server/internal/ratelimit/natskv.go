@@ -31,8 +31,6 @@ const (
 // state expansion (e.g., adding createdAt or a config hash without
 // breaking existing buckets). Callers MUST use decodeTAT to read
 // values back — never reach past the version byte directly.
-//
-// See spec §5.5 for the wire format rationale.
 func encodeTAT(tat time.Time) []byte {
 	out := make([]byte, tatEncodedLength)
 	out[0] = tatVersion1
@@ -44,8 +42,6 @@ func encodeTAT(tat time.Time) []byte {
 // an error for wrong length or unknown version byte — callers MUST
 // treat a decode error as "bucket data is corrupt" and fall back to
 // the fresh-bucket path (currentTAT = zero time).
-//
-// See spec §5.5.
 func decodeTAT(b []byte) (time.Time, error) {
 	if len(b) != tatEncodedLength {
 		return time.Time{}, fmt.Errorf("ratelimit: TAT length got %d want %d", len(b), tatEncodedLength)

@@ -56,8 +56,7 @@ export interface IGatewayRouteOptions {
    * @remarks
    * Omit the field entirely for public routes. Short form `auth: true`
    * is equivalent to `auth: {}` — both resolve to the default verifier.
-   * See `IGatewayRouteAuthOptions` for the full decision matrix and
-   * the design spec §4.1/§5 for semantics.
+   * See `IGatewayRouteAuthOptions` for the full decision matrix.
    */
   readonly auth?: GatewayRouteAuth;
 

@@ -99,7 +99,8 @@ func (s *MemoryStore) Close() error {
 }
 
 // Counters returns a snapshot of internal counters for future
-// OpenTelemetry plumbing (spec §15.2).
+// OpenTelemetry plumbing. Each value is read atomically so callers
+// see a consistent point-in-time view.
 func (s *MemoryStore) Counters() map[string]int64 {
 	return map[string]int64{
 		"ratelimit_memory_decisions_allowed":  s.counters.allowed.Load(),

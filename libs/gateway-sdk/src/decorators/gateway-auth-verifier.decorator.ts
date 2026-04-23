@@ -27,7 +27,9 @@ const VERIFIER_ID_PATTERN = /^[A-Za-z0-9_-]{1,63}$/;
  *      `extras.meta` payload verbatim into the `handler_registry` NATS
  *      KV bucket keyed by `<service>.cmd.auth.verifier.<id>`. The
  *      gateway then reads the entry as a verifier record during
- *      routing-table build (see gateway auth design spec §7.2).
+ *      routing-table build, resolving each route's verifier once at
+ *      build time so request-time paths read a pre-resolved subject
+ *      off the matched route.
  *
  *   2. `@UseInterceptors(GatewayResponseInterceptor)` — wraps the
  *      verifier's return value in the same `IGatewayReply` envelope the

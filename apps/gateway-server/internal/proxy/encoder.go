@@ -56,13 +56,12 @@ type Encoder interface {
 // reflecting over the three map fields of GatewayRequest, which is
 // incompatible with the hot-path zero-alloc budget.
 //
-// The serializer field preserves the "swap codec = localised change"
-// invariant from the design spec without sacrificing the measured
-// zero-alloc perf of the JSON path: a second codec (msgpack, protobuf)
-// can be dropped in as a new envelopeSerializer implementation without
-// touching Handler, the pool, or the HTTP transport. DefaultEncoder
-// itself is stateless apart from the serializer reference and safe
-// for concurrent use by construction.
+// The serializer field keeps codec swaps localised without sacrificing
+// the measured zero-alloc perf of the JSON path: a second codec
+// (msgpack, protobuf) can be dropped in as a new envelopeSerializer
+// implementation without touching Handler, the pool, or the HTTP
+// transport. DefaultEncoder itself is stateless apart from the
+// serializer reference and safe for concurrent use by construction.
 type DefaultEncoder struct {
 	serializer envelopeSerializer
 }
