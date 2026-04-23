@@ -1,12 +1,30 @@
 package ratelimit_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 
 	"github.com/HorizonRepublic/zerly/apps/gateway-server/internal/ratelimit"
 )
+
+func TestBuildBucketKey_Schema(t *testing.T) {
+	k := ratelimit.BuildBucketKey("GET", "/users/:id", "192.0.2.1")
+	parts := strings.Split(k, ".")
+	assert.Len(t, parts, 3)
+	assert.Equal(t, "GET", parts[0])
+	assert.Regexp(t, `^[a-z2-7]{13}$`, parts[1])
+	assert.Regexp(t, `^[a-z2-7]{13}$`, parts[2])
+}
+
+func TestBuildBucketKey_NATSKVSafe(t *testing.T) {
+	// Input contains characters NATS KV would reject directly.
+	k := ratelimit.BuildBucketKey("POST", "/auth:login/v1", "header:x-api-key=abc 123")
+	for _, forbidden := range []byte{':', ' ', '>', '*', '/'} {
+		assert.NotContains(t, k, string(forbidden))
+	}
+}
 
 func noHeader(_ string) string { return "" }
 func noCookie(_ string) string { return "" }

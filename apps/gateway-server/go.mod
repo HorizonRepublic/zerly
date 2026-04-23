@@ -5,10 +5,12 @@ go 1.25.0
 require (
 	github.com/bytedance/sonic v1.15.0
 	github.com/caarlos0/env/v11 v11.4.0
+	github.com/cespare/xxhash/v2 v2.3.0
 	github.com/cloudwego/hertz v0.10.4
 	github.com/oklog/ulid/v2 v2.1.1
 	github.com/rs/zerolog v1.35.0
 	github.com/stretchr/testify v1.11.1
+	golang.org/x/time v0.15.0
 )
 
 require (
@@ -18,7 +20,6 @@ require (
 	github.com/bytedance/gopkg v0.1.3 // indirect
 	github.com/bytedance/sonic/loader v0.5.0 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
-	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cloudwego/base64x v0.1.6 // indirect
 	github.com/cloudwego/gopkg v0.1.4 // indirect
 	github.com/cloudwego/netpoll v0.7.2 // indirect
@@ -74,7 +75,6 @@ require (
 	golang.org/x/arch v0.0.0-20210923205945-b76863e36670 // indirect
 	golang.org/x/crypto v0.49.0 // indirect
 	golang.org/x/sys v0.42.0 // indirect
-	golang.org/x/time v0.15.0 // indirect
 	google.golang.org/protobuf v1.34.2 // indirect
 )
 
