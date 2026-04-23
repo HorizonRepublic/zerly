@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"time"
@@ -123,7 +124,8 @@ func (h *Handler) Handle(in *ServeInput) *ServeResult {
 		authHeaders = authOutcome.AuthHeaders
 	}
 
-	if route.RateLimit != nil && h.cfg.RateLimiter != nil {
+	// GCRA contract: rps >= 1. Treat rps <= 0 as "no RL" — fail safe.
+	if route.RateLimit != nil && route.RateLimit.RPS > 0 && h.cfg.RateLimiter != nil {
 		rlKey := h.resolveRateLimitKey(in, route, claims)
 
 		burst := route.RateLimit.Burst
@@ -132,7 +134,9 @@ func (h *Handler) Handle(in *ServeInput) *ServeResult {
 		}
 
 		fullKey := route.Method + ":" + route.PathTemplate + ":" + rlKey
-		if !h.cfg.RateLimiter.Allow(fullKey, route.RateLimit.RPS, burst) {
+		// Task 6.1 swaps this to Router + fail-policy + full header emission.
+		decision, _ := h.cfg.RateLimiter.Allow(context.Background(), fullKey, route.RateLimit.RPS, burst)
+		if !decision.Allowed {
 			result := toServeResult(gerrors.TooManyRequests)
 			result.Headers["retry-after"] = []string{"1"}
 

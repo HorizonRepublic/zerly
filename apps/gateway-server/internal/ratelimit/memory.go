@@ -1,86 +1,129 @@
 package ratelimit
 
 import (
+	"context"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
-
-	"golang.org/x/time/rate"
 )
 
-type entry struct {
-	limiter  *rate.Limiter
-	lastSeen time.Time
-}
-
-// MemoryStore is a token-bucket rate limiter backed by sync.Map.
-// Keys are scoped per route+client and auto-evicted after 60 seconds
-// of inactivity to prevent unbounded memory growth.
+// MemoryStore is an in-process GCRA rate limiter. Each bucket's
+// state is a single atomic int64 holding TAT (Theoretical Arrival
+// Time) in Unix nanoseconds.
+//
+// Semantically identical to NATSKVStore — switching between them
+// produces the same decisions for the same (key, rps, burst).
+//
+// Trade-off vs NATSKVStore: no cross-replica sharing. Each pod
+// tracks its own buckets. Use for single-instance deployments or
+// hot-path routes where network-store latency is unacceptable.
 type MemoryStore struct {
-	limiters sync.Map
-	stop     chan struct{}
+	entries sync.Map // map[string]*memoryEntry
+	ttl     time.Duration
+	stop    chan struct{}
+
+	counters struct {
+		allowed  atomic.Int64
+		rejected atomic.Int64
+	}
 }
 
-// NewMemoryStore creates a store and starts its cleanup goroutine.
-func NewMemoryStore() *MemoryStore {
-	s := &MemoryStore{stop: make(chan struct{})}
-	go s.cleanup()
+type memoryEntry struct {
+	tat      atomic.Int64 // Unix nanoseconds
+	lastSeen atomic.Int64 // Unix nanoseconds
+}
 
+// NewMemoryStore constructs a MemoryStore with the given stale-key
+// TTL. A background sweeper removes entries whose lastSeen is
+// older than ttl every ttl/10. Close() stops the sweeper.
+func NewMemoryStore(ttl time.Duration) *MemoryStore {
+	s := &MemoryStore{ttl: ttl, stop: make(chan struct{})}
+	go s.sweep()
 	return s
 }
 
-// Allow implements Store.
-func (s *MemoryStore) Allow(key string, rps int, burst int) bool {
+// Allow implements Store by running GCRA against an in-memory TAT.
+//
+// The atomic CAS loop is the hot path: LoadOrStore the entry, load
+// the current TAT, compute the decision via Check, and either
+// return (rejection path) or CAS the new TAT into place. A lost
+// CAS means another goroutine advanced the TAT for the same key —
+// retry so the late arrival sees the updated state. ctx is
+// accepted for interface symmetry with NATSKVStore but not
+// consulted: every branch is pure CPU and returns in microseconds.
+func (s *MemoryStore) Allow(ctx context.Context, key string, rps, burst int) (Decision, error) {
+	_ = ctx
 	now := time.Now()
+	v, _ := s.entries.LoadOrStore(key, &memoryEntry{})
+	e := v.(*memoryEntry)
+	e.lastSeen.Store(now.UnixNano())
 
-	v, loaded := s.limiters.Load(key)
-	if loaded {
-		e := v.(*entry)
-		e.lastSeen = now
+	for {
+		currentNs := e.tat.Load()
+		currentTAT := time.Unix(0, currentNs)
+		decision, newTAT := Check(currentTAT, now, rps, burst)
 
-		return e.limiter.Allow()
+		if !decision.Allowed {
+			s.counters.rejected.Add(1)
+			return decision, nil
+		}
+		if e.tat.CompareAndSwap(currentNs, newTAT.UnixNano()) {
+			s.counters.allowed.Add(1)
+			return decision, nil
+		}
+		// CAS failed (another goroutine won); retry.
 	}
-
-	e := &entry{
-		limiter:  rate.NewLimiter(rate.Limit(rps), burst),
-		lastSeen: now,
-	}
-
-	actual, _ := s.limiters.LoadOrStore(key, e)
-
-	return actual.(*entry).limiter.Allow()
 }
 
-// FlushPrefix removes all entries whose key starts with prefix.
-// Called when a route's rate-limit config changes via KV watcher.
-func (s *MemoryStore) FlushPrefix(prefix string) {
-	s.limiters.Range(func(key, _ any) bool {
-		if k, ok := key.(string); ok && len(k) >= len(prefix) && k[:len(prefix)] == prefix {
-			s.limiters.Delete(key)
+// FlushPrefix removes all entries whose key begins with prefix.
+func (s *MemoryStore) FlushPrefix(_ context.Context, prefix string) error {
+	s.entries.Range(func(k, _ any) bool {
+		if ks, ok := k.(string); ok && strings.HasPrefix(ks, prefix) {
+			s.entries.Delete(k)
 		}
-
 		return true
 	})
+	return nil
 }
 
-// Stop terminates the cleanup goroutine.
-func (s *MemoryStore) Stop() {
-	close(s.stop)
+// Close is idempotent.
+func (s *MemoryStore) Close() error {
+	select {
+	case <-s.stop:
+		// already closed
+	default:
+		close(s.stop)
+	}
+	return nil
 }
 
-func (s *MemoryStore) cleanup() {
-	ticker := time.NewTicker(60 * time.Second)
-	defer ticker.Stop()
+// Counters returns a snapshot of internal counters for future
+// OpenTelemetry plumbing (spec §15.2).
+func (s *MemoryStore) Counters() map[string]int64 {
+	return map[string]int64{
+		"ratelimit_memory_decisions_allowed":  s.counters.allowed.Load(),
+		"ratelimit_memory_decisions_rejected": s.counters.rejected.Load(),
+	}
+}
 
+func (s *MemoryStore) sweep() {
+	interval := s.ttl / 10
+	if interval < time.Second {
+		interval = time.Second
+	}
+	t := time.NewTicker(interval)
+	defer t.Stop()
 	for {
 		select {
 		case <-s.stop:
 			return
-		case now := <-ticker.C:
-			s.limiters.Range(func(key, value any) bool {
-				if now.Sub(value.(*entry).lastSeen) > 60*time.Second {
-					s.limiters.Delete(key)
+		case now := <-t.C:
+			cutoff := now.Add(-s.ttl).UnixNano()
+			s.entries.Range(func(k, v any) bool {
+				if e, ok := v.(*memoryEntry); ok && e.lastSeen.Load() < cutoff {
+					s.entries.Delete(k)
 				}
-
 				return true
 			})
 		}

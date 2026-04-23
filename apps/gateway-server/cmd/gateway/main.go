@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"os"
 	"sync/atomic"
+	"time"
 
 	natsgo "github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -63,8 +64,8 @@ func main() {
 		logger.Fatal().Err(err).Msg("registry watcher start failed")
 	}
 
-	rateLimiterStore := ratelimit.NewMemoryStore()
-	defer rateLimiterStore.Stop()
+	rateLimiterStore := ratelimit.NewMemoryStore(10 * time.Minute) // TODO(task 7.2): read from config.
+	defer rateLimiterStore.Close()
 
 	requester := buildRequesterOrDie(nc, logger)
 	handler := buildProxyHandler(cfg, currentTable, requester, rateLimiterStore, logger)

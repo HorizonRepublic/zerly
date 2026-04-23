@@ -1,11 +1,36 @@
-// Package ratelimit provides a rate-limiting Store interface with an
-// in-memory token-bucket implementation. The interface is designed
-// for future Redis-compatible backends without changing consumer code.
+// Package ratelimit provides a rate-limiting Store interface and
+// GCRA-based backend implementations.
 package ratelimit
 
-// Store is the rate-limiter backend interface.
+import "context"
+
+// Store is the rate-limit backend contract. Implementations MUST be
+// goroutine-safe — the proxy handler calls Allow from every
+// inbound HTTP request without external locking.
+//
+// See Router for per-route dispatch over multiple Stores coexisting
+// in the gateway process.
 type Store interface {
-	// Allow checks whether a request identified by key should be
-	// permitted under the given rate (rps) and burst limit.
-	Allow(key string, rps int, burst int) bool
+	// Allow checks whether the request identified by key is within
+	// the rate and burst constraints. The returned Decision always
+	// carries Remaining / RetryAfter / ResetAt so callers can
+	// populate X-RateLimit-* response headers uniformly, whether
+	// the result is allow or reject.
+	//
+	// A non-nil error signals backend failure (network, circuit
+	// open, budget exhausted). The Decision is NOT meaningful in
+	// that case — the caller MUST consult FailPolicy for
+	// allow vs reject.
+	//
+	// ctx bounds how long Allow may block; implementations SHOULD
+	// respect ctx.Done() in any retry loop and cancel backend I/O.
+	Allow(ctx context.Context, key string, rps, burst int) (Decision, error)
+
+	// FlushPrefix removes all buckets whose key starts with prefix.
+	// Retained for administrative reset; hot-reload does NOT flush
+	// (spec §10 — no free pass on config change).
+	FlushPrefix(ctx context.Context, prefix string) error
+
+	// Close releases resources. MUST be idempotent.
+	Close() error
 }

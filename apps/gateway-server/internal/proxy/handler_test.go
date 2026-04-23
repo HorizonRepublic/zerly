@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"testing"
@@ -12,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	gerrors "github.com/HorizonRepublic/zerly/apps/gateway-server/internal/errors"
+	"github.com/HorizonRepublic/zerly/apps/gateway-server/internal/ratelimit"
 	"github.com/HorizonRepublic/zerly/apps/gateway-server/internal/registry"
 	"github.com/HorizonRepublic/zerly/apps/gateway-server/internal/routing"
 )
@@ -741,11 +743,15 @@ type rateLimitCall struct {
 	burst int
 }
 
-func (f *fakeRateLimiter) Allow(key string, rps int, burst int) bool {
+func (f *fakeRateLimiter) Allow(_ context.Context, key string, rps, burst int) (ratelimit.Decision, error) {
 	f.calls = append(f.calls, rateLimitCall{key: key, rps: rps, burst: burst})
 
-	return f.allowed
+	return ratelimit.Decision{Allowed: f.allowed}, nil
 }
+
+func (f *fakeRateLimiter) FlushPrefix(_ context.Context, _ string) error { return nil }
+
+func (f *fakeRateLimiter) Close() error { return nil }
 
 func TestHandler_RateLimitReturns429(t *testing.T) {
 	rl := &fakeRateLimiter{allowed: false}
@@ -1024,16 +1030,20 @@ func newOncePerKeyLimiter() *oncePerKeyLimiter {
 	return &oncePerKeyLimiter{seen: map[string]bool{}}
 }
 
-func (o *oncePerKeyLimiter) Allow(key string, rps int, burst int) bool {
+func (o *oncePerKeyLimiter) Allow(_ context.Context, key string, rps, burst int) (ratelimit.Decision, error) {
 	o.calls = append(o.calls, rateLimitCall{key: key, rps: rps, burst: burst})
 	if o.seen[key] {
-		return false
+		return ratelimit.Decision{Allowed: false}, nil
 	}
 
 	o.seen[key] = true
 
-	return true
+	return ratelimit.Decision{Allowed: true}, nil
 }
+
+func (o *oncePerKeyLimiter) FlushPrefix(_ context.Context, _ string) error { return nil }
+
+func (o *oncePerKeyLimiter) Close() error { return nil }
 
 func TestHandler_RateLimitKeyByHeader(t *testing.T) {
 	rl := newOncePerKeyLimiter()
