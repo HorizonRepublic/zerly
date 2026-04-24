@@ -223,6 +223,47 @@ func TestCollectRoutes_PublicRouteUnaffectedByVerifierRegistry(t *testing.T) {
 	assert.Nil(t, routes[0].Auth)
 }
 
+func TestCollectRoutes_DropsCORSWithWildcardOriginAndCredentials(t *testing.T) {
+	// Defense-in-depth: SDK rejects this at registration time, but the
+	// Go side still guards against malformed KV entries reaching the
+	// routing table. When origins:[*] and credentials:true coexist we
+	// drop the CORS block entirely — the route remains registered but
+	// serves no CORS headers (no-CORS beats broken-CORS).
+	snapshot := &registry.Snapshot{
+		Entries: map[string]registry.HandlerEntry{
+			"svc__microservice.cmd.users.list": {
+				HTTP: &registry.HTTPMeta{Method: "GET", Path: "/users"},
+				CORS: &registry.CORSMeta{
+					Origins:     []string{"*"},
+					Credentials: true,
+				},
+			},
+		},
+	}
+
+	routes := CollectRoutes(snapshot, emptyVerifiers(), silentLogger())
+
+	require.Len(t, routes, 1)
+	assert.Nil(t, routes[0].CORS, "invalid CORS block must be dropped to avoid broken-CORS semantics")
+}
+
+func TestCollectRoutes_KeepsCORSWithWildcardOriginWithoutCredentials(t *testing.T) {
+	snapshot := &registry.Snapshot{
+		Entries: map[string]registry.HandlerEntry{
+			"svc__microservice.cmd.users.list": {
+				HTTP: &registry.HTTPMeta{Method: "GET", Path: "/users"},
+				CORS: &registry.CORSMeta{Origins: []string{"*"}},
+			},
+		},
+	}
+
+	routes := CollectRoutes(snapshot, emptyVerifiers(), silentLogger())
+
+	require.Len(t, routes, 1)
+	require.NotNil(t, routes[0].CORS)
+	assert.Equal(t, []string{"*"}, routes[0].CORS.Origins)
+}
+
 func TestCollectRoutes_PropagatesExtendedFields(t *testing.T) {
 	timeout := 5000
 	snapshot := &registry.Snapshot{

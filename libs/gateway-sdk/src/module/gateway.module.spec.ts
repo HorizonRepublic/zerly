@@ -266,4 +266,52 @@ describe('GatewayModule', () => {
       await moduleRef.close();
     });
   });
+
+  describe('CORS wildcard + credentials guard', () => {
+    it('forRoot throws when defaults.cors combines wildcard origin with credentials', () => {
+      expect(() =>
+        GatewayModule.forRoot({
+          defaults: {
+            cors: { origins: ['*'], credentials: true },
+          },
+        }),
+      ).toThrow(/cannot be combined with cors.origins: '\*'/);
+    });
+
+    it('forRoot accepts explicit origin with credentials', () => {
+      expect(() =>
+        GatewayModule.forRoot({
+          defaults: {
+            cors: { origins: ['https://app.example.com'], credentials: true },
+          },
+        }),
+      ).not.toThrow();
+    });
+
+    it('forRoot accepts wildcard without credentials', () => {
+      expect(() =>
+        GatewayModule.forRoot({
+          defaults: {
+            cors: { origins: ['*'] },
+          },
+        }),
+      ).not.toThrow();
+    });
+
+    it('forRootAsync throws when factory returns wildcard + credentials', async () => {
+      const moduleRef = Test.createTestingModule({
+        imports: [
+          GatewayModule.forRootAsync({
+            useFactory: () => ({
+              defaults: {
+                cors: { origins: ['*'], credentials: true },
+              },
+            }),
+          }),
+        ],
+      }).compile();
+
+      await expect(moduleRef).rejects.toThrow(/cannot be combined with cors.origins: '\*'/);
+    });
+  });
 });

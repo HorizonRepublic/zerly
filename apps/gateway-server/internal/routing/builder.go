@@ -1,6 +1,7 @@
 package routing
 
 import (
+	"slices"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -59,7 +60,7 @@ func CollectRoutes(
 			PathTemplate: entry.HTTP.Path,
 		}
 
-		route.CORS = entry.CORS
+		route.CORS = sanitizeCORS(entry.CORS, key, logger)
 		route.RateLimit = entry.RateLimit
 		route.Headers = entry.Headers
 
@@ -99,6 +100,37 @@ func resolveVerifier(meta *registry.RouteAuthMeta, verifiers *auth.VerifierRegis
 	}
 
 	return verifiers.Lookup(meta.Verifier)
+}
+
+// sanitizeCORS enforces the Fetch Living Standard invariant that
+// `Access-Control-Allow-Origin: *` is illegal when paired with
+// `Access-Control-Allow-Credentials: true`. Modern browsers reject
+// the combination silently, so emitting it would produce a "CORS is
+// broken on this endpoint" symptom that only surfaces in browser
+// consoles.
+//
+// The SDK layer validates this at registration time and should have
+// caught any such configuration before it reached KV. This guard is
+// defense-in-depth for cases where operators bypass the SDK (manual
+// KV writes, alternative SDK implementations, schema drift). A
+// malformed block is logged at WARN and the route registers with no
+// CORS handling at all — treating it as no-CORS instead of
+// broken-CORS.
+func sanitizeCORS(cors *registry.CORSMeta, key string, logger zerolog.Logger) *registry.CORSMeta {
+	if cors == nil {
+		return nil
+	}
+
+	if !cors.Credentials || !slices.Contains(cors.Origins, "*") {
+		return cors
+	}
+
+	logger.Warn().
+		Str("key", key).
+		Strs("origins", cors.Origins).
+		Msg("routing: dropping CORS block that combines origins:[*] with credentials:true (Fetch Living Standard violation)")
+
+	return nil
 }
 
 // BuildTableFromRoutes constructs a Table from a pre-collected slice

@@ -3,6 +3,7 @@ import { MessagePattern } from '@nestjs/microservices';
 
 import { GatewayExceptionFilter } from '../filters/gateway-exception.filter';
 import { GatewayResponseInterceptor } from '../interceptors/gateway-response.interceptor';
+import { assertCorsCredentialsNotWildcard } from '../normalization/cors-validator';
 
 import type { IGatewayHttpMeta } from '../types/gateway-http-meta.interface';
 import type { IGatewayRouteOptions } from '../types/gateway-route-options.interface';
@@ -97,6 +98,11 @@ const normalizeAuth = (auth: IGatewayRouteOptions['auth']): IGatewayRouteAuthWir
  * ```
  */
 export const GatewayRoute = (options: IGatewayRouteOptions): MethodDecorator => {
+  assertCorsCredentialsNotWildcard(
+    options.cors,
+    `@GatewayRoute(${options.method} ${options.path})`,
+  );
+
   const http: IGatewayHttpMeta =
     options.statusCode === undefined
       ? { method: options.method, path: options.path }

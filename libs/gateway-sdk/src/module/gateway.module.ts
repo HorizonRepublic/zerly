@@ -3,6 +3,7 @@ import { DiscoveryModule } from '@nestjs/core';
 
 import { GatewayExceptionFilter } from '../filters/gateway-exception.filter';
 import { GatewayResponseInterceptor } from '../interceptors/gateway-response.interceptor';
+import { assertCorsCredentialsNotWildcard } from '../normalization/cors-validator';
 import { DefaultErrorBodyFactory } from '../normalization/default-error-body.factory';
 import { DefaultGatewayReplyBuilder } from '../normalization/default-reply.builder';
 import { DefaultStatusResolver } from '../normalization/default-status.resolver';
@@ -53,6 +54,8 @@ export class GatewayModule {
    *                  time.
    */
   public static forRoot(options: IGatewayModuleOptions = {}): DynamicModule {
+    assertCorsCredentialsNotWildcard(options.defaults?.cors, 'GatewayModule.forRoot');
+
     const replyBuilderProvider: Provider = {
       provide: GATEWAY_REPLY_BUILDER,
       useClass: options.replyBuilder ?? DefaultGatewayReplyBuilder,
@@ -131,6 +134,8 @@ export class GatewayModule {
       provide: GATEWAY_DEFAULTS,
       useFactory: async (...args: unknown[]) => {
         const resolved = await asyncOptions.useFactory(...args);
+
+        assertCorsCredentialsNotWildcard(resolved.defaults?.cors, 'GatewayModule.forRootAsync');
 
         return Object.freeze(resolved.defaults ?? {});
       },

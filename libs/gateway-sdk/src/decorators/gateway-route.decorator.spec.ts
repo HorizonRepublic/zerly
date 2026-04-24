@@ -70,4 +70,54 @@ describe('GatewayRoute decorator', () => {
     expect(extras.meta).not.toHaveProperty('headers');
     expect(extras.meta).not.toHaveProperty('timeout');
   });
+
+  describe('CORS wildcard + credentials guard', () => {
+    it('allows an explicit origin with credentials', () => {
+      expect(() => {
+        class OkController {
+          @GatewayRoute({
+            pattern: 'ok.explicit',
+            method: 'GET',
+            path: '/ok',
+            cors: { origins: ['https://app.example.com'], credentials: true },
+          })
+          public handler(): void {}
+        }
+
+        return OkController;
+      }).not.toThrow();
+    });
+
+    it('allows wildcard without credentials', () => {
+      expect(() => {
+        class OkController {
+          @GatewayRoute({
+            pattern: 'ok.wildcard',
+            method: 'GET',
+            path: '/ok',
+            cors: { origins: ['*'] },
+          })
+          public handler(): void {}
+        }
+
+        return OkController;
+      }).not.toThrow();
+    });
+
+    it('rejects wildcard combined with credentials: true at decoration time', () => {
+      expect(() => {
+        class BadController {
+          @GatewayRoute({
+            pattern: 'bad.wildcard.creds',
+            method: 'POST',
+            path: '/bad',
+            cors: { origins: ['*'], credentials: true },
+          })
+          public handler(): void {}
+        }
+
+        return BadController;
+      }).toThrow(/cannot be combined with cors.origins: '\*'/);
+    });
+  });
 });
