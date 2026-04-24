@@ -87,12 +87,25 @@ type VerifierMeta struct {
 // CORSMeta holds the CORS policy for a route, written by the SDK.
 // The gateway uses it to handle OPTIONS preflight and set response
 // headers without a NATS round-trip.
+//
+// Mirrors IGatewayCorsConfig in @zerly/gateway-sdk
+// (libs/gateway-sdk/src/types/gateway-cors-config.interface.ts).
+// Field additions, renames, or removals require a synchronized
+// release of both sides.
 type CORSMeta struct {
 	Origins     []string `json:"origins"`
 	Methods     []string `json:"methods,omitempty"`
 	Headers     []string `json:"headers,omitempty"`
 	Credentials bool     `json:"credentials,omitempty"`
 	MaxAge      int      `json:"maxAge,omitempty"`
+	// ExposeHeaders is the per-route override for
+	// `Access-Control-Expose-Headers`. When nil or empty the gateway
+	// emits its standard list of gateway-stamped headers
+	// (`X-Request-Id`, `X-RateLimit-*`, `Retry-After`) so
+	// cross-origin JavaScript can always read them. A non-empty
+	// slice replaces that default entirely — shallow-replace
+	// semantics, matching the other CORS fields.
+	ExposeHeaders []string `json:"exposeHeaders,omitempty"`
 }
 
 // RateLimitMeta holds the rate-limiting policy for a route.

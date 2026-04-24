@@ -26,4 +26,27 @@ export interface IGatewayCorsConfig {
 
   /** How long (seconds) the browser caches a preflight response. */
   readonly maxAge?: number;
+
+  /**
+   * Response headers the browser should expose to cross-origin
+   * JavaScript via `Access-Control-Expose-Headers`.
+   * @remarks
+   * Without this header, browsers hide every non-CORS-safelisted
+   * response header from `fetch`/`XMLHttpRequest` callers on
+   * cross-origin responses. That means client code cannot read
+   * gateway-stamped correlators like `X-Request-Id` or the
+   * rate-limit budget (`X-RateLimit-*`) even though they land on
+   * the wire.
+   *
+   * Omit this field to let the gateway emit its standard expose
+   * list: `X-Request-Id`, `X-RateLimit-Limit`,
+   * `X-RateLimit-Remaining`, `X-RateLimit-Reset`, `Retry-After`.
+   * Provide an explicit list to override entirely — per-route
+   * values replace the default list, they do not extend it
+   * (shallow replace, same contract as the other CORS fields).
+   *
+   * Mirrors `CORSMeta.ExposeHeaders` in Go (wire contract — see
+   * `apps/gateway-server/internal/registry/entry.go`).
+   */
+  readonly exposeHeaders?: readonly string[];
 }

@@ -1050,6 +1050,38 @@ func TestHandler_CORSResponseHeadersOnNonOptions(t *testing.T) {
 	assert.Equal(t, []string{"https://example.com"}, result.Headers["Access-Control-Allow-Origin"])
 	assert.Equal(t, []string{"true"}, result.Headers["Access-Control-Allow-Credentials"])
 	assert.Equal(t, []string{"Origin"}, result.Headers["Vary"])
+	assert.Equal(t,
+		[]string{"X-Request-Id, X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset, Retry-After"},
+		result.Headers["Access-Control-Expose-Headers"],
+		"default expose list lands on every cross-origin response",
+	)
+}
+
+func TestHandler_CORSCustomExposeHeadersReachClient(t *testing.T) {
+	cors := &registry.CORSMeta{
+		Origins:       []string{"https://example.com"},
+		ExposeHeaders: []string{"X-Trace-Id", "X-Server-Version"},
+	}
+	table := &fakeTable{routes: map[string]routing.Route{
+		"GET /users": {
+			Subject: "svc.cmd.users.list", PathTemplate: "/users",
+			Method: "GET", CORS: cors,
+		},
+	}}
+	reply := []byte(`{"status":200,"headers":{},"body":null}`)
+	h := buildHandler(table, reply, nil)
+
+	in := emptyServeInput("GET", "/users")
+	in.Headers["origin"] = "https://example.com"
+
+	result := h.Handle(in)
+
+	assert.Equal(t, 200, result.Status)
+	assert.Equal(t,
+		[]string{"X-Trace-Id, X-Server-Version"},
+		result.Headers["Access-Control-Expose-Headers"],
+		"per-route expose list replaces the gateway default",
+	)
 }
 
 func TestHandler_CORSResponseHeadersOmittedOnOriginMismatch(t *testing.T) {

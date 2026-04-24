@@ -97,3 +97,39 @@ func TestBuildResponseCORSHeaders_IncludesOnlyResponseFields(t *testing.T) {
 	_, hasMaxAge := h["Access-Control-Max-Age"]
 	assert.False(t, hasMaxAge, "response should not include Max-Age")
 }
+
+func TestBuildResponseCORSHeaders_EmitsDefaultExposeHeaderList(t *testing.T) {
+	cors := &registry.CORSMeta{Origins: []string{"https://app.example.com"}}
+
+	h := BuildResponseCORSHeaders(cors, "https://app.example.com")
+
+	assert.Equal(t,
+		"X-Request-Id, X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset, Retry-After",
+		h["Access-Control-Expose-Headers"],
+	)
+}
+
+func TestBuildResponseCORSHeaders_EmitsCustomExposeHeaderList(t *testing.T) {
+	cors := &registry.CORSMeta{
+		Origins:       []string{"https://app.example.com"},
+		ExposeHeaders: []string{"X-Trace-Id", "X-Server-Version"},
+	}
+
+	h := BuildResponseCORSHeaders(cors, "https://app.example.com")
+
+	assert.Equal(t, "X-Trace-Id, X-Server-Version", h["Access-Control-Expose-Headers"])
+}
+
+func TestBuildResponseCORSHeaders_EmptyExposeHeadersFallsBackToDefault(t *testing.T) {
+	cors := &registry.CORSMeta{
+		Origins:       []string{"https://app.example.com"},
+		ExposeHeaders: []string{},
+	}
+
+	h := BuildResponseCORSHeaders(cors, "https://app.example.com")
+
+	assert.Equal(t,
+		"X-Request-Id, X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset, Retry-After",
+		h["Access-Control-Expose-Headers"],
+	)
+}
