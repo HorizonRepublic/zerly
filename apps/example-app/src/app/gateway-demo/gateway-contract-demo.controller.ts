@@ -198,4 +198,29 @@ export class GatewayContractDemoController {
   public whoami(@GatewayMeta() meta: IGatewayRequestMeta): { readonly ip: string } {
     return { ip: meta.remoteAddr };
   }
+
+  /**
+   * Dedicated endpoint for the multi-replica NATS KV rate-limit
+   * e2e scenario. Configured with a tight rps so the e2e test can
+   * drive traffic against two gateway pods and observe the shared
+   * bucket rejecting excess requests regardless of which pod
+   * served each request.
+   *
+   * Isolated from other demo routes so the e2e budget is not
+   * affected by parallel runs of other test scenarios.
+   */
+  @GatewayRoute({
+    pattern: 'multi-replica-rl.probe',
+    method: 'POST',
+    path: '/api/multi-replica-rl',
+    rateLimit: {
+      rps: 10,
+      burst: 10,
+      store: 'nats-kv',
+      keyBy: ['ip'],
+    },
+  })
+  public probeMultiReplicaRL(): IContractEcho {
+    return { ok: true };
+  }
 }
