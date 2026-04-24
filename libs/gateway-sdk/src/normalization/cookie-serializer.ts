@@ -79,5 +79,9 @@ export const serializeCookie = (
     out += `; SameSite=${SAME_SITE_LABELS[merged.sameSite]}`;
   }
 
+  if (merged.partitioned === true) {
+    out += `; Partitioned`;
+  }
+
   return out;
 };

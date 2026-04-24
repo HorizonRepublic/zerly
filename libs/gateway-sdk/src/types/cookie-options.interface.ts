@@ -56,4 +56,17 @@ export interface ICookieOptions {
    * all cross-site requests (requires `secure: true`).
    */
   readonly sameSite?: 'strict' | 'lax' | 'none';
+
+  /**
+   * Emits the `Partitioned` attribute (CHIPS — Cookies Having
+   * Independent Partitioned State) so the cookie is scoped to the
+   * embedding top-level site.
+   * @remarks
+   * Chrome 118+ requires `Partitioned` on third-party cookies used
+   * in cross-site contexts; without it the cookie is blocked by
+   * the third-party cookie deprecation. Partitioned cookies also
+   * require `Secure: true` and `SameSite: 'none'` to serialize
+   * validly — browsers reject the combination otherwise.
+   */
+  readonly partitioned?: boolean;
 }

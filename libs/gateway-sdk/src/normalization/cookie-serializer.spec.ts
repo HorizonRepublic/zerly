@@ -45,6 +45,24 @@ describe('serializeCookie', () => {
     expect(serializeCookie('sid', 'abc', { sameSite: 'none' })).toBe('sid=abc; SameSite=None');
   });
 
+  it('emits Partitioned only when explicitly true', () => {
+    const withFlag = serializeCookie('sid', 'abc', { partitioned: true });
+    const withoutFlag = serializeCookie('sid', 'abc', { partitioned: false });
+
+    expect(withFlag).toBe('sid=abc; Partitioned');
+    expect(withoutFlag).toBe('sid=abc');
+  });
+
+  it('appends Partitioned after SameSite in the canonical order', () => {
+    const sut = serializeCookie('sid', 'abc', {
+      secure: true,
+      sameSite: 'none',
+      partitioned: true,
+    });
+
+    expect(sut).toBe('sid=abc; Secure; SameSite=None; Partitioned');
+  });
+
   it('threads Path and Domain through unchanged', () => {
     const sut = serializeCookie('sid', 'abc', {
       path: '/api',
