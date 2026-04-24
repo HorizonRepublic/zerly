@@ -127,6 +127,23 @@ type Config struct {
 	// waits for in-flight requests to finish before force-closing.
 	ShutdownTimeout time.Duration `env:"SHUTDOWN_TIMEOUT" envDefault:"30s"`
 
+	// RateLimitFailPolicy selects behavior when the distributed
+	// rate-limit store fails (network error, circuit breaker open,
+	// CAS budget exhausted). "open" (default) favors availability
+	// over strict RL enforcement; "closed" rejects with 503 for
+	// compliance-critical deployments where the RL contract must
+	// hold even under backend outage.
+	//
+	// Normal rate-limit rejections (bucket empty under a healthy
+	// backend) always return 429 regardless of this setting.
+	RateLimitFailPolicy string `env:"RATELIMIT_FAIL_POLICY" envDefault:"open"`
+
+	// RateLimitKeyTTL is the stale-key cleanup threshold. NATS KV
+	// backends apply it as bucket MaxAge; MemoryStore uses it as
+	// the idle-entry sweeper interval. 10 minutes covers all
+	// realistic rps profiles without penalizing infrequent clients.
+	RateLimitKeyTTL time.Duration `env:"RATELIMIT_KEY_TTL" envDefault:"10m"`
+
 	// LogLevel is the minimum zerolog level to emit. Valid values:
 	// trace, debug, info, warn, error, fatal, panic, disabled.
 	LogLevel string `env:"LOG_LEVEL"          envDefault:"info"`
@@ -211,6 +228,13 @@ func Load() (*Config, error) {
 			cfg.TrustedProxiesRaw, err)
 	}
 	cfg.TrustedProxies = trusted
+
+	switch cfg.RateLimitFailPolicy {
+	case "open", "closed":
+		// ok
+	default:
+		return nil, fmt.Errorf("RATELIMIT_FAIL_POLICY must be \"open\" or \"closed\", got %q", cfg.RateLimitFailPolicy)
+	}
 
 	return cfg, nil
 }

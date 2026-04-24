@@ -35,6 +35,9 @@ func TestLoad_AppliesDefaultsWhenOnlyRequiredSet(t *testing.T) {
 	assert.Equal(t, 30*time.Second, cfg.RequestTimeout)
 	assert.Equal(t, 30*time.Second, cfg.ShutdownTimeout)
 
+	assert.Equal(t, "open", cfg.RateLimitFailPolicy)
+	assert.Equal(t, 10*time.Minute, cfg.RateLimitKeyTTL)
+
 	assert.Equal(t, "info", cfg.LogLevel)
 	assert.Equal(t, "json", cfg.LogFormat)
 	assert.True(t, cfg.LogRequests)
@@ -148,4 +151,43 @@ func TestLoad_TrustedProxies_InvalidCIDR_FailsStartupClosed(t *testing.T) {
 		"error must name the offending env var for operator diagnosis")
 	assert.Contains(t, err.Error(), "garbage",
 		"error must include the invalid value")
+}
+
+func TestLoad_RateLimitDefaults(t *testing.T) {
+	t.Setenv("NATS_URLS", "nats://localhost:4222")
+
+	cfg, err := Load()
+	require.NoError(t, err)
+
+	assert.Equal(t, "open", cfg.RateLimitFailPolicy)
+	assert.Equal(t, 10*time.Minute, cfg.RateLimitKeyTTL)
+}
+
+func TestLoad_RateLimitValidFailPolicyClosed(t *testing.T) {
+	t.Setenv("NATS_URLS", "nats://localhost:4222")
+	t.Setenv("RATELIMIT_FAIL_POLICY", "closed")
+
+	cfg, err := Load()
+	require.NoError(t, err)
+
+	assert.Equal(t, "closed", cfg.RateLimitFailPolicy)
+}
+
+func TestLoad_RateLimitInvalidFailPolicy(t *testing.T) {
+	t.Setenv("NATS_URLS", "nats://localhost:4222")
+	t.Setenv("RATELIMIT_FAIL_POLICY", "garbage")
+
+	_, err := Load()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "RATELIMIT_FAIL_POLICY")
+}
+
+func TestLoad_RateLimitCustomKeyTTL(t *testing.T) {
+	t.Setenv("NATS_URLS", "nats://localhost:4222")
+	t.Setenv("RATELIMIT_KEY_TTL", "2m")
+
+	cfg, err := Load()
+	require.NoError(t, err)
+
+	assert.Equal(t, 2*time.Minute, cfg.RateLimitKeyTTL)
 }
