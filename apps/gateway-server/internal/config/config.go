@@ -59,10 +59,6 @@ type Config struct {
 	// MaxHeaderBytes is the maximum accepted request header size in
 	// bytes, summed across all headers.
 	MaxHeaderBytes int `env:"HTTP_MAX_HEADER_BYTES" envDefault:"16384"`
-	// EnableHTTP2 toggles h2c (HTTP/2 cleartext) support on the public
-	// HTTP listener. Disable if sitting behind a proxy that terminates
-	// HTTP/2 upstream.
-	EnableHTTP2 bool `env:"HTTP_ENABLE_H2"        envDefault:"true"`
 
 	// TrustedProxiesRaw is the operator-facing `TRUSTED_PROXIES` env
 	// value kept verbatim for diagnostics (log dumps). Parsed into
@@ -97,10 +93,6 @@ type Config struct {
 	// NATSCredsFile is the filesystem path to an NKey credentials file,
 	// used for NGS / decentralised JWT auth.
 	NATSCredsFile string `env:"NATS_CREDS_FILE"`
-	// NATSConnectionPool is the number of parallel NATS connections to
-	// maintain. A value of 1 matches the nats.go default and is
-	// correct for most workloads; raise only after benchmarking.
-	NATSConnectionPool int `env:"NATS_CONNECTION_POOL"   envDefault:"1"`
 	// NATSReconnectWait is the delay between reconnection attempts
 	// after the NATS connection drops.
 	NATSReconnectWait time.Duration `env:"NATS_RECONNECT_WAIT"    envDefault:"2s"`
@@ -115,9 +107,6 @@ type Config struct {
 	// KVBucket is the NATS KV bucket name the gateway watches for
 	// handler registry entries.
 	KVBucket string `env:"KV_BUCKET"       envDefault:"handler_registry"`
-	// KVWatchTimeout bounds how long the initial KV watch hydration
-	// can take before the gateway aborts startup.
-	KVWatchTimeout time.Duration `env:"KV_WATCH_TIMEOUT" envDefault:"5s"`
 
 	// RequestTimeout is the per-request hard deadline applied to the
 	// full handler pipeline (RPC round-trip included).
@@ -149,21 +138,6 @@ type Config struct {
 	// LogFormat is the log output encoding: "json" for production or
 	// "console" for human-friendly colored output in local dev.
 	LogFormat string `env:"LOG_FORMAT"         envDefault:"json"`
-	// LogRequests toggles access-log-style entries for each request.
-	LogRequests bool `env:"LOG_REQUESTS"       envDefault:"true"`
-	// LogRequestBody toggles inclusion of the full request body in
-	// access log entries. Expensive and leaks PII; off by default.
-	LogRequestBody bool `env:"LOG_REQUEST_BODY"   envDefault:"false"`
-	// LogResponseBody toggles inclusion of the full response body in
-	// access log entries. Expensive and leaks PII; off by default.
-	LogResponseBody bool `env:"LOG_RESPONSE_BODY"  envDefault:"false"`
-	// LogSlowRequestMs is the latency (in milliseconds) above which a
-	// request is additionally logged at warn level regardless of
-	// LogRequests.
-	LogSlowRequestMs int `env:"LOG_SLOW_REQUEST_MS" envDefault:"1000"`
-	// LogSamplingRate is the 1-in-N sampling rate for access logs when
-	// LogRequests is enabled. 1 means log every request.
-	LogSamplingRate int `env:"LOG_SAMPLING_RATE"  envDefault:"1"`
 
 	// Environment is a free-form deployment-tier label ("production",
 	// "staging", "development", ...). The gateway treats "production"

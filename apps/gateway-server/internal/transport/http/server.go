@@ -45,11 +45,11 @@ func withNoDefaultServerHeader() hertzconfig.Option {
 // default 5s and the lifecycle package's longer budget would be
 // silently ignored.
 //
-// HTTP/2 (h2c) support is NOT wired even though cfg.EnableHTTP2
-// exists — Hertz h2c requires additional imports that have not yet
-// been brought in. The current server is HTTP/1.1 with keep-alive,
-// which is sufficient for unit tests, benchmarks, and local smoke
-// tests.
+// The server is HTTP/1.1 with keep-alive. HTTP/2 (h2c) is not wired
+// today because Hertz h2c requires additional imports that have not
+// been brought in. Until that lands, the config surface carries no
+// HTTP/2 knob — accepting an operator toggle that has no effect is
+// worse than requiring a code change to enable it.
 func NewServer(cfg *config.Config, handler *proxy.Handler) *server.Hertz {
 	h := server.Default(
 		server.WithHostPorts(cfg.HTTPAddr),

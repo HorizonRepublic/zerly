@@ -21,16 +21,13 @@ func TestLoad_AppliesDefaultsWhenOnlyRequiredSet(t *testing.T) {
 	assert.Equal(t, 120*time.Second, cfg.IdleTimeout)
 	assert.Equal(t, int64(1048576), cfg.MaxBodyBytes)
 	assert.Equal(t, 16384, cfg.MaxHeaderBytes)
-	assert.True(t, cfg.EnableHTTP2)
 
 	assert.True(t, cfg.NATSRandomizeUrls)
 	assert.True(t, cfg.NATSDiscoverServers)
-	assert.Equal(t, 1, cfg.NATSConnectionPool)
 	assert.Equal(t, 2*time.Second, cfg.NATSReconnectWait)
 	assert.Equal(t, -1, cfg.NATSMaxReconnects)
 
 	assert.Equal(t, "handler_registry", cfg.KVBucket)
-	assert.Equal(t, 5*time.Second, cfg.KVWatchTimeout)
 
 	assert.Equal(t, 30*time.Second, cfg.RequestTimeout)
 	assert.Equal(t, 30*time.Second, cfg.ShutdownTimeout)
@@ -40,11 +37,6 @@ func TestLoad_AppliesDefaultsWhenOnlyRequiredSet(t *testing.T) {
 
 	assert.Equal(t, "info", cfg.LogLevel)
 	assert.Equal(t, "json", cfg.LogFormat)
-	assert.True(t, cfg.LogRequests)
-	assert.False(t, cfg.LogRequestBody)
-	assert.False(t, cfg.LogResponseBody)
-	assert.Equal(t, 1000, cfg.LogSlowRequestMs)
-	assert.Equal(t, 1, cfg.LogSamplingRate)
 
 	assert.Equal(t, "production", cfg.Environment)
 	assert.True(t, cfg.IsProduction())
