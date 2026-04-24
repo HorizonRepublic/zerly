@@ -47,7 +47,6 @@ const warnIfSameSiteNoneWithoutSecure = (name: string, merged: ICookieOptions): 
   }
 
   sameSiteNoneInsecureWarned.add(name);
-  // eslint-disable-next-line no-console
   console.warn(
     `gateway: Set-Cookie with SameSite=None MUST be Secure; ` +
       `modern browsers will reject it. Cookie name: ${name}.`,
