@@ -147,6 +147,25 @@ func TestLoad_TrustedProxies_InvalidCIDR_FailsStartupClosed(t *testing.T) {
 		"error must include the invalid value")
 }
 
+// TestLoad_TrustedProxiesMalformed pins the operator-facing error
+// surface when a CIDR list mixes a malformed entry with valid ones.
+// resolver_test.go covers ParseCIDRList directly; this test asserts
+// the wrapping at Load() preserves the offending substring so an
+// operator scanning a startup log finds the bad token without
+// needing to grep the source.
+func TestLoad_TrustedProxiesMalformed(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("TRUSTED_PROXIES", "not-a-cidr,10.0.0.0/8")
+
+	_, err := Load()
+	require.Error(t, err,
+		"any single malformed CIDR must fail Load() — fail-closed startup")
+	assert.Contains(t, err.Error(), "TRUSTED_PROXIES",
+		"error must name the offending env var for operator diagnosis")
+	assert.Contains(t, err.Error(), "not-a-cidr",
+		"error must include the malformed substring so the operator can spot it in the env value")
+}
+
 func TestLoad_RateLimitDefaults(t *testing.T) {
 	setRequiredEnv(t)
 
