@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"os"
 	"sync/atomic"
+	"time"
 
 	natsgo "github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -37,6 +38,16 @@ import (
 	natstransport "github.com/HorizonRepublic/zerly/apps/gateway-server/internal/transport/nats"
 )
 
+// rateLimitRetryInterval is how often the gateway re-runs
+// ensureRateLimitBackends in the background to recover from
+// transient init failures (e.g., a NATS-KV bucket that was
+// momentarily unreachable at boot). Thirty seconds balances
+// "recover within the typical operator's eyes-on window after a
+// flap" against "no observable load on the cluster from a healthy
+// gateway" — by definition the loop is a no-op for any backend
+// already registered.
+const rateLimitRetryInterval = 30 * time.Second
+
 // main wires the gateway end-to-end. The body is intentionally a flat
 // sequence of helper calls so the control flow — config, logger,
 // NATS, KV, registry, routing, requester, handler, HTTP server,
@@ -50,28 +61,49 @@ func main() {
 		Str("kv_bucket", cfg.KVBucket).
 		Msg("starting zerly-gateway-server")
 
-	ctx := context.Background()
+	// retryCtx bounds the lifetime of the rate-limit backend retry
+	// goroutine. Cancelling it on shutdown prevents the goroutine from
+	// re-touching the Router after lifecycle.Drain has called its
+	// Close — re-touching a closed Router only loses the operator a
+	// stack trace; the Router refuses post-Close registrations
+	// gracefully, but cancelling avoids the noise.
+	retryCtx, cancelRetry := context.WithCancel(context.Background())
+	defer cancelRetry()
 
 	nc := connectNATSOrDie(cfg, logger)
-	js, kv := openKVOrDie(ctx, nc, cfg, logger)
+	js, kv := openKVOrDie(retryCtx, nc, cfg, logger)
 
 	store := registry.NewStore()
 	watcher := registry.NewWatcher(kv, store, logger)
 	currentTable := installRoutingRebuild(store, watcher, logger)
 
-	if err := watcher.Start(ctx); err != nil {
-		logger.Fatal().Err(err).Msg("registry watcher start failed")
-	}
-
 	rlRouter := ratelimit.NewRouter(
 		ratelimit.FailPolicy(cfg.RateLimitFailPolicy).Resolve(),
 		logger,
 	)
-	ensureRateLimitBackends(ctx, rlRouter, store, cfg, js, logger)
+
+	// Register the rate-limit ensure callback BEFORE Start so the
+	// initial-snapshot path inside Start fires the callback together
+	// with the routing rebuild — not after, which would leave a
+	// brief window where the routing table refers to backends the
+	// Router has not yet registered.
 	watcher.OnChange(func() {
-		ensureRateLimitBackends(ctx, rlRouter, store, cfg, js, logger)
+		ensureRateLimitBackends(retryCtx, rlRouter, store, cfg, js, logger)
 	})
-	defer func() { _ = rlRouter.Close() }()
+
+	if err := watcher.Start(retryCtx); err != nil {
+		logger.Fatal().Err(err).Msg("registry watcher start failed")
+	}
+
+	// Background retry goroutine: re-runs ensureRateLimitBackends on
+	// a fixed cadence so a backend that failed to initialise at boot
+	// (e.g., transient NATS-KV unavailability) eventually recovers
+	// without waiting for a registry KV change to wake the watcher
+	// callback. EnsureBackend is a no-op for already-registered
+	// backends, so the retry path is observable load only when there
+	// is something to fix. The goroutine exits when retryCtx is
+	// cancelled by main's defer on shutdown.
+	startRateLimitRetryLoop(retryCtx, rlRouter, store, cfg, js, logger)
 
 	requester := buildRequesterOrDie(nc, logger)
 	handler := buildProxyHandler(cfg, currentTable, requester, rlRouter, logger)
@@ -99,12 +131,20 @@ func main() {
 
 	sig := lifecycle.WaitForSignal()
 	logger.Info().Str("signal", sig.String()).Msg("shutdown signal received")
+
+	// Cancel the retry loop before Drain so the background goroutine
+	// stops touching the Router while Drain.closeRateLimitRouter is
+	// running. Defer-driven cancel would also work but explicit here
+	// keeps the shutdown ordering visible at the call site.
+	cancelRetry()
+
 	lifecycle.Drain(lifecycle.Options{
-		HTTP:    httpServer,
-		Watcher: watcher,
-		NATS:    nc,
-		Timeout: cfg.ShutdownTimeout,
-		Logger:  logger,
+		HTTP:      httpServer,
+		Watcher:   watcher,
+		RateLimit: rlRouter,
+		NATS:      nc,
+		Timeout:   cfg.ShutdownTimeout,
+		Logger:    logger,
 	})
 }
 
@@ -347,6 +387,42 @@ func rateLimitBackendFactory(
 	default:
 		return nil
 	}
+}
+
+// startRateLimitRetryLoop spawns a background goroutine that
+// periodically re-runs ensureRateLimitBackends on a rateLimitRetryInterval
+// cadence so a backend that failed to initialise at boot (e.g., the
+// NATS-KV bucket was momentarily unreachable during the very first
+// EnsureBackend call) recovers without waiting for a watcher delta
+// to fire the registry callback.
+//
+// The retry path is idempotent because Router.EnsureBackend short-
+// circuits for already-registered backends — a healthy gateway pays
+// only the cost of one map lookup per backend id per tick. The
+// goroutine exits when ctx is cancelled, which the main bootstrap
+// does immediately before invoking lifecycle.Drain so the goroutine
+// cannot race the router's Close path.
+func startRateLimitRetryLoop(
+	ctx context.Context,
+	router *ratelimit.Router,
+	store *registry.Store,
+	cfg *config.Config,
+	js jetstream.JetStream,
+	logger zerolog.Logger,
+) {
+	go func() {
+		ticker := time.NewTicker(rateLimitRetryInterval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				ensureRateLimitBackends(ctx, router, store, cfg, js, logger)
+			}
+		}
+	}()
 }
 
 // ensureRateLimitBackends registers a Store with the Router for
