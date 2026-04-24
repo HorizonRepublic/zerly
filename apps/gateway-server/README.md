@@ -117,81 +117,116 @@ Produces `dist/apps/gateway-server/gateway` — a statically linked binary suita
 
 ```bash
 NATS_URLS=nats://localhost:4222 \
-HTTP_ADDR=:8080 \
 KV_BUCKET=handler_registry \
+HTTP_ADDR=:8080 \
 LOG_FORMAT=console LOG_LEVEL=info \
   ./dist/apps/gateway-server/gateway
 ```
 
-The gateway refuses to start if the KV bucket does not exist. In normal operation the NestJS services using `@zerly/gateway-sdk` (via `@horizon-republic/nestjs-jetstream`) create the bucket automatically the first time they register a handler — so start the services before the gateway on a cold cluster.
+`NATS_URLS` and `KV_BUCKET` are the only required variables. The gateway refuses to start if either is missing or empty, or if the configured bucket does not exist on the NATS cluster. In normal operation the NestJS services using `@zerly/gateway-sdk` (via `@horizon-republic/nestjs-jetstream`) create the bucket automatically the first time they register a handler — so start the services before the gateway on a cold cluster.
 
 ## Configuration
 
-All settings are environment variables, grouped by concern. Only `NATS_URLS` is required; everything else has a sensible default.
+All settings are environment variables, grouped by concern. The struct definition in [`internal/config/config.go`](internal/config/config.go) is the source of truth; the tables below mirror its `env:"..."` tags exactly. A regression test (`TestReadmeEnvListMatchesStruct`) fails CI if the two diverge.
+
+`NATS_URLS` and `KV_BUCKET` are the only required variables. Everything else has a default suitable for a production deploy.
 
 ### HTTP
 
-| Variable | Default | Notes |
-|---|---|---|
-| `HTTP_ADDR` | `:8080` | `host:port` for the public listener |
-| `HTTP_READ_TIMEOUT` | `10s` | Full request (headers + body) read deadline |
-| `HTTP_WRITE_TIMEOUT` | `30s` | Full response write deadline |
-| `HTTP_IDLE_TIMEOUT` | `120s` | Keep-alive idle deadline |
-| `HTTP_MAX_BODY_BYTES` | `1048576` | Max request body size (413 above) |
-| `HTTP_MAX_HEADER_BYTES` | `16384` | Max header block size |
-| `HTTP_ENABLE_H2` | `true` | Toggle h2c (cleartext HTTP/2) — reserved; not yet wired |
+| Variable | Type | Default | Description |
+|---|---|---|---|
+| `HTTP_ADDR` | `host:port` | `:8080` | TCP listen address for the public HTTP server. Empty host binds all interfaces. See `Config.HTTPAddr`. |
+| `HTTP_READ_TIMEOUT` | duration | `10s` | Full request (headers + body) read deadline. See `Config.ReadTimeout`. |
+| `HTTP_WRITE_TIMEOUT` | duration | `35s` | Full response write deadline. **MUST be strictly greater than `REQUEST_TIMEOUT`** so a 504 emitted on request deadline can still be flushed before the HTTP write deadline fires. See `Config.WriteTimeout`. |
+| `HTTP_IDLE_TIMEOUT` | duration | `120s` | Keep-alive idle deadline before the server closes the connection. See `Config.IdleTimeout`. |
+| `HTTP_MAX_BODY_BYTES` | int64 | `1048576` | Max request body size in bytes; oversized requests get 413. See `Config.MaxBodyBytes`. |
+| `HTTP_MAX_HEADER_BYTES` | int | `16384` | Max header block size in bytes (sum across all headers). See `Config.MaxHeaderBytes`. |
 
-### NATS
+### Security / trusted proxy
 
-| Variable | Default | Notes |
-|---|---|---|
-| `NATS_URLS` | — | **Required.** Comma-separated URLs (`nats://a:4222,nats://b:4222`) |
-| `NATS_RANDOMIZE_URLS` | `true` | Shuffle URLs before dialling |
-| `NATS_DISCOVER_SERVERS` | `true` | Track cluster topology changes |
-| `NATS_USER` / `NATS_PASSWORD` | — | Plain-password auth |
-| `NATS_CREDS_FILE` | — | NKey credentials file path (NGS / JWT) |
-| `NATS_CONNECTION_POOL` | `1` | Parallel `*nats.Conn` instances; raise only after benchmarking contention |
-| `NATS_RECONNECT_WAIT` | `2s` | Delay between reconnect attempts |
-| `NATS_MAX_RECONNECTS` | `-1` | Retry forever by default |
-| `NATS_RECONNECT_BUFSIZE` | `8388608` | In-memory buffer for outgoing messages while disconnected |
+| Variable | Type | Default | Description |
+|---|---|---|---|
+| `TRUSTED_PROXIES` | sentinel \| CIDR list | `private` (when unset) | Trusted upstream proxies for `X-Forwarded-For` resolution. Forms: `""` (trust nothing — always use peer IP), `"private"` (expand to the 7 private/loopback ranges), or a literal comma-separated CIDR list (`"10.0.0.0/8,172.16.0.0/12"`). Invalid CIDR fails `Load()` fail-closed. See `Config.TrustedProxiesRaw` / `Config.TrustedProxies`. |
 
-### Registry (KV)
+### NATS transport
 
-| Variable | Default | Notes |
-|---|---|---|
-| `KV_BUCKET` | `handler_registry` | JetStream KV bucket to watch |
-| `KV_WATCH_TIMEOUT` | `5s` | Initial hydration timeout; startup aborts if exceeded |
+| Variable | Type | Default | Description |
+|---|---|---|---|
+| `NATS_URLS` | URL list | — (**REQUIRED**) | Comma-separated NATS server URLs. Single URL, static cluster list, or DNS-resolvable hostname (the client resolves A/SRV records). See `Config.NATSUrls`. |
+| `NATS_RANDOMIZE_URLS` | bool | `true` | Shuffle `NATS_URLS` before dialling to spread initial connections across cluster nodes. See `Config.NATSRandomizeUrls`. |
+| `NATS_DISCOVER_SERVERS` | bool | `true` | Pick up new cluster nodes via the client-side server-discovery protocol. See `Config.NATSDiscoverServers`. |
+| `NATS_USER` | string | — | Username for password auth. Leave empty for creds-file or no auth. See `Config.NATSUser`. |
+| `NATS_PASSWORD` | string | — | Password for password auth. See `Config.NATSPassword`. |
+| `NATS_CREDS_FILE` | path | — | NKey credentials file (NGS / decentralised JWT auth). See `Config.NATSCredsFile`. |
+| `NATS_RECONNECT_WAIT` | duration | `2s` | Delay between reconnect attempts after the connection drops. See `Config.NATSReconnectWait`. |
+| `NATS_MAX_RECONNECTS` | int | `-1` | Cap on reconnect attempts. `-1` retries forever — the right default for a gateway that must survive cluster restarts. See `Config.NATSMaxReconnects`. |
+| `NATS_RECONNECT_BUFSIZE` | int | `8388608` | In-memory buffer (bytes) for messages published while the connection is temporarily down. See `Config.NATSReconnectBufSize`. |
+
+### Handler registry (KV)
+
+| Variable | Type | Default | Description |
+|---|---|---|---|
+| `KV_BUCKET` | string | — (**REQUIRED**) | NATS KV bucket the gateway watches for handler registry entries. No default: a typical NATS account is shared across deploy stages and a silent fallback would risk cross-environment data leakage. See `Config.KVBucket`. |
 
 ### Request lifecycle
 
-| Variable | Default | Notes |
-|---|---|---|
-| `REQUEST_TIMEOUT` | `30s` | Per-request deadline passed to the upstream handler via the envelope |
-| `SHUTDOWN_TIMEOUT` | `30s` | Global timeout for the graceful drain sequence |
+| Variable | Type | Default | Description |
+|---|---|---|---|
+| `REQUEST_TIMEOUT` | duration | `30s` | Per-request hard deadline applied to the full handler pipeline (RPC round-trip included). See `Config.RequestTimeout`. |
+| `SHUTDOWN_TIMEOUT` | duration | `30s` | Wall-clock budget for the graceful-shutdown drain sequence before force-close. See `Config.ShutdownTimeout`. |
+
+### Rate limiting
+
+| Variable | Type | Default | Description |
+|---|---|---|---|
+| `RATELIMIT_FAIL_POLICY` | enum | `open` | Behavior when the distributed rate-limit store fails (network error, breaker open, CAS budget exhausted). `open` favors availability — a few requests slip past the limit during the outage. `closed` rejects with 503 — for compliance-critical deployments where the RL contract must hold under backend outage. **Normal rate-limit rejections (bucket empty under healthy backend) always return 429 regardless.** See `Config.RateLimitFailPolicy`. |
+| `RATELIMIT_KEY_TTL` | duration | `10m` | Stale-key cleanup threshold. **Semantics depend on the store backend:** `memory` treats it as the idle-entry sweep interval (active keys retained indefinitely); `nats-kv` treats it as bucket MaxAge (keys reaped after the duration regardless of activity). Raise for `nats-kv` deployments where state must survive long traffic gaps. See `Config.RateLimitKeyTTL`. |
+| `RATELIMIT_TIMEOUT` | duration | `50ms` | Per-request wall-clock budget for the rate-limit gate evaluation. Separate from `REQUEST_TIMEOUT` so a flaky distributed store cannot starve handler latency under retry pressure. Bounds: `> 0` and `≤ 1s` (rejected at `Load()` otherwise). See `Config.RateLimitTimeout`. |
 
 ### Logging
 
-| Variable | Default | Notes |
-|---|---|---|
-| `LOG_LEVEL` | `info` | `trace`, `debug`, `info`, `warn`, `error`, `fatal`, `panic`, `disabled` |
-| `LOG_FORMAT` | `json` | `json` for production, `console` for human-friendly local output |
-| `LOG_REQUESTS` | `true` | Access-log-style per-request entries |
-| `LOG_REQUEST_BODY` | `false` | Include request body in logs — expensive, leaks PII |
-| `LOG_RESPONSE_BODY` | `false` | Include response body in logs — expensive, leaks PII |
-| `LOG_SLOW_REQUEST_MS` | `1000` | Additionally log any request whose latency exceeds this at `warn` |
-| `LOG_SAMPLING_RATE` | `1` | 1-in-N sampling when `LOG_REQUESTS` is on |
+| Variable | Type | Default | Description |
+|---|---|---|---|
+| `LOG_LEVEL` | enum | `info` | Minimum zerolog level: `trace`, `debug`, `info`, `warn`, `error`, `fatal`, `panic`, `disabled`. See `Config.LogLevel`. |
+| `LOG_FORMAT` | enum | `json` | Output encoding: `json` for production, `console` for human-friendly colored output in local dev. See `Config.LogFormat`. |
 
-### Other
+### Runtime
 
-| Variable | Default | Notes |
-|---|---|---|
-| `ENVIRONMENT` | `production` | Free-form label; `production` redacts sensitive error detail from responses |
-| `METRICS_ENABLED` | `true` | Prometheus endpoint toggle |
-| `METRICS_ADDR` | `:9090` | Metrics listener (separate from the public HTTP port) |
-| `METRICS_PATH` | `/metrics` | Metrics HTTP path |
-| `HEALTH_ENABLED` | `true` | Liveness / readiness endpoints toggle |
-| `HEALTH_LIVE_PATH` | `/_gateway/live` | Liveness probe path |
-| `HEALTH_READY_PATH` | `/_gateway/ready` | Readiness probe path |
+| Variable | Type | Default | Description |
+|---|---|---|---|
+| `ENVIRONMENT` | string | `production` | Free-form deployment-tier label. The value `production` triggers redaction of sensitive error details from HTTP responses (`Config.IsProduction()`). See `Config.Environment`. |
+
+## Metrics & counters
+
+The rate-limit subsystem exports counter snapshots via `Counters() map[string]int64` on the `Router`, `MemoryStore`, and `NATSKVStore` types in [`internal/ratelimit/`](internal/ratelimit/). These names are the contract OpenTelemetry export will adopt; treat them as the operator-facing observability surface even before the OTel wiring lands.
+
+The current set is documented as **experimental — names may change** because the unified counter schema across stores is still evolving on the rate-limit side. Once the schema is unified the table below will move to **stable**.
+
+### Router (`ratelimit.Router.Counters()`)
+
+| Counter | Type | Description | Stability |
+|---|---|---|---|
+| `ratelimit_store_fallback` | counter | Times the router fell back from the declared store to a downgrade target (e.g. `nats-kv → memory` after a sustained outage). | Experimental |
+
+### Memory store (`ratelimit.MemoryStore.Counters()`)
+
+| Counter | Type | Description | Stability |
+|---|---|---|---|
+| `ratelimit_memory_decisions_allowed` | counter | Allow decisions emitted by the in-process GCRA evaluator. | Experimental |
+| `ratelimit_memory_decisions_rejected` | counter | Reject decisions emitted by the in-process GCRA evaluator (bucket empty). | Experimental |
+
+### NATS KV store (`ratelimit.NATSKVStore.Counters()`)
+
+| Counter | Type | Description | Stability |
+|---|---|---|---|
+| `ratelimit_natskv_decisions_allowed` | counter | Allow decisions confirmed via successful CAS. | Experimental |
+| `ratelimit_natskv_decisions_rejected` | counter | Reject decisions confirmed via successful CAS (bucket empty). | Experimental |
+| `ratelimit_natskv_cas_retries` | counter | CAS write retries triggered by concurrent updates on the same key. | Experimental |
+| `ratelimit_natskv_budget_exhausted` | counter | Decisions abandoned because the per-request CAS retry budget ran out. | Experimental |
+| `ratelimit_natskv_circuit_state` | gauge | Current circuit breaker state encoded as int (0 closed, 1 half-open, 2 open). | Experimental |
+| `ratelimit_natskv_breaker_transitions` | counter | Breaker state transitions over the process lifetime. | Experimental |
+| `ratelimit_natskv_circuit_rejected` | counter | Decisions short-circuited because the breaker was open. | Experimental |
+| `ratelimit_natskv_corrupt_tat` | counter | Stored TAT values that failed decode and were treated as a fail-policy event rather than silently reset. | Experimental |
 
 ## Tests
 
