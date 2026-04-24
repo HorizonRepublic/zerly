@@ -13,7 +13,7 @@ import (
 
 func TestMemoryStore_FirstRequestAllowed(t *testing.T) {
 	s := NewMemoryStore(time.Minute)
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 
 	d, err := s.Allow(context.Background(), "k", 10, 20)
 	require.NoError(t, err)
@@ -23,7 +23,7 @@ func TestMemoryStore_FirstRequestAllowed(t *testing.T) {
 
 func TestMemoryStore_RejectsWhenBurstExhausted(t *testing.T) {
 	s := NewMemoryStore(time.Minute)
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 	ctx := context.Background()
 
 	// rps=100 → period=10ms, delayTol=50ms. The full drain-plus-boundary
@@ -47,7 +47,7 @@ func TestMemoryStore_RejectsWhenBurstExhausted(t *testing.T) {
 
 func TestMemoryStore_ConcurrentAllowsSerializeCorrectly(t *testing.T) {
 	s := NewMemoryStore(time.Minute)
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 
 	// 100 goroutines race a single-key bucket. rps is chosen so that
 	// wall-clock goroutine dispatch (single-digit ms) cannot drive a
@@ -85,7 +85,7 @@ func TestMemoryStore_ConcurrentAllowsSerializeCorrectly(t *testing.T) {
 
 func TestMemoryStore_FlushPrefixRemovesMatchingKeys(t *testing.T) {
 	s := NewMemoryStore(time.Minute)
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 	ctx := context.Background()
 
 	_, _ = s.Allow(ctx, "GET.a.b", 10, 20)
@@ -105,7 +105,7 @@ func TestMemoryStore_TTLSweepRemovesIdleEntries(t *testing.T) {
 	// max(ttl/10, 1s), so we must wait longer than one full tick
 	// after entry expiry to observe the delete.
 	s := NewMemoryStore(100 * time.Millisecond)
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 	ctx := context.Background()
 
 	_, _ = s.Allow(ctx, "k", 10, 20)

@@ -49,7 +49,6 @@ type fakeKV struct {
 	entries map[string]fakeEntry
 	nextRev uint64
 
-	getErr        error
 	writeErr      error
 	conflictCount int
 
@@ -60,12 +59,6 @@ type fakeKV struct {
 
 func newFakeKV() *fakeKV {
 	return &fakeKV{entries: map[string]fakeEntry{}, nextRev: 1}
-}
-
-func (k *fakeKV) setGetError(err error) {
-	k.mu.Lock()
-	defer k.mu.Unlock()
-	k.getErr = err
 }
 
 func (k *fakeKV) setWriteError(err error) {
@@ -92,9 +85,6 @@ func (k *fakeKV) Get(_ context.Context, key string) (kvEntry, error) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	k.getCalls++
-	if k.getErr != nil {
-		return nil, k.getErr
-	}
 	e, ok := k.entries[key]
 	if !ok {
 		return nil, errKVKeyNotFound
