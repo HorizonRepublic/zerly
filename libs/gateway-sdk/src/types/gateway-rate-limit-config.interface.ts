@@ -32,13 +32,11 @@ export type RateLimitKey = 'ip' | `header:${string}` | `cookie:${string}` | `use
  *   in the Go gateway.** Using `'redis'` today logs a warning on
  *   startup and falls back to `'memory'` for the affected route.
  *   Full Redis support is a planned future addition.
- *
  * @remarks Store selection is applied per-route. A gateway process
  * can serve `'memory'`-backed and `'nats-kv'`-backed routes
  * simultaneously — each route's `store` field independently
  * selects its backend.
- *
- * @defaultValue `'memory'`
+ * @default `'memory'`
  */
 export type RateLimitStore = 'memory' | 'nats-kv' | 'redis';
 
