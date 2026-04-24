@@ -19,7 +19,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**Zerly** (`nestkit-x`) is an Nx monorepo publishing a suite of performant NestJS modules under the `@zerly/*` npm scope. It uses **pnpm**, **NestJS 11**, **Fastify** as the HTTP adapter, and **typia** for compile-time + runtime type validation (instead of class-validator).
+**Zerly** (`nestkit-x`) is an Nx monorepo publishing a suite of performant NestJS modules under the `@zerly/*` npm scope. It uses **pnpm**, **NestJS 12 (alpha)**, **Fastify** as the HTTP adapter, and **typia** for compile-time + runtime type validation (instead of class-validator).
 
 ## Commands
 
