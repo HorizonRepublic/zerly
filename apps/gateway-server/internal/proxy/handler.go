@@ -410,14 +410,43 @@ func (h *Handler) runAuthFlow(
 
 	// Forward the verifier's reply verbatim — this is how verifier-set
 	// headers like WWW-Authenticate reach the client.
+	merged := mergeHeaders(reply.Headers, in.RequestID)
+	stampDefaultWWWAuthenticate(reply.Status, merged)
+
 	return &authFlowResult{
 		Proceed: false,
 		ShortCircuit: &ServeResult{
 			Status:  reply.Status,
-			Headers: mergeHeaders(reply.Headers, in.RequestID),
+			Headers: merged,
 			Body:    reply.Body,
 		},
 	}
+}
+
+// stampDefaultWWWAuthenticate enforces RFC 9110 §11.6.1: a 401
+// response MUST include a `WWW-Authenticate` challenge header. When a
+// verifier replies 401 without supplying its own challenge (the common
+// case for token-only APIs that just map "no/invalid token" to 401),
+// the gateway stamps a generic `Bearer realm="gateway"` so the wire
+// response stays spec-compliant regardless of the upstream verifier's
+// hygiene.
+//
+// Applies only to 401 replies. Other statuses are untouched. The
+// presence check is case-insensitive because mergeHeaders preserves
+// the upstream casing and browsers/clients match case-insensitively
+// per RFC 9110 §5.1.
+func stampDefaultWWWAuthenticate(status int, headers map[string][]string) {
+	if status != 401 {
+		return
+	}
+
+	for key := range headers {
+		if strings.EqualFold(key, "www-authenticate") {
+			return
+		}
+	}
+
+	headers["www-authenticate"] = []string{`Bearer realm="gateway"`}
 }
 
 // mergeHeaders combines the reply headers with gateway-owned defaults.

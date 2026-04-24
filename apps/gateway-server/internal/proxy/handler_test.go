@@ -310,6 +310,68 @@ func TestHandler_ShortCircuitsOn401FromVerifier(t *testing.T) {
 	assert.Equal(t, verifierSubject, nats.requests[0].subject)
 }
 
+func TestHandler_StampsDefaultWWWAuthenticateOn401WhenVerifierOmitsIt(t *testing.T) {
+	// RFC 9110 §11.6.1: a 401 response MUST carry a WWW-Authenticate
+	// challenge. Verifiers that return 401 without one would make the
+	// gateway emit a spec-violating response; the handler stamps a
+	// default `Bearer realm="gateway"` in that case.
+	routeSubject := "users-svc__microservice.cmd.users.me"
+	verifierSubject := "users-svc__microservice.cmd.auth.verifier.jwt"
+
+	route := routing.Route{
+		Subject:      routeSubject,
+		Method:       "GET",
+		PathTemplate: "/users/me",
+		Auth:         &routing.RouteAuth{VerifierSubject: verifierSubject},
+	}
+
+	nats := newFakeNats()
+	nats.program(
+		verifierSubject,
+		[]byte(`{"status":401,"headers":{},"body":{"error":"Unauthorized"}}`),
+		nil,
+	)
+
+	sut := newAuthHandler(stubTable(route), nats)
+
+	result := sut.Handle(authServeInput("GET", "/users/me"))
+
+	assert.Equal(t, 401, result.Status)
+	assert.Equal(t, []string{`Bearer realm="gateway"`}, result.Headers["www-authenticate"])
+}
+
+func TestHandler_PreservesVerifierWWWAuthenticateOn401(t *testing.T) {
+	// When the verifier supplies its own challenge, the gateway must
+	// forward it verbatim — custom realm, scope, or error parameters
+	// are part of the verifier's contract with its clients.
+	routeSubject := "users-svc__microservice.cmd.users.me"
+	verifierSubject := "users-svc__microservice.cmd.auth.verifier.jwt"
+
+	route := routing.Route{
+		Subject:      routeSubject,
+		Method:       "GET",
+		PathTemplate: "/users/me",
+		Auth:         &routing.RouteAuth{VerifierSubject: verifierSubject},
+	}
+
+	nats := newFakeNats()
+	nats.program(
+		verifierSubject,
+		[]byte(`{"status":401,"headers":{"www-authenticate":["Bearer realm=\"users\", error=\"invalid_token\""]},"body":{"error":"Unauthorized"}}`),
+		nil,
+	)
+
+	sut := newAuthHandler(stubTable(route), nats)
+
+	result := sut.Handle(authServeInput("GET", "/users/me"))
+
+	assert.Equal(t, 401, result.Status)
+	assert.Equal(t,
+		[]string{`Bearer realm="users", error="invalid_token"`},
+		result.Headers["www-authenticate"],
+	)
+}
+
 func TestHandler_OptionalAuthContinuesOn401(t *testing.T) {
 	routeSubject := "users-svc__microservice.cmd.articles.get"
 	verifierSubject := "users-svc__microservice.cmd.auth.verifier.jwt"
