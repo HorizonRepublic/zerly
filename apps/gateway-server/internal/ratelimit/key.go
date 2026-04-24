@@ -89,6 +89,18 @@ func BuildBucketKey(method, pathTemplate, resolvedKey string) string {
 // Falls back to clientIP if nothing resolves.
 //
 // headerFn and cookieFn are injected to decouple from any HTTP framework.
+//
+// Header suffixes are folded to lowercase before headerFn lookup
+// because every wire-level adapter (Hertz / net/http) lowercases
+// header keys when building the inbound map. Operators can therefore
+// write keyBy entries in any casing — `header:X-Api-Key`,
+// `header:x-api-key`, `header:X-API-KEY` all resolve identically.
+// Cookie suffixes are passed through verbatim because RFC 6265
+// declares cookie names case-sensitive on the wire.
+//
+// User claim suffixes are also passed through verbatim — JWT claim
+// names are case-sensitive (RFC 7519 §4) and a misspelling MUST fail
+// the lookup rather than silently match a sibling claim.
 func ResolveKey(
 	keyBy []string,
 	clientIP string,
@@ -102,7 +114,7 @@ func ResolveKey(
 			return clientIP
 
 		case strings.HasPrefix(key, "header:"):
-			if v := headerFn(key[7:]); v != "" {
+			if v := headerFn(strings.ToLower(key[7:])); v != "" {
 				return v
 			}
 

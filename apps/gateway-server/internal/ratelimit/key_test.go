@@ -35,6 +35,40 @@ func TestResolveKey_IPAlwaysResolves(t *testing.T) {
 	assert.Equal(t, "1.2.3.4", key)
 }
 
+// TestResolveKey_HeaderLookupIsCaseInsensitive pins the case-folding
+// of the header suffix passed in keyBy entries. Adapters lowercase
+// header names on the wire, so a config entry like "header:X-Api-Key"
+// MUST resolve against the lowercase map without forcing the operator
+// to write the keyBy chain in lowercase — otherwise mixed-case
+// configs silently fall back to clientIP and collapse all NAT'd
+// clients onto one bucket.
+func TestResolveKey_HeaderLookupIsCaseInsensitive(t *testing.T) {
+	headerFn := func(name string) string {
+		if name == "x-api-key" {
+			return "api-key-val"
+		}
+
+		return ""
+	}
+
+	cases := []struct {
+		name string
+		key  string
+	}{
+		{"all-lowercase", "header:x-api-key"},
+		{"canonical-mime", "header:X-Api-Key"},
+		{"all-uppercase", "header:X-API-KEY"},
+		{"mixed-case", "header:x-API-key"},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := ratelimit.ResolveKey([]string{c.key, "ip"}, "1.2.3.4", headerFn, noCookie, nil)
+			assert.Equal(t, "api-key-val", got)
+		})
+	}
+}
+
 func TestResolveKey_HeaderResolvesWhenPresent(t *testing.T) {
 	headerFn := func(name string) string {
 		if name == "x-api-key" {
