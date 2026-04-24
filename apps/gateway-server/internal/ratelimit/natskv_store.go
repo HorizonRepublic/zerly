@@ -113,13 +113,14 @@ type NATSKVStore struct {
 	budget  time.Duration
 
 	counters struct {
-		allowed             atomic.Int64
-		rejected            atomic.Int64
-		casRetries          atomic.Int64
-		budgetExhausted     atomic.Int64
-		circuitState        atomic.Int64
-		breakerTransitions  atomic.Int64
-		circuitRejected     atomic.Int64
+		allowed            atomic.Int64
+		rejected           atomic.Int64
+		casRetries         atomic.Int64
+		budgetExhausted    atomic.Int64
+		circuitState       atomic.Int64
+		breakerTransitions atomic.Int64
+		circuitRejected    atomic.Int64
+		corruptTAT         atomic.Int64
 	}
 }
 
@@ -265,8 +266,24 @@ func (s *NATSKVStore) allowInternal(ctx context.Context, key string, rps, burst 
 		var rev uint64
 		switch {
 		case err == nil:
-			currentTAT, _ = decodeTAT(entry.Value())
 			rev = entry.Revision()
+			decoded, decodeErr := decodeTAT(entry.Value())
+			if decodeErr != nil {
+				// Corrupt entry (wrong version byte, wrong length, or
+				// the byte layout has drifted from a future schema).
+				// Fall back to a fresh bucket — safer than panicking
+				// or refusing service — but emit a loud structured
+				// WARN so operators spot the drift in logs.
+				s.counters.corruptTAT.Add(1)
+				s.logger.Warn().
+					Str("event", "ratelimit.kv.corrupt_tat").
+					Str("key", key).
+					Uint64("revision", rev).
+					Err(decodeErr).
+					Msg("ratelimit: corrupt TAT in KV; resetting bucket")
+			} else {
+				currentTAT = decoded
+			}
 		case errors.Is(err, errKVKeyNotFound):
 			// Fresh bucket; currentTAT stays zero, rev stays 0.
 		default:
@@ -385,12 +402,13 @@ func sleepCtx(ctx context.Context, d time.Duration) bool {
 // cannot produce a torn read. Intended for OpenTelemetry plumbing.
 func (s *NATSKVStore) Counters() map[string]int64 {
 	return map[string]int64{
-		"ratelimit_natskv_decisions_allowed":  s.counters.allowed.Load(),
-		"ratelimit_natskv_decisions_rejected": s.counters.rejected.Load(),
-		"ratelimit_natskv_cas_retries":        s.counters.casRetries.Load(),
-		"ratelimit_natskv_budget_exhausted":   s.counters.budgetExhausted.Load(),
-		"ratelimit_natskv_circuit_state":      s.counters.circuitState.Load(),
+		"ratelimit_natskv_decisions_allowed":   s.counters.allowed.Load(),
+		"ratelimit_natskv_decisions_rejected":  s.counters.rejected.Load(),
+		"ratelimit_natskv_cas_retries":         s.counters.casRetries.Load(),
+		"ratelimit_natskv_budget_exhausted":    s.counters.budgetExhausted.Load(),
+		"ratelimit_natskv_circuit_state":       s.counters.circuitState.Load(),
 		"ratelimit_natskv_breaker_transitions": s.counters.breakerTransitions.Load(),
-		"ratelimit_natskv_circuit_rejected":   s.counters.circuitRejected.Load(),
+		"ratelimit_natskv_circuit_rejected":    s.counters.circuitRejected.Load(),
+		"ratelimit_natskv_corrupt_tat":         s.counters.corruptTAT.Load(),
 	}
 }

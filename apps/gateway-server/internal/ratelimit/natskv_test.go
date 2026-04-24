@@ -1,12 +1,15 @@
 package ratelimit
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -236,6 +239,56 @@ func TestNATSKVStore_BudgetExhausted(t *testing.T) {
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrCASBudgetExhausted)
 	assert.Equal(t, int64(1), sut.counters.budgetExhausted.Load())
+}
+
+// TestNATSKVStore_CorruptTATRecoversAndLogs guards the decodeTAT
+// fail-soft path: a corrupt KV entry (wrong version byte, truncated
+// layout) MUST NOT panic or silently pass the request through. The
+// store falls back to a fresh bucket (so the request is evaluated
+// against a zero TAT, which is correct GCRA semantics for "no prior
+// state") while emitting a structured WARN so operators see the drift.
+func TestNATSKVStore_CorruptTATRecoversAndLogs(t *testing.T) {
+	kv := newFakeKV()
+	// Seed an entry whose version byte does not match tatVersion1 —
+	// decodeTAT rejects it and the store must fall back to fresh.
+	kv.setInitial("k", []byte{0xFF, 0, 0, 0, 0, 0, 0, 0, 0})
+
+	var logBuf bytes.Buffer
+	sink := zerolog.New(&logBuf)
+
+	sut := testNATSKVStore(t, kv, withLogger(sink))
+
+	d, err := sut.Allow(context.Background(), "k", 100, 5)
+
+	require.NoError(t, err)
+	assert.True(t, d.Allowed, "fresh bucket allows the first request")
+	assert.Equal(t, int64(1), sut.counters.corruptTAT.Load(),
+		"corrupt-TAT counter must tick so operators see the recovery")
+	assert.Contains(t, sut.Counters(), "ratelimit_natskv_corrupt_tat",
+		"corrupt-TAT counter must appear in the Counters snapshot for OTel export")
+
+	// Walk the JSON-structured log lines and assert the warn record
+	// carries enough context (key, event, decoder error) for an
+	// operator to locate the corrupt entry.
+	var sawCorruptWarn bool
+	for _, line := range bytes.Split(bytes.TrimSpace(logBuf.Bytes()), []byte("\n")) {
+		if len(line) == 0 {
+			continue
+		}
+
+		var record map[string]any
+		require.NoError(t, json.Unmarshal(line, &record), "log sink must emit valid JSON")
+
+		if record["event"] == "ratelimit.kv.corrupt_tat" {
+			sawCorruptWarn = true
+			assert.Equal(t, "warn", record["level"])
+			assert.Equal(t, "k", record["key"])
+			assert.NotEmpty(t, record["error"])
+		}
+	}
+
+	assert.True(t, sawCorruptWarn,
+		"a WARN record with event=ratelimit.kv.corrupt_tat must be emitted")
 }
 
 func TestNATSKVStore_BreakerOpensAfterFailures(t *testing.T) {
