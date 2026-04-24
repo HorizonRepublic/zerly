@@ -314,8 +314,8 @@ func scanNeededBackends(store *registry.Store) map[string]struct{} {
 // are required because ensureRateLimitBackends walks every declared
 // id on every registry delta.
 func rateLimitBackendFactory(
-	id string,
 	ctx context.Context,
+	id string,
 	cfg *config.Config,
 	js jetstream.JetStream,
 	logger zerolog.Logger,
@@ -372,7 +372,7 @@ func ensureRateLimitBackends(
 	logger zerolog.Logger,
 ) {
 	for id := range scanNeededBackends(store) {
-		factory := rateLimitBackendFactory(id, ctx, cfg, js, logger)
+		factory := rateLimitBackendFactory(ctx, id, cfg, js, logger)
 		if factory == nil {
 			continue
 		}

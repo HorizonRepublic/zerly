@@ -210,28 +210,28 @@ func (a *routeLogArray) MarshalZerologArray(arr *zerolog.Array) {
 }
 
 // diffRouteConfig returns a slice of human-readable field names that
-// differ between old and new for a route with the same method+path
+// differ between prev and next for a route with the same method+path
 // identity. Returns nil when the config is identical.
-func diffRouteConfig(old, new Route) []string {
+func diffRouteConfig(prev, next Route) []string {
 	var changes []string
 
-	if !corsEqual(old.CORS, new.CORS) {
+	if !corsEqual(prev.CORS, next.CORS) {
 		changes = append(changes, "cors")
 	}
 
-	if !rateLimitEqual(old.RateLimit, new.RateLimit) {
+	if !rateLimitEqual(prev.RateLimit, next.RateLimit) {
 		changes = append(changes, "rateLimit")
 	}
 
-	if !headersEqual(old.Headers, new.Headers) {
+	if !headersEqual(prev.Headers, next.Headers) {
 		changes = append(changes, "headers")
 	}
 
-	if old.Timeout != new.Timeout {
+	if prev.Timeout != next.Timeout {
 		changes = append(changes, "timeout")
 	}
 
-	if !authEqual(old.Auth, new.Auth) {
+	if !authEqual(prev.Auth, next.Auth) {
 		changes = append(changes, "auth")
 	}
 

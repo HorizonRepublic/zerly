@@ -66,7 +66,10 @@ func (fp FailPolicy) Resolve() Policy {
 type openPolicy struct{}
 
 // Apply returns true (allow on failure). Logs the decision at warn level.
-func (openPolicy) Apply(err error, route routing.Route, key string, logger zerolog.Logger) bool {
+// The key parameter is part of the Policy contract but not read here —
+// open-on-failure logs are route-scoped, not key-scoped, to keep error
+// volume bounded when a backend outage sprays errors across every bucket.
+func (openPolicy) Apply(err error, route routing.Route, _ string, logger zerolog.Logger) bool {
 	logger.Warn().
 		Err(err).
 		Str("route", route.Method+":"+route.PathTemplate).
@@ -78,7 +81,10 @@ func (openPolicy) Apply(err error, route routing.Route, key string, logger zerol
 type closedPolicy struct{}
 
 // Apply returns false (reject on failure). Logs the decision at warn level.
-func (closedPolicy) Apply(err error, route routing.Route, key string, logger zerolog.Logger) bool {
+// The key parameter is part of the Policy contract but not read here —
+// closed-on-failure logs are route-scoped so a backend outage does not
+// fan out into per-key log lines across the fleet.
+func (closedPolicy) Apply(err error, route routing.Route, _ string, logger zerolog.Logger) bool {
 	logger.Warn().
 		Err(err).
 		Str("route", route.Method+":"+route.PathTemplate).
