@@ -5,10 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/nats-io/nats.go/jetstream"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -289,6 +291,44 @@ func TestNATSKVStore_CorruptTATRecoversAndLogs(t *testing.T) {
 
 	assert.True(t, sawCorruptWarn,
 		"a WARN record with event=ratelimit.kv.corrupt_tat must be emitted")
+}
+
+// TestIsBucketAlreadyExistsErr covers the TOCTOU recovery helper. A
+// second replica that raced through js.KeyValue → ErrBucketNotFound →
+// js.CreateKeyValue must classify the resulting ErrBucketExists (or
+// the joined ErrStreamNameAlreadyInUse) as recoverable so it can
+// re-open the bucket the winning pod just created. Unrecognised errors
+// propagate as creation failures.
+func TestIsBucketAlreadyExistsErr(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"nil is not a conflict", nil, false},
+		{"ErrBucketExists sentinel", jetstream.ErrBucketExists, true},
+		{"ErrStreamNameAlreadyInUse sentinel", jetstream.ErrStreamNameAlreadyInUse, true},
+		{
+			"ErrBucketExists wrapped via fmt.Errorf",
+			fmt.Errorf("create bucket %q: %w", "rl", jetstream.ErrBucketExists),
+			true,
+		},
+		{
+			"nats.go-style joined ErrBucketExists + ErrStreamNameAlreadyInUse",
+			errors.Join(
+				fmt.Errorf("%w: %s", jetstream.ErrBucketExists, "rl"),
+				jetstream.ErrStreamNameAlreadyInUse,
+			),
+			true,
+		},
+		{"unrelated error", errors.New("network down"), false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, isBucketAlreadyExistsErr(tc.err))
+		})
+	}
 }
 
 func TestNATSKVStore_BreakerOpensAfterFailures(t *testing.T) {

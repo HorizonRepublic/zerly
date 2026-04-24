@@ -5,6 +5,7 @@ package ratelimit
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -148,6 +149,68 @@ func TestNATSKVStore_Integration_ReplicasInherited(t *testing.T) {
 	info := bucketStatus.StreamInfo()
 	require.NotNil(t, info)
 	assert.Equal(t, 1, info.Config.Replicas)
+}
+
+// TestNATSKVStore_Integration_ConcurrentCreateRace exercises the
+// TOCTOU window between js.KeyValue and js.CreateKeyValue that fires
+// when multiple gateway replicas boot against the same NATS cluster
+// for the first time. Each replica sees ErrBucketNotFound and issues
+// CreateKeyValue; at most one wins, the rest observe ErrBucketExists.
+// The constructor must recover by re-opening the bucket the winner
+// materialised so every replica ends up with a live store.
+func TestNATSKVStore_Integration_ConcurrentCreateRace(t *testing.T) {
+	t.Parallel()
+
+	js := setupJetStream(t)
+	ctx := context.Background()
+
+	const concurrency = 8
+
+	var (
+		wg     sync.WaitGroup
+		start  = make(chan struct{})
+		stores = make([]*NATSKVStore, concurrency)
+		errs   = make([]error, concurrency)
+	)
+
+	wg.Add(concurrency)
+	for i := 0; i < concurrency; i++ {
+		go func(idx int) {
+			defer wg.Done()
+
+			<-start
+
+			store, err := NewNATSKVStore(ctx, NATSKVStoreConfig{
+				JS:            js,
+				HandlerBucket: "handler_registry",
+				BucketSuffix:  "_ratelimit",
+				KeyTTL:        1 * time.Minute,
+				Logger:        zerolog.Nop(),
+			})
+			stores[idx] = store
+			errs[idx] = err
+		}(i)
+	}
+
+	close(start)
+	wg.Wait()
+
+	for i, err := range errs {
+		assert.NoErrorf(t, err, "replica %d failed to acquire the shared bucket", i)
+		require.NotNil(t, stores[i])
+	}
+
+	// Every store must be operational against the single shared
+	// bucket. A late-arriving replica that failed to reopen after
+	// losing the Create race would surface here as a backend error.
+	// Rate-limit-math correctness is not under test here (that's
+	// covered elsewhere) — rps is deliberately huge so GCRA admits
+	// every replica and any reject here would be a real store fault.
+	for i, store := range stores {
+		d, err := store.Allow(ctx, fmt.Sprintf("k-%d", i), 1_000_000, 1000)
+		require.NoErrorf(t, err, "replica %d Allow failed", i)
+		assert.Truef(t, d.Allowed, "replica %d must admit against a fresh per-key bucket", i)
+	}
 }
 
 // TestNATSKVStore_Integration_TTLExpiry proves that KeyTTL maps onto

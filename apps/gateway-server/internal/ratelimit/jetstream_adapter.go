@@ -147,6 +147,15 @@ func inheritReplicas(ctx context.Context, js jetstream.JetStream, handlerBucket 
 // or creates a fresh one with the provided replicas + TTL. The
 // boolean return reports whether a creation happened (true) or the
 // bucket was reused (false); callers use this for log framing only.
+//
+// Multi-replica gateway startup races on this path: two pods may see
+// ErrBucketNotFound on the same KeyValue call and both issue
+// CreateKeyValue, in which case the second Create fails with
+// ErrBucketExists (jetstream wraps ErrStreamNameAlreadyInUse). Treat
+// that loss as success by re-opening the bucket the winning pod just
+// created — functionally equivalent to "we were second and the bucket
+// is now available", which is exactly the idempotent-startup contract
+// this function is supposed to uphold.
 func openOrCreateRatelimitBucket(
 	ctx context.Context,
 	js jetstream.JetStream,
@@ -171,11 +180,38 @@ func openOrCreateRatelimitBucket(
 		TTL:          ttl,
 		MaxValueSize: int32(tatEncodedLength) + 64,
 	})
-	if err != nil {
+	if err == nil {
+		return kv, true, nil
+	}
+
+	if !isBucketAlreadyExistsErr(err) {
 		return nil, false, fmt.Errorf("ratelimit: create bucket %q: %w", bucket, err)
 	}
 
-	return kv, true, nil
+	// A concurrent replica won the creation race. Re-open the bucket
+	// it just materialised; a subsequent ErrBucketNotFound here would
+	// indicate an external deletion in the narrow window between the
+	// two calls and deserves to propagate verbatim.
+	kv, err = js.KeyValue(ctx, bucket)
+	if err != nil {
+		return nil, false, fmt.Errorf("ratelimit: reopen bucket %q after concurrent create: %w", bucket, err)
+	}
+
+	return kv, false, nil
+}
+
+// isBucketAlreadyExistsErr reports whether err signals the "bucket
+// already exists" outcome from CreateKeyValue. nats.go returns
+// ErrBucketExists joined with ErrStreamNameAlreadyInUse in that case;
+// matching on either sentinel keeps the check stable across library
+// versions that toggle the join order.
+func isBucketAlreadyExistsErr(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	return errors.Is(err, jetstream.ErrBucketExists) ||
+		errors.Is(err, jetstream.ErrStreamNameAlreadyInUse)
 }
 
 // logBucketInit emits a single info line on bucket create or reuse
