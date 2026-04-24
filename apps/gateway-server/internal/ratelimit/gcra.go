@@ -50,6 +50,18 @@ type Decision struct {
 // function divides time.Second by rps and will panic on zero);
 // callers MUST validate upstream. The gateway handler enforces
 // this by checking route.RateLimit.RPS > 0 before invoking Check.
+//
+// Example (typical Store backend usage):
+//
+//	currentTAT := storedTAT() // from persistent state
+//	now := time.Now()
+//	decision, newTAT := Check(currentTAT, now, 100, 10)
+//	if decision.Allowed {
+//		persist(newTAT) // GCRA state advances
+//		return OK, decision.Remaining, decision.ResetAt
+//	}
+//	// Reject; do not persist. Client should retry after decision.RetryAfter.
+//	return TooManyRequests, decision.RetryAfter, decision.ResetAt
 func Check(currentTAT, now time.Time, rps, burst int) (Decision, time.Time) {
 	period := time.Second / time.Duration(rps)
 	delayTol := time.Duration(burst) * period

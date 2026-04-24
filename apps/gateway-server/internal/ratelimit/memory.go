@@ -37,6 +37,12 @@ type memoryEntry struct {
 // NewMemoryStore constructs a MemoryStore with the given stale-key
 // TTL. A background sweeper removes entries whose lastSeen is
 // older than ttl every ttl/10. Close() stops the sweeper.
+//
+// Example:
+//
+//	store := NewMemoryStore(24 * time.Hour)
+//	defer store.Close()
+//	decision, err := store.Allow(ctx, "user:1234", 100, 10)
 func NewMemoryStore(ttl time.Duration) *MemoryStore {
 	s := &MemoryStore{ttl: ttl, stop: make(chan struct{})}
 	go s.sweep()

@@ -39,6 +39,16 @@ type Router struct {
 // and logger. Callers MUST register at least the "memory" backend
 // via EnsureBackend before any Allow call reaches the router; the
 // gateway bootstrap is responsible for this invariant.
+//
+// Example:
+//
+//	policy := FailPolicyOpen.Resolve()
+//	router := NewRouter(policy, log)
+//	// Register backends during startup.
+//	router.EnsureBackend("memory", func() (Store, error) {
+//		return NewMemoryStore(24 * time.Hour), nil
+//	})
+//	// Routes automatically select their store; hot-reload re-calls EnsureBackend.
 func NewRouter(failPolicy Policy, logger zerolog.Logger) *Router {
 	return &Router{
 		stores:     make(map[string]Store),

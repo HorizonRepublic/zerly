@@ -507,6 +507,21 @@ type NATSKVStoreConfig struct {
 // only exist as a downstream companion), or any JetStream API call
 // fails for reasons other than bucket-already-exists / bucket-not-
 // found.
+//
+// Example:
+//
+//	cfg := NATSKVStoreConfig{
+//		JS:            jetstream.New(natsConn),
+//		HandlerBucket: "handler_registry",
+//		BucketSuffix:  "_ratelimit",
+//		KeyTTL:        24 * time.Hour,
+//		Logger:        log,
+//	}
+//	store, err := NewNATSKVStore(ctx, cfg)
+//	if err != nil {
+//		return err
+//	}
+//	defer store.Close()
 func NewNATSKVStore(ctx context.Context, cfg NATSKVStoreConfig) (*NATSKVStore, error) {
 	if cfg.JS == nil {
 		return nil, errors.New("ratelimit: NATSKVStoreConfig.JS is required")
