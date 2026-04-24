@@ -27,6 +27,10 @@ export type { HttpMethod } from './http-method.type';
 
 export type { IGatewayCorsConfig } from './gateway-cors-config.interface';
 
-export type { IGatewayRateLimitConfig, RateLimitKey } from './gateway-rate-limit-config.interface';
+export type {
+  IGatewayRateLimitConfig,
+  RateLimitKey,
+  RateLimitStore,
+} from './gateway-rate-limit-config.interface';
 
 export type { IGatewayDefaults } from './gateway-defaults.interface';

@@ -112,4 +112,31 @@ describe('mergeRouteDefaults', () => {
     expect(result).not.toHaveProperty('rateLimit');
     expect(result).not.toHaveProperty('timeout');
   });
+
+  describe('rateLimit.store inheritance', () => {
+    it('inherits store from forRoot default when per-route omits rateLimit', () => {
+      const storeDefaults: IGatewayDefaults = {
+        rateLimit: { rps: 100, store: 'nats-kv' },
+      };
+      const route = { http: { method: 'GET', path: '/users' } };
+
+      const result = mergeRouteDefaults(storeDefaults, route);
+
+      expect(result['rateLimit']).toEqual({ rps: 100, store: 'nats-kv' });
+    });
+
+    it('per-route rateLimit shallow-replaces default — store NOT inherited', () => {
+      const storeDefaults: IGatewayDefaults = {
+        rateLimit: { rps: 100, store: 'nats-kv' },
+      };
+      const route = {
+        http: { method: 'POST', path: '/login' },
+        rateLimit: { rps: 10 },
+      };
+
+      const result = mergeRouteDefaults(storeDefaults, route);
+
+      expect(result['rateLimit']).toEqual({ rps: 10 });
+    });
+  });
 });
