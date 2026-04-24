@@ -196,7 +196,7 @@ The codebase will generate a full Docusaurus documentation site. TSDoc is the pr
   };
   ```
   Seed faker for deterministic runs when snapshot-testing or debugging flakiness: `faker.seed(42)` in a `beforeAll`.
-- **System under test variable:** always `sut`. Reviewers learn to scan for that identifier in every test file.
+- **System under test variable (TypeScript):** always `sut`. Reviewers learn to scan for that identifier in every test file. This convention applies to the TypeScript / NestJS / Jest suites where the sut pattern is well-established. Go tests are exempt — idiomatic Go uses a short, domain-specific name (`handler`, `store`, `watcher`, `r`, `s`) and the rest of the file already mirrors that convention. Do not sweep `*_test.go` files for a cosmetic rename.
 - **Given-When-Then structure.** Comment blocks or blank-line-separated sections mark each phase. Keep setup tight, action atomic, assertion focused.
 - **Test ordering within a `describe`:** happy path → edge cases → error cases. Readers should see the success flow first so they understand what the code is supposed to do before they learn what it rejects.
 - **Cleanup discipline.** `afterEach(() => jest.resetAllMocks())` in every suite that uses mocks. Never rely on ambient state leaking between tests.
