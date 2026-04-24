@@ -114,6 +114,14 @@ const (
 // Allow short-circuits with ErrCircuitOpen instead of hammering a
 // dead JetStream cluster; the gateway's FailPolicy decides whether
 // that maps to HTTP 503 or allow-on-failure.
+//
+// TTL semantics: NATSKVStore configures the bucket's MaxAge from
+// NATSKVStoreConfig.KeyTTL — a hard cap, every key is reaped that
+// long after creation regardless of activity. This differs from
+// MemoryStore, which interprets the same configuration value as an
+// idle-sweep interval where active keys are retained indefinitely.
+// Operators wiring RATELIMIT_KEY_TTL must understand the divergence
+// when comparing per-bucket lifetime across a backend swap.
 type NATSKVStore struct {
 	kv      kvAPI
 	breaker *gobreaker.CircuitBreaker

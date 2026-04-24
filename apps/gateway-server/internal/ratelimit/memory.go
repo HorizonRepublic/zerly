@@ -39,9 +39,18 @@ type memoryEntry struct {
 	lastSeen atomic.Int64 // Unix nanoseconds
 }
 
-// NewMemoryStore constructs a MemoryStore with the given stale-key
-// TTL. A background sweeper removes entries whose lastSeen is
-// older than ttl every ttl/10. Close() stops the sweeper.
+// NewMemoryStore constructs a MemoryStore with the given idle-key
+// TTL. A background sweeper removes entries whose lastSeen is older
+// than ttl every ttl/10. Close() stops the sweeper.
+//
+// TTL semantics (Memory): the TTL is an idle-entry sweep interval.
+// An entry is reaped only after no Allow call has touched it for
+// ttl. A continuously-active key persists indefinitely; the GCRA
+// state stays valid for as long as the key is in use. This differs
+// from NATSKVStore, which interprets the same configuration value as
+// a hard MaxAge: every key is reaped after ttl regardless of activity.
+// Operators wiring RATELIMIT_KEY_TTL must understand the divergence
+// when comparing per-bucket lifetime across a backend swap.
 //
 // Example:
 //
