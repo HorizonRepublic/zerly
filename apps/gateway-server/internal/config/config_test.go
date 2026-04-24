@@ -17,7 +17,7 @@ func TestLoad_AppliesDefaultsWhenOnlyRequiredSet(t *testing.T) {
 
 	assert.Equal(t, ":8080", cfg.HTTPAddr)
 	assert.Equal(t, 10*time.Second, cfg.ReadTimeout)
-	assert.Equal(t, 30*time.Second, cfg.WriteTimeout)
+	assert.Equal(t, 35*time.Second, cfg.WriteTimeout)
 	assert.Equal(t, 120*time.Second, cfg.IdleTimeout)
 	assert.Equal(t, int64(1048576), cfg.MaxBodyBytes)
 	assert.Equal(t, 16384, cfg.MaxHeaderBytes)
@@ -172,4 +172,19 @@ func TestLoad_RateLimitCustomKeyTTL(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, 2*time.Minute, cfg.RateLimitKeyTTL)
+}
+
+// TestLoad_WriteTimeoutStrictlyExceedsRequestTimeout guards the
+// invariant documented on Config.WriteTimeout: the HTTP write deadline
+// must leave enough budget for the handler to emit a 504 after the
+// request deadline fires. Shipping defaults where the two are equal
+// would truncate the timeout response on the wire.
+func TestLoad_WriteTimeoutStrictlyExceedsRequestTimeout(t *testing.T) {
+	t.Setenv("NATS_URLS", "nats://localhost:4222")
+
+	cfg, err := Load()
+	require.NoError(t, err)
+
+	assert.Greater(t, cfg.WriteTimeout, cfg.RequestTimeout,
+		"WriteTimeout must leave slack over RequestTimeout so a 504 can be written before the HTTP write deadline")
 }

@@ -49,7 +49,14 @@ type Config struct {
 	ReadTimeout time.Duration `env:"HTTP_READ_TIMEOUT"  envDefault:"10s"`
 	// WriteTimeout bounds how long the server will take to write the
 	// full response back to the client before forcibly closing.
-	WriteTimeout time.Duration `env:"HTTP_WRITE_TIMEOUT" envDefault:"30s"`
+	//
+	// INVARIANT: WriteTimeout MUST be strictly greater than
+	// RequestTimeout. When a request hits the RequestTimeout deadline
+	// the handler writes a 504 response; if the underlying HTTP write
+	// deadline has already expired, the 504 is truncated or dropped on
+	// the wire. Operators should keep several seconds of slack between
+	// the two (the defaults are 35s vs 30s).
+	WriteTimeout time.Duration `env:"HTTP_WRITE_TIMEOUT" envDefault:"35s"`
 	// IdleTimeout bounds how long a keep-alive connection may sit
 	// between requests before the server closes it.
 	IdleTimeout time.Duration `env:"HTTP_IDLE_TIMEOUT"  envDefault:"120s"`
