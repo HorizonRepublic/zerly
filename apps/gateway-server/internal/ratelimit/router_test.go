@@ -1,7 +1,9 @@
 package ratelimit
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"sync/atomic"
 	"testing"
@@ -177,6 +179,108 @@ func TestRouter_StoreForUnknownStoreWithoutMemoryReturnsClosedSentinel(t *testin
 
 	_, err := store.Allow(context.Background(), "k", 10, 5)
 	require.ErrorIs(t, err, ErrStoreClosed)
+}
+
+// TestRouter_UnknownStoreFallbackLogDeduped guards the per-route log
+// dedupe: a route declaring an unwired backend (e.g. "redis") must
+// emit the WARN exactly once, no matter how many requests flow through
+// it. The fallback counter still ticks per-request so operators can
+// gauge the volume — only the log line is throttled. Distinct
+// (route, declared) tuples each get their own one-shot WARN so a
+// misconfiguration on one route does not silence a subsequent one
+// on another.
+func TestRouter_UnknownStoreFallbackLogDeduped(t *testing.T) {
+	mem := NewMemoryStore(time.Minute)
+	defer func() { _ = mem.Close() }()
+
+	var buf bytes.Buffer
+	logger := zerolog.New(&buf)
+
+	r := NewRouter(FailPolicyOpen.Resolve(), logger)
+	require.NoError(t, r.EnsureBackend("memory", func() (Store, error) { return mem, nil }))
+
+	route := routing.Route{
+		Method:       "GET",
+		PathTemplate: "/x",
+		RateLimit:    &registry.RateLimitMeta{Store: "redis"},
+	}
+
+	const calls = 10
+	for i := 0; i < calls; i++ {
+		_ = r.StoreFor(route)
+	}
+
+	count := countWarnRecords(t, buf.Bytes(), "ratelimit.store.fallback")
+	assert.Equal(t, 1, count, "fallback WARN must be emitted once per (route, declared) tuple")
+	assert.Equal(t, int64(calls), r.Counters()["ratelimit_store_fallback"],
+		"counter ticks per request even when log is deduped")
+
+	// A different declared backend on a different route must produce a
+	// fresh WARN — dedupe is keyed by (route, declared), not global.
+	otherRoute := routing.Route{
+		Method:       "POST",
+		PathTemplate: "/y",
+		RateLimit:    &registry.RateLimitMeta{Store: "dynamodb"},
+	}
+	_ = r.StoreFor(otherRoute)
+
+	totalWarn := countWarnRecords(t, buf.Bytes(), "ratelimit.store.fallback")
+	assert.Equal(t, 2, totalWarn, "distinct (route, declared) tuples each get their own WARN")
+}
+
+// TestRouter_FallbackLogIncludesDeclaredBackend pins the structured
+// fields operators rely on for log filtering — both the route name
+// and the declared backend id must appear in every fallback record.
+func TestRouter_FallbackLogIncludesDeclaredBackend(t *testing.T) {
+	mem := NewMemoryStore(time.Minute)
+	defer func() { _ = mem.Close() }()
+
+	var buf bytes.Buffer
+	logger := zerolog.New(&buf)
+
+	r := NewRouter(FailPolicyOpen.Resolve(), logger)
+	require.NoError(t, r.EnsureBackend("memory", func() (Store, error) { return mem, nil }))
+
+	_ = r.StoreFor(routing.Route{
+		Method:       "PUT",
+		PathTemplate: "/items/:id",
+		RateLimit:    &registry.RateLimitMeta{Store: "redis"},
+	})
+
+	var sawFallback bool
+	for _, line := range bytes.Split(bytes.TrimSpace(buf.Bytes()), []byte("\n")) {
+		if len(line) == 0 {
+			continue
+		}
+
+		var record map[string]any
+		require.NoError(t, json.Unmarshal(line, &record))
+
+		if record["event"] == "ratelimit.store.fallback" {
+			sawFallback = true
+			assert.Equal(t, "PUT:/items/:id", record["route"])
+			assert.Equal(t, "redis", record["declared_backend"])
+		}
+	}
+	assert.True(t, sawFallback, "fallback record must be emitted on first hit")
+}
+
+// countWarnRecords scans newline-delimited zerolog JSON output and
+// returns the number of records whose event field equals event.
+func countWarnRecords(t *testing.T, payload []byte, event string) int {
+	t.Helper()
+	n := 0
+	for _, line := range bytes.Split(bytes.TrimSpace(payload), []byte("\n")) {
+		if len(line) == 0 {
+			continue
+		}
+		var record map[string]any
+		require.NoError(t, json.Unmarshal(line, &record))
+		if record["event"] == event {
+			n++
+		}
+	}
+	return n
 }
 
 func TestRouter_EnsureBackendAfterCloseRefuses(t *testing.T) {

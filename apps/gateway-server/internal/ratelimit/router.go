@@ -41,7 +41,13 @@ type Router struct {
 	closed     bool
 	failPolicy Policy
 	logger     zerolog.Logger
-	counters   struct {
+	// fallbackLogged dedupes the per-route "declared backend not
+	// registered" WARN. Keys are `<method>:<pathTemplate>|<declared>`;
+	// LoadOrStore decides whether the current goroutine emits the log
+	// line for that tuple. The fallback counter still ticks per
+	// request — only the log message is throttled.
+	fallbackLogged sync.Map
+	counters       struct {
 		fallback atomic.Int64
 	}
 }
@@ -152,13 +158,23 @@ func (r *Router) StoreFor(route routing.Route) Store {
 	}
 
 	if declared != "memory" {
-		r.logger.Warn().
-			Str("event", "ratelimit.store.fallback").
-			Str("route", route.Method+":"+route.PathTemplate).
-			Str("declared", declared).
-			Str("fallback", "memory").
-			Msg("declared rate-limit backend is not registered; falling back to memory")
 		r.counters.fallback.Add(1)
+		routeKey := route.Method + ":" + route.PathTemplate
+		// LoadOrStore-based dedupe: the first goroutine to observe the
+		// (route, declared) tuple wins the empty struct{} slot and emits
+		// the WARN; later observers see the existing entry and skip the
+		// log. Operators get a single signal per misconfiguration, not a
+		// flood proportional to RPS, while distinct tuples each retain
+		// their own one-shot record so a misconfiguration on one route
+		// does not silence another.
+		if _, alreadyLogged := r.fallbackLogged.LoadOrStore(routeKey+"|"+declared, struct{}{}); !alreadyLogged {
+			r.logger.Warn().
+				Str("event", "ratelimit.store.fallback").
+				Str("route", routeKey).
+				Str("declared_backend", declared).
+				Str("fallback", "memory").
+				Msg("declared rate-limit backend is not registered; falling back to memory")
+		}
 	}
 
 	memory, ok := r.stores["memory"]
