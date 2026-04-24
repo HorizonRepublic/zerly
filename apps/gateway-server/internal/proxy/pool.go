@@ -1,7 +1,6 @@
 package proxy
 
 import (
-	"bytes"
 	"sync"
 )
 
@@ -14,12 +13,6 @@ const (
 	initialQueryCap   = 4
 	initialHeadersCap = 16
 )
-
-// initialBufferCap is the initial byte capacity for the JSON
-// marshalling buffer pool. 4 KiB covers the vast majority of envelope
-// sizes without resizing while keeping the per-entry pool footprint
-// bounded.
-const initialBufferCap = 4096
 
 // initialPayloadCap is the pre-allocated capacity of pooled scratch
 // []byte slices used for envelope marshalling. 1 KiB covers the
@@ -62,37 +55,9 @@ func releaseEnvelope(envelope *GatewayRequest) {
 	envelopePool.Put(envelope)
 }
 
-// bufferPool reuses byte buffers for JSON marshalling. Each buffer is
-// pre-allocated with initialBufferCap bytes to cover the common case
-// without a resize.
-var bufferPool = sync.Pool{
-	New: func() any {
-		return bytes.NewBuffer(make([]byte, 0, initialBufferCap))
-	},
-}
-
-// acquireBuffer fetches a pooled bytes.Buffer and resets it so callers
-// see an empty buffer. The returned buffer MUST be released via
-// releaseBuffer.
-func acquireBuffer() *bytes.Buffer {
-	buffer, _ := bufferPool.Get().(*bytes.Buffer)
-	buffer.Reset()
-	return buffer
-}
-
-// releaseBuffer returns a buffer to the pool. Safe with nil.
-func releaseBuffer(buffer *bytes.Buffer) {
-	if buffer == nil {
-		return
-	}
-	bufferPool.Put(buffer)
-}
-
 // payloadPool reuses append-style scratch buffers across requests.
-// Unlike bufferPool (which stores *bytes.Buffer for callers that want
-// a Writer interface), payloadPool stores a pointer to a bare []byte
-// slice so sonic.EncodeInto can append directly into the pooled
-// backing array without going through bytes.Buffer.Write.
+// Stores a pointer to a bare []byte slice so sonic.EncodeInto can
+// append directly into the pooled backing array.
 //
 // Using a pointer is mandatory: storing a bare []byte in sync.Pool
 // would lose any capacity grow that happened during encoding because

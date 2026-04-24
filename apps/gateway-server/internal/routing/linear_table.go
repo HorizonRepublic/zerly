@@ -12,8 +12,8 @@ import "strings"
 // Concurrency: safe for concurrent readers after construction. Callers
 // MUST publish a fully-built table atomically (e.g. via atomic.Pointer)
 // rather than mutating an existing one. The add method is package-
-// private and only used by BuildTable, which constructs the table once
-// and never exposes a mid-build view.
+// private and only used by BuildTableFromRoutes, which constructs the
+// table once and never exposes a mid-build view.
 type linearTable struct {
 	routes []Route
 }
@@ -24,17 +24,17 @@ type linearTable struct {
 // interface an enforced contract rather than a runtime assumption.
 var _ Table = (*linearTable)(nil)
 
-// newLinearTable returns an empty linearTable ready for BuildTable to
-// populate via add. The returned value is not safe to share across
-// goroutines until construction completes.
+// newLinearTable returns an empty linearTable ready for
+// BuildTableFromRoutes to populate via add. The returned value is not
+// safe to share across goroutines until construction completes.
 func newLinearTable() *linearTable {
 	return &linearTable{routes: make([]Route, 0, 16)}
 }
 
 // add appends a Route to the internal bucket. It is package-private
-// because callers must go through BuildTable — manual mutation would
-// violate the "publish atomically, never mutate in place" invariant
-// documented on linearTable.
+// because callers must go through BuildTableFromRoutes — manual
+// mutation would violate the "publish atomically, never mutate in
+// place" invariant documented on linearTable.
 func (t *linearTable) add(route Route) {
 	t.routes = append(t.routes, route)
 }
@@ -42,10 +42,11 @@ func (t *linearTable) add(route Route) {
 // Lookup walks the bucket in insertion order and returns the first
 // Route whose method equals the request method AND whose path template
 // matches the request path. Insertion order is preserved from the
-// BuildTable iteration, which itself iterates the snapshot map — so
-// callers MUST NOT rely on any specific ordering between routes that
-// share a method and a prefix. In practice registries define at most
-// one route per (method, template) pair, so order does not matter.
+// BuildTableFromRoutes iteration, which itself walks the
+// CollectRoutes output — so callers MUST NOT rely on any specific
+// ordering between routes that share a method and a prefix. In
+// practice registries define at most one route per (method, template)
+// pair, so order does not matter.
 func (t *linearTable) Lookup(method, path string) (Route, map[string]string, bool) {
 	for i := range t.routes {
 		route := t.routes[i]

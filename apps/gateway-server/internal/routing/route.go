@@ -10,10 +10,10 @@ import (
 )
 
 // Route is the immutable descriptor of a single HTTP endpoint exposed by
-// the gateway. It is produced by BuildTable from a registry.HandlerEntry
-// and consumed by the proxy layer, which uses the Subject field to
-// address the downstream NATS RPC and the PathTemplate as a cache key
-// for logs and metrics.
+// the gateway. It is produced by CollectRoutes from a
+// registry.HandlerEntry and consumed by the proxy layer, which uses
+// the Subject field to address the downstream NATS RPC and the
+// PathTemplate as a cache key for logs and metrics.
 //
 // The struct is deliberately small and value-typed: routes are stored
 // by value inside the linearTable bucket and copied out on each

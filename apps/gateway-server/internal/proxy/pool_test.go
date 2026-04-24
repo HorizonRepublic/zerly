@@ -1,7 +1,6 @@
 package proxy
 
 import (
-	"bytes"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -57,37 +56,3 @@ func TestAcquireReleaseCycle_ResetsPriorState(t *testing.T) {
 	assert.NotContains(t, second.Headers, "x-leaked")
 }
 
-func TestAcquireBuffer_ReturnsEmptyBuffer(t *testing.T) {
-	buffer := acquireBuffer()
-	defer releaseBuffer(buffer)
-
-	assert.Equal(t, 0, buffer.Len())
-}
-
-func TestAcquireBufferCycle_ResetsPriorState(t *testing.T) {
-	first := acquireBuffer()
-	first.WriteString("hello")
-	releaseBuffer(first)
-
-	second := acquireBuffer()
-	defer releaseBuffer(second)
-	assert.Equal(t, 0, second.Len(), "buffer must be reset between acquires")
-}
-
-func TestReleaseBuffer_IsNilSafe(t *testing.T) {
-	assert.NotPanics(t, func() {
-		releaseBuffer(nil)
-	})
-}
-
-func TestBufferPool_BackingArrayType(t *testing.T) {
-	// Defensive: make sure the pool's New yields a non-nil buffer
-	// with the configured initial capacity. This would fail if a
-	// future refactor accidentally returns (*bytes.Buffer)(nil).
-	buffer := acquireBuffer()
-	defer releaseBuffer(buffer)
-
-	assert.NotNil(t, buffer)
-	_, ok := any(buffer).(*bytes.Buffer)
-	assert.True(t, ok, "pool must return *bytes.Buffer")
-}

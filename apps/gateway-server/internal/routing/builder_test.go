@@ -31,7 +31,7 @@ func TestBuildTable_SkipsEntriesWithoutHTTP(t *testing.T) {
 		},
 	}
 
-	table := BuildTable(snapshot, emptyVerifiers(), silentLogger())
+	table := BuildTableFromRoutes(CollectRoutes(snapshot, emptyVerifiers(), silentLogger()))
 	_, _, ok := table.Lookup("GET", "/users")
 	assert.False(t, ok)
 }
@@ -48,7 +48,7 @@ func TestBuildTable_IncludesHTTPEntries(t *testing.T) {
 		},
 	}
 
-	table := BuildTable(snapshot, emptyVerifiers(), silentLogger())
+	table := BuildTableFromRoutes(CollectRoutes(snapshot, emptyVerifiers(), silentLogger()))
 
 	listRoute, _, ok := table.Lookup("GET", "/users")
 	assert.True(t, ok)
@@ -75,7 +75,7 @@ func TestBuildTable_SkipsMalformedKeys(t *testing.T) {
 		},
 	}
 
-	table := BuildTable(snapshot, emptyVerifiers(), silentLogger())
+	table := BuildTableFromRoutes(CollectRoutes(snapshot, emptyVerifiers(), silentLogger()))
 
 	// The malformed entry is absent.
 	_, _, ok := table.Lookup("GET", "/broken")
@@ -94,7 +94,7 @@ func TestBuildTable_EmptySnapshot(t *testing.T) {
 	// returns ok=false rather than panicking on a nil map.
 	snapshot := &registry.Snapshot{Entries: map[string]registry.HandlerEntry{}}
 
-	table := BuildTable(snapshot, emptyVerifiers(), silentLogger())
+	table := BuildTableFromRoutes(CollectRoutes(snapshot, emptyVerifiers(), silentLogger()))
 	assert.NotNil(t, table)
 
 	_, _, ok := table.Lookup("GET", "/anything")

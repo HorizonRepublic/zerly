@@ -46,8 +46,6 @@ const (
 	StatusTooManyRequests    = 429
 	StatusNotFound           = 404
 	StatusMethodNotAllowed   = 405
-	StatusPayloadTooLarge    = 413
-	StatusUnsupportedMedia   = 415
 	StatusInternalError      = 500
 	StatusBadGateway         = 502
 	StatusServiceUnavailable = 503
@@ -71,18 +69,11 @@ var (
 	// has no match for the requested method+path combination.
 	NotFound HTTPError
 	// MethodNotAllowed is the 405 response returned when the path
-	// matches but no registered route accepts the request method.
-	// Currently unused by the proxy handler; reserved for a future
-	// method-aware routing enhancement.
+	// matches at least one registered route but no route accepts the
+	// request method. The HTTP adapter pairs this body with an
+	// `Allow` response header listing the set of methods registered
+	// for the same path, as required by RFC 9110 §15.5.6.
 	MethodNotAllowed HTTPError
-	// PayloadTooLarge is the 413 response returned by the Hertz
-	// layer when a request exceeds HTTP_MAX_BODY_BYTES. Reserved for
-	// a future transport-level hook.
-	PayloadTooLarge HTTPError
-	// UnsupportedMedia is the 415 response returned when a request
-	// carries a Content-Type the gateway cannot forward. Reserved
-	// for a future content-negotiation layer.
-	UnsupportedMedia HTTPError
 	// TooManyRequests is the 429 response returned when a client
 	// exceeds the per-route rate limit configured in the handler
 	// registry.
@@ -108,8 +99,6 @@ var (
 func init() {
 	NotFound = build(StatusNotFound, "Not Found")
 	MethodNotAllowed = build(StatusMethodNotAllowed, "Method Not Allowed")
-	PayloadTooLarge = build(StatusPayloadTooLarge, "Payload Too Large")
-	UnsupportedMedia = build(StatusUnsupportedMedia, "Unsupported Media Type")
 	TooManyRequests = build(StatusTooManyRequests, "Too Many Requests")
 	InternalError = build(StatusInternalError, "Internal Server Error")
 	ServiceUnavailable = build(StatusServiceUnavailable, "Service Unavailable")

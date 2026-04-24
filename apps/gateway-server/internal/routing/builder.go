@@ -135,10 +135,10 @@ func sanitizeCORS(cors *registry.CORSMeta, key string, logger zerolog.Logger) *r
 
 // BuildTableFromRoutes constructs a Table from a pre-collected slice
 // of routes. It performs no snapshot access and emits no log output:
-// the caller (typically BuildTable or the lifecycle-aware rebuild
-// closure in main.go) is responsible for having already logged and
-// filtered the input. Keeping this step purely mechanical makes it
-// trivial to reason about in tests and benchmarks.
+// callers (typically the lifecycle-aware rebuild closure in main.go)
+// are responsible for having already logged and filtered the input.
+// Keeping this step purely mechanical makes it trivial to reason
+// about in tests and benchmarks.
 func BuildTableFromRoutes(routes []Route) Table {
 	table := newLinearTable()
 	for _, route := range routes {
@@ -146,19 +146,4 @@ func BuildTableFromRoutes(routes []Route) Table {
 	}
 
 	return table
-}
-
-// BuildTable constructs a routing Table from a snapshot plus the
-// pre-built verifier registry. Both projections must come from the
-// same snapshot for the auth resolution to see consistent data;
-// callers publish both atomically in the rebuild closure.
-//
-// The function never returns an error: partial builds are preferable
-// to an unavailable gateway.
-func BuildTable(
-	snapshot *registry.Snapshot,
-	verifiers *auth.VerifierRegistry,
-	logger zerolog.Logger,
-) Table {
-	return BuildTableFromRoutes(CollectRoutes(snapshot, verifiers, logger))
 }

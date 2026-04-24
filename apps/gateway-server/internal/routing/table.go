@@ -4,12 +4,12 @@ package routing
 // incoming HTTP request to a Route.
 //
 // The interface is intentionally minimal: two methods, no lifecycle, no
-// mutation. All construction happens in BuildTable; once built, a Table
-// is immutable from the caller's perspective and MUST be published
-// atomically (e.g. via atomic.Pointer) rather than mutated in place.
-// This keeps the matching hot path lock-free and makes the swap from
-// the current linear-scan implementation to a future trie a one-file
-// change.
+// mutation. All construction happens in BuildTableFromRoutes; once
+// built, a Table is immutable from the caller's perspective and MUST
+// be published atomically (e.g. via atomic.Pointer) rather than
+// mutated in place. This keeps the matching hot path lock-free and
+// makes the swap from the current linear-scan implementation to a
+// future trie a one-file change.
 type Table interface {
 	// Lookup resolves (method, path) to a Route. On a hit it returns
 	// the matched Route and the extracted path parameters (empty map
