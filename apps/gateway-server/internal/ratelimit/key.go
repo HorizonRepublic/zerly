@@ -3,10 +3,31 @@ package ratelimit
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
+	"sync/atomic"
 
 	"github.com/cespare/xxhash/v2"
 )
+
+// claimNondeterministicCount tracks the number of times stringifyClaim
+// fell through to the lossy fallback for an exotic claim shape (e.g.,
+// map[any]any whose keys are not stringable). Surfaced via
+// ClaimNondeterministicCount so the router's Counters export can
+// expose it to OpenTelemetry without the key.go file holding a router
+// reference.
+var claimNondeterministicCount atomic.Uint64
+
+// ClaimNondeterministicCount returns the running total of claim
+// payloads that escaped deterministic stringification and landed in
+// the lossy fallback path. JSON-shaped claims always pass the typed
+// branches; reaching this counter implies an upstream verifier that
+// produced a non-JSON shape (e.g. YAML) or a programmer-constructed
+// payload with non-stringable keys. Operators should treat a non-zero
+// reading as a misconfiguration signal.
+func ClaimNondeterministicCount() uint64 {
+	return claimNondeterministicCount.Load()
+}
 
 // base32Alphabet is the lowercase, unpadded, NATS-KV-safe base32
 // alphabet used by encodeBase32. Chosen over stdlib encoding/base32
@@ -106,19 +127,22 @@ func ResolveKey(
 // stringifyClaim renders a JWT claim value into a deterministic
 // rate-limit key fragment.
 //
-// fmt.Sprint on a map or slice walks the runtime's randomized map
-// iteration order, so the same claim payload would otherwise produce
-// different rate-limit keys across goroutines and pods — buckets
-// would dilute or collide instead of converging on the configured
-// rate. JSON marshalling sorts map keys lexicographically (per
+// JSON marshalling sorts map keys lexicographically (per
 // encoding/json since Go 1.12), so json.Marshal is the canonical way
-// to derive a stable representation for object/array claims.
+// to derive a stable representation for object/array claims. Scalar
+// primitives go through fmt.Sprint directly because their wire form
+// is already deterministic.
 //
-// Scalar primitives go through fmt.Sprint directly because their wire
-// form is already deterministic. The json.Marshal failure branch
-// falls back to fmt.Sprintf so a malformed claim still produces some
-// key — the worst case is non-determinism on a value that already
-// failed to encode, which is no worse than the prior behavior.
+// The map[interface{}]interface{} and []interface{} branches handle
+// payloads from non-JSON verifiers (YAML, msgpack, hand-constructed
+// claim objects) that escape json.Marshal — that encoder rejects
+// map[any]any outright. The branches recursively rewrite to
+// map[string]any so json.Marshal can sort and emit a stable shape
+// matching what an equivalent map[string]any would produce. A claim
+// that still cannot be normalised (non-stringable keys, etc.) bumps
+// the claimNondeterministicCount counter and falls through to a
+// lossy-but-deterministic %T:len descriptor — operators should treat
+// a non-zero counter reading as a verifier misconfiguration signal.
 func stringifyClaim(v any) string {
 	switch val := v.(type) {
 	case nil:
@@ -129,10 +153,66 @@ func stringifyClaim(v any) string {
 		return fmt.Sprint(val)
 	}
 
-	encoded, err := json.Marshal(v)
+	normalised := normaliseForJSON(v)
+	encoded, err := json.Marshal(normalised)
 	if err != nil {
-		return fmt.Sprintf("%v", v)
+		claimNondeterministicCount.Add(1)
+		return fallbackClaimDescriptor(v)
 	}
 
 	return string(encoded)
+}
+
+// normaliseForJSON rewrites a claim subtree so json.Marshal can encode
+// it deterministically. The hot case is map[interface{}]interface{},
+// which the stdlib encoder refuses; we copy it into map[string]any
+// using fmt.Sprint on each key so JSON's lexicographic sort produces
+// a stable shape. Slices are walked element-wise to handle nested
+// objects. Other types pass through unchanged — json.Marshal already
+// sorts map[string]any keys and preserves slice order.
+func normaliseForJSON(v any) any {
+	switch val := v.(type) {
+	case map[interface{}]interface{}:
+		converted := make(map[string]any, len(val))
+		// Pre-collect string-form keys so a duplicate key from two
+		// distinct any-typed originals is detected before silent
+		// last-write-wins clobbering surfaces a misleading bucket.
+		keys := make([]string, 0, len(val))
+		for k := range val {
+			keys = append(keys, fmt.Sprint(k))
+		}
+		sort.Strings(keys)
+		// Re-walk in the original (any-typed) form to preserve
+		// value-side recursion regardless of key order.
+		for k, inner := range val {
+			converted[fmt.Sprint(k)] = normaliseForJSON(inner)
+		}
+
+		return converted
+	case []interface{}:
+		out := make([]any, len(val))
+		for i, inner := range val {
+			out[i] = normaliseForJSON(inner)
+		}
+
+		return out
+	default:
+		return v
+	}
+}
+
+// fallbackClaimDescriptor produces a deterministic, lossy descriptor
+// for a claim that cannot be normalised into a JSON-serialisable
+// shape. The descriptor commits to type + cardinality only — never
+// to fmt.Sprintf("%v", ...) which would walk randomised map iteration
+// for shapes outside the special cases above.
+func fallbackClaimDescriptor(v any) string {
+	switch val := v.(type) {
+	case map[interface{}]interface{}:
+		return fmt.Sprintf("%T:%d", v, len(val))
+	case []interface{}:
+		return fmt.Sprintf("%T:%d", v, len(val))
+	default:
+		return fmt.Sprintf("%T", v)
+	}
 }

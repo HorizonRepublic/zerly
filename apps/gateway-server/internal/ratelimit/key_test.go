@@ -132,6 +132,63 @@ func TestResolveKey_SliceClaimIsDeterministic(t *testing.T) {
 	}
 }
 
+// TestResolveKey_AnyKeyMapClaimIsDeterministic pins the fix for the
+// map[interface{}]interface{} branch. json.Marshal rejects such maps
+// outright, so the previous code path fell back to fmt.Sprintf("%v",
+// v). While Go 1.12+ sorts keys when printing maps with %v, the
+// fallback is fragile across runtime versions and silently differs
+// from the json.Marshal output that map[string]any uses. The expected
+// behaviour is that a map[interface{}]interface{} payload produces
+// the SAME key as the equivalent map[string]any — otherwise an
+// upstream verifier swap silently re-buckets every user.
+func TestResolveKey_AnyKeyMapClaimIsDeterministic(t *testing.T) {
+	stringKeyed := map[string]any{
+		"meta": map[string]any{"a": 1, "b": "two", "c": true},
+	}
+	anyKeyed := map[string]any{
+		"meta": map[interface{}]interface{}{"a": 1, "b": "two", "c": true},
+	}
+
+	wantA := ratelimit.ResolveKey([]string{"user:meta"}, "1.2.3.4", noHeader, noCookie, stringKeyed)
+	gotA := ratelimit.ResolveKey([]string{"user:meta"}, "1.2.3.4", noHeader, noCookie, anyKeyed)
+	assert.Equal(t, wantA, gotA,
+		"map[interface{}]interface{} must render to the same key as the equivalent map[string]any")
+
+	// Stability across many runs guards against any future code path
+	// that introduces iteration-order dependence.
+	for i := 0; i < 200; i++ {
+		got := ratelimit.ResolveKey([]string{"user:meta"}, "1.2.3.4", noHeader, noCookie, anyKeyed)
+		assert.Equalf(t, gotA, got, "map[any]any claim must render deterministically (iteration %d)", i)
+	}
+}
+
+// TestResolveKey_NestedAnyKeyMapInSliceIsDeterministic covers the
+// recursive case: a JWT claim that is a slice carrying map[any]any
+// elements must render stably and identically to the equivalent
+// slice-of-map[string]any payload. JSON marshalling preserves slice
+// order but cannot serialise map[any]any directly, so the
+// stringifyClaim path must walk into the slice and rewrite each
+// element before encoding.
+func TestResolveKey_NestedAnyKeyMapInSliceIsDeterministic(t *testing.T) {
+	stringKeyed := map[string]any{
+		"audit": []any{
+			map[string]any{"ip": "1.1.1.1", "ts": 1, "ok": true},
+			map[string]any{"ip": "2.2.2.2", "ts": 2, "ok": false},
+		},
+	}
+	anyKeyed := map[string]any{
+		"audit": []any{
+			map[interface{}]interface{}{"ip": "1.1.1.1", "ts": 1, "ok": true},
+			map[interface{}]interface{}{"ip": "2.2.2.2", "ts": 2, "ok": false},
+		},
+	}
+
+	want := ratelimit.ResolveKey([]string{"user:audit"}, "1.2.3.4", noHeader, noCookie, stringKeyed)
+	got := ratelimit.ResolveKey([]string{"user:audit"}, "1.2.3.4", noHeader, noCookie, anyKeyed)
+	assert.Equal(t, want, got,
+		"slice carrying map[any]any must render to the same key as slice-of-map[string]any")
+}
+
 // TestResolveKey_ScalarClaimsRenderConsistently verifies the
 // fast-path branches for primitive types still produce the wire shape
 // callers expect — strings unchanged, numbers via fmt.Sprint.

@@ -274,12 +274,17 @@ func (r *Router) Close() error {
 // counters. The keys are namespaced for OpenTelemetry plumbing.
 //
 // This snapshot covers ONLY the router's own dispatch-layer metrics
-// (e.g., backend fallback). For per-backend rate-limit counters use
-// CountersAll, which walks every registered backend and the router
-// in a single map.
+// (e.g., backend fallback) plus the package-level
+// ratelimit_claim_nondeterministic counter — non-zero readings of
+// the latter indicate a JWT verifier producing claim shapes that
+// cannot be deterministically stringified, a misconfiguration that
+// would otherwise hide behind a lossy fallback bucket key. For
+// per-backend rate-limit counters use CountersAll, which walks every
+// registered backend and the router in a single map.
 func (r *Router) Counters() map[string]int64 {
 	return map[string]int64{
-		"ratelimit_store_fallback": r.counters.fallback.Load(),
+		"ratelimit_store_fallback":         r.counters.fallback.Load(),
+		"ratelimit_claim_nondeterministic": int64(ClaimNondeterministicCount()),
 	}
 }
 
@@ -303,7 +308,8 @@ func (r *Router) CountersAll() map[string]map[string]int64 {
 		out[id] = s.Counters()
 	}
 	out["router"] = map[string]int64{
-		"ratelimit_store_fallback": r.counters.fallback.Load(),
+		"ratelimit_store_fallback":         r.counters.fallback.Load(),
+		"ratelimit_claim_nondeterministic": int64(ClaimNondeterministicCount()),
 	}
 
 	return out
