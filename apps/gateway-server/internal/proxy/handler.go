@@ -145,39 +145,9 @@ func (h *Handler) Handle(in *ServeInput) *ServeResult {
 		authHeaders = authOutcome.AuthHeaders
 	}
 
-	var rlHeaders map[string]string
-
-	// GCRA contract: rps >= 1. Treat rps <= 0 as "no RL" — fail safe.
-	if route.RateLimit != nil && route.RateLimit.RPS > 0 && h.cfg.RateLimiter != nil {
-		rlKey := h.resolveRateLimitKey(in, route, claims)
-
-		burst := route.RateLimit.Burst
-		if burst == 0 {
-			burst = route.RateLimit.RPS * 2
-		}
-
-		fullKey := ratelimit.BuildBucketKey(route.Method, route.PathTemplate, rlKey)
-		store := h.cfg.RateLimiter.StoreFor(route)
-
-		rlCtx, cancel := context.WithTimeout(context.Background(), timeout)
-		decision, rlErr := store.Allow(rlCtx, fullKey, route.RateLimit.RPS, burst)
-		cancel()
-
-		allowed := decision.Allowed
-		if rlErr != nil {
-			allowed = h.cfg.RateLimiter.FailPolicy().Apply(rlErr, route, fullKey, h.cfg.Logger)
-		}
-
-		rlHeaders = ratelimit.BuildHeaders(route.RateLimit, decision)
-
-		if !allowed {
-			result := toServeResult(gerrors.TooManyRequests)
-			for k, v := range rlHeaders {
-				result.Headers[k] = []string{v}
-			}
-
-			return result
-		}
+	rlHeaders, rlShortCircuit := h.applyRateLimitGate(route, in, claims, timeout)
+	if rlShortCircuit != nil {
+		return rlShortCircuit
 	}
 
 	payload := acquirePayload()
@@ -277,6 +247,73 @@ func (h *Handler) handlePreflight(table routing.Table, in *ServeInput) *ServeRes
 	}
 
 	return &ServeResult{Status: 204, Headers: headers}
+}
+
+// applyRateLimitGate runs the per-route rate-limit check for a
+// request that has already cleared route matching and (if configured)
+// the auth flow. It returns the response headers the caller must
+// stamp onto the eventual reply (RateLimit-Limit, -Remaining, -Reset),
+// and a non-nil short-circuit ServeResult when the bucket rejected
+// the request — the caller MUST return that result verbatim without
+// proceeding to the upstream NATS request.
+//
+// The gate short-circuits when:
+//   - the store.Allow decision is disallowed under a healthy backend
+//     (429 Too Many Requests), or
+//   - the store returns an error AND the configured FailPolicy
+//     resolves to reject (closed-on-failure deployments).
+//
+// Rate-limit headers are computed on every path (allowed or rejected)
+// so clients always see the accurate limit budget alongside the 429
+// body. The caller merges them into the main reply headers when the
+// gate allows, or we inject them directly into the short-circuit
+// result here when it rejects.
+//
+// No gate is applied when the route has no RateLimit block, the
+// Router dependency is nil, or RPS <= 0 — the last case being the
+// fail-safe interpretation of a malformed limit (treat zero/negative
+// RPS as "no limit" instead of "block everything").
+func (h *Handler) applyRateLimitGate(
+	route routing.Route,
+	in *ServeInput,
+	claims json.RawMessage,
+	timeout time.Duration,
+) (map[string]string, *ServeResult) {
+	if route.RateLimit == nil || route.RateLimit.RPS <= 0 || h.cfg.RateLimiter == nil {
+		return nil, nil
+	}
+
+	rlKey := h.resolveRateLimitKey(in, route, claims)
+
+	burst := route.RateLimit.Burst
+	if burst == 0 {
+		burst = route.RateLimit.RPS * 2
+	}
+
+	fullKey := ratelimit.BuildBucketKey(route.Method, route.PathTemplate, rlKey)
+	store := h.cfg.RateLimiter.StoreFor(route)
+
+	rlCtx, cancel := context.WithTimeout(context.Background(), timeout)
+	decision, rlErr := store.Allow(rlCtx, fullKey, route.RateLimit.RPS, burst)
+	cancel()
+
+	allowed := decision.Allowed
+	if rlErr != nil {
+		allowed = h.cfg.RateLimiter.FailPolicy().Apply(rlErr, route, fullKey, h.cfg.Logger)
+	}
+
+	rlHeaders := ratelimit.BuildHeaders(route.RateLimit, decision)
+
+	if !allowed {
+		result := toServeResult(gerrors.TooManyRequests)
+		for k, v := range rlHeaders {
+			result.Headers[k] = []string{v}
+		}
+
+		return rlHeaders, result
+	}
+
+	return rlHeaders, nil
 }
 
 // resolveRateLimitKey computes the rate-limit bucket key from the
