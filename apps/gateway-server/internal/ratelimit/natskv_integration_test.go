@@ -218,10 +218,11 @@ func TestNATSKVStore_Integration_ConcurrentCreateRace(t *testing.T) {
 }
 
 // TestNATSKVStore_Integration_TTLExpiry proves that KeyTTL maps onto
-// the stream's MaxAge and the server actually evicts idle keys. The
-// 4-second wait against a 2-second TTL gives JetStream's
-// second-granularity cleanup ample slack without inflating the
-// suite's runtime.
+// the stream's MaxAge and the server actually evicts idle keys.
+// Polling beats a fixed sleep: JetStream's cleanup runs at
+// second-granularity, so the actual eviction time varies with server
+// load. The 10s ceiling absorbs CI scheduler jitter without
+// blow-up; the 200ms tick keeps the suite fast on a healthy run.
 func TestNATSKVStore_Integration_TTLExpiry(t *testing.T) {
 	t.Parallel()
 
@@ -241,14 +242,14 @@ func TestNATSKVStore_Integration_TTLExpiry(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, decision.Allowed)
 
-	time.Sleep(4 * time.Second)
-
 	kv, err := js.KeyValue(ctx, "handler_registry_ratelimit")
 	require.NoError(t, err)
 
-	_, err = kv.Get(ctx, "k")
-	assert.True(t, errors.Is(err, jetstream.ErrKeyNotFound),
-		"key should be evicted after MaxAge expiry, got err=%v", err)
+	assert.Eventually(t, func() bool {
+		_, err := kv.Get(ctx, "k")
+		return errors.Is(err, jetstream.ErrKeyNotFound)
+	}, 10*time.Second, 200*time.Millisecond,
+		"key did not expire within 10s")
 }
 
 // TestNATSKVStore_Integration_ConcurrentCASConflict fires many
