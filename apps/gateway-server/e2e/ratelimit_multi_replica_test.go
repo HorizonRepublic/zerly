@@ -74,13 +74,19 @@ func gatewayBinaryPath(t *testing.T) string {
 // rate-limit fail-policy + TTL) so the test is deterministic no
 // matter what the developer has in `.env`.
 //
-// Returns a cleanup function that cancels the spawn context and waits
-// for the child to exit. Callers MUST defer the cleanup to avoid
-// leaking the child process between tests.
+// Cleanup is registered with t.Cleanup immediately after Start
+// succeeds, BEFORE the readiness probe, so a Fatalf in
+// waitForGatewayAt cannot leak the spawned process. The returned
+// closure is equivalent to the registered cleanup and is retained
+// so scenarios can still trigger shutdown explicitly mid-test; both
+// paths converge on a sync.Once-guarded teardown so a caller that
+// defers the closure after t.Cleanup has already fired is a no-op
+// rather than a double-wait.
 //
 // Readiness is verified via waitForGatewayAt; if the secondary fails
 // to bind :8081 (e.g. port already in use) the helper fails the test
-// with a clear message.
+// with a clear message AFTER the process has been scheduled for
+// cleanup.
 func startSecondaryGateway(t *testing.T) func() {
 	t.Helper()
 
@@ -103,12 +109,23 @@ func startSecondaryGateway(t *testing.T) func() {
 
 	require.NoError(t, cmd.Start(), "failed to start secondary gateway binary")
 
+	var once sync.Once
+	shutdown := func() {
+		once.Do(func() {
+			cancel()
+			_ = cmd.Wait()
+		})
+	}
+
+	// Register cleanup BEFORE the readiness probe. If waitForGatewayAt
+	// calls t.Fatalf, the test aborts immediately; without a prior
+	// t.Cleanup registration the child process would linger and the
+	// next test run would find :8081 already bound.
+	t.Cleanup(shutdown)
+
 	waitForGatewayAt(t, secondaryGatewayURL, secondaryGatewayReadyTimeout)
 
-	return func() {
-		cancel()
-		_ = cmd.Wait()
-	}
+	return shutdown
 }
 
 // waitForGatewayAt polls baseURL at 100ms intervals until the HTTP
