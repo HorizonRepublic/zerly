@@ -75,7 +75,10 @@ func main() {
 
 	requester := buildRequesterOrDie(nc, logger)
 	handler := buildProxyHandler(cfg, currentTable, requester, rlRouter, logger)
-	httpServer := httptransport.NewServer(cfg, handler)
+	httpServer, err := httptransport.NewServer(cfg, handler, logger)
+	if err != nil {
+		logger.Fatal().Err(err).Msg("http server construction failed")
+	}
 
 	// Run the Hertz server directly instead of Spin() so that its
 	// built-in SIGTERM/SIGINT handler does not race with our own

@@ -1461,3 +1461,39 @@ func TestHandler_PreflightOnRouteWithoutCORSConfig(t *testing.T) {
 	assert.Equal(t, 404, result.Status,
 		"preflight on a route without CORS config returns 404")
 }
+
+// TestExtractCookie_TrimsWhitespaceAndQuotes pins RFC 6265 §5.4
+// normalisation: leading whitespace after the "=" is dropped and a
+// surrounding pair of double quotes is stripped. Without the
+// normalisation, semantically equivalent cookies would land in
+// different rate-limit buckets.
+func TestExtractCookie_TrimsWhitespaceAndQuotes(t *testing.T) {
+	cases := []struct {
+		name   string
+		header string
+		want   string
+	}{
+		{"plain value", "session=abc", "abc"},
+		{"quoted value", `session="abc"`, "abc"},
+		{"leading whitespace after equals", "session= abc", "abc"},
+		{"quoted with surrounding spaces", `session= "abc"`, "abc"},
+		{"value among siblings", "theme=dark; session=abc; lang=en", "abc"},
+		{"quoted value among siblings", `theme=dark; session="abc"; lang=en`, "abc"},
+		{"single trailing quote stays attached", `session=abc"`, `abc"`},
+		{"single leading quote stays attached", `session="abc`, `"abc`},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := extractCookie(map[string]string{"cookie": c.header}, "session")
+			assert.Equal(t, c.want, got)
+		})
+	}
+}
+
+// TestExtractCookie_MissingCookieReturnsEmpty verifies the no-cookie
+// fast paths: empty header, name absent from a populated header.
+func TestExtractCookie_MissingCookieReturnsEmpty(t *testing.T) {
+	assert.Equal(t, "", extractCookie(map[string]string{}, "session"))
+	assert.Equal(t, "", extractCookie(map[string]string{"cookie": "theme=dark"}, "session"))
+}

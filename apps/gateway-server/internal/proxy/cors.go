@@ -44,7 +44,17 @@ func MatchOrigin(cors *registry.CORSMeta, origin string) string {
 
 // BuildPreflightHeaders returns the full set of CORS headers for
 // an OPTIONS preflight response (204 No Content).
+//
+// Returns nil when cors is nil so a misuse upstream (or a future
+// refactor that drops the existing nil check at the call site)
+// surfaces as a no-op rather than a nil-pointer dereference. Existing
+// callers always nil-check before invoking; this is the second line
+// of defense, not a substitute for the first.
 func BuildPreflightHeaders(cors *registry.CORSMeta, matchedOrigin string) map[string]string {
+	if cors == nil {
+		return nil
+	}
+
 	h := make(map[string]string, 6)
 
 	h["Access-Control-Allow-Origin"] = matchedOrigin
@@ -89,7 +99,14 @@ func BuildPreflightHeaders(cors *registry.CORSMeta, matchedOrigin string) map[st
 // Retry-After). When the route's CORSMeta.ExposeHeaders is set the
 // gateway emits exactly that list; otherwise the standard gateway
 // default list applies.
+//
+// Returns nil when cors is nil for the same defensive reason as
+// BuildPreflightHeaders — see that function for details.
 func BuildResponseCORSHeaders(cors *registry.CORSMeta, matchedOrigin string) map[string]string {
+	if cors == nil {
+		return nil
+	}
+
 	h := make(map[string]string, 4)
 
 	h["Access-Control-Allow-Origin"] = matchedOrigin

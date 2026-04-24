@@ -174,3 +174,25 @@ func TestBuildResponseCORSHeaders_EmptyExposeHeadersFallsBackToDefault(t *testin
 		h["Access-Control-Expose-Headers"],
 	)
 }
+
+// TestBuildPreflightHeaders_NilCORSReturnsNil pins the defensive
+// guard at the top of the function. Existing callers (handler.go's
+// preflight path) check cors != nil before invoking; the nil return
+// is the second line of defense for future refactors that drop the
+// outer check, ensuring the helper short-circuits with nil instead
+// of panicking on cors.Methods et al.
+func TestBuildPreflightHeaders_NilCORSReturnsNil(t *testing.T) {
+	assert.NotPanics(t, func() {
+		got := BuildPreflightHeaders(nil, "*")
+		assert.Nil(t, got)
+	})
+}
+
+// TestBuildResponseCORSHeaders_NilCORSReturnsNil mirrors the nil
+// guard for the response-side CORS builder.
+func TestBuildResponseCORSHeaders_NilCORSReturnsNil(t *testing.T) {
+	assert.NotPanics(t, func() {
+		got := BuildResponseCORSHeaders(nil, "*")
+		assert.Nil(t, got)
+	})
+}

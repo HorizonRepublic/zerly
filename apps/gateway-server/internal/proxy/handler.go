@@ -345,6 +345,14 @@ func (h *Handler) resolveRateLimitKey(
 // extractCookie parses a single named cookie from the Cookie header.
 // Avoids allocating a full cookie map per request — most rate-limit
 // keyBy chains resolve before reaching the cookie strategy.
+//
+// Per RFC 6265 §5.4, cookie-pairs are separated by "; " and the
+// cookie-value MAY be wrapped in DQUOTE characters. The returned
+// value is therefore trimmed of surrounding whitespace and a single
+// pair of matching quotes so that "session=abc", `session="abc"`,
+// and `session= abc` all collapse to "abc". Without this
+// normalisation, equivalent cookies would land in distinct
+// rate-limit buckets.
 func extractCookie(headers map[string]string, name string) string {
 	cookieHeader := headers["cookie"]
 	if cookieHeader == "" {
@@ -354,11 +362,26 @@ func extractCookie(headers map[string]string, name string) string {
 	for _, part := range strings.Split(cookieHeader, ";") {
 		part = strings.TrimSpace(part)
 		if eqIdx := strings.IndexByte(part, '='); eqIdx > 0 && part[:eqIdx] == name {
-			return part[eqIdx+1:]
+			value := strings.TrimSpace(part[eqIdx+1:])
+
+			return trimCookieQuotes(value)
 		}
 	}
 
 	return ""
+}
+
+// trimCookieQuotes strips a single matching pair of DQUOTE characters
+// wrapping a cookie value, leaving an unquoted value untouched. A
+// stray opening or closing quote is preserved verbatim — RFC 6265
+// only sanctions paired quoting, so half-quoted values are treated
+// as part of the value rather than as a parsing artifact.
+func trimCookieQuotes(value string) string {
+	if len(value) >= 2 && value[0] == '"' && value[len(value)-1] == '"' {
+		return value[1 : len(value)-1]
+	}
+
+	return value
 }
 
 // authFlowResult captures the outcome of a pre-flight verifier
