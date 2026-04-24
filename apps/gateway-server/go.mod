@@ -9,8 +9,8 @@ require (
 	github.com/cloudwego/hertz v0.10.4
 	github.com/oklog/ulid/v2 v2.1.1
 	github.com/rs/zerolog v1.35.0
+	github.com/sony/gobreaker v1.0.0
 	github.com/stretchr/testify v1.11.1
-	golang.org/x/time v0.15.0
 )
 
 require (
