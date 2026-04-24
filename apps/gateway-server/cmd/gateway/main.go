@@ -20,7 +20,6 @@ import (
 	"fmt"
 	"os"
 	"sync/atomic"
-	"time"
 
 	natsgo "github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -55,7 +54,6 @@ func main() {
 
 	nc := connectNATSOrDie(cfg, logger)
 	js, kv := openKVOrDie(ctx, nc, cfg, logger)
-	_ = js // consumed by the ratelimit Router bootstrap in the next wiring step
 
 	store := registry.NewStore()
 	watcher := registry.NewWatcher(kv, store, logger)
@@ -65,12 +63,14 @@ func main() {
 		logger.Fatal().Err(err).Msg("registry watcher start failed")
 	}
 
-	rlRouter := ratelimit.NewRouter(ratelimit.FailPolicyOpen.Resolve(), logger)
-	if err := rlRouter.EnsureBackend("memory", func() (ratelimit.Store, error) {
-		return ratelimit.NewMemoryStore(10 * time.Minute), nil
-	}); err != nil {
-		logger.Fatal().Err(err).Msg("ratelimit memory backend init failed")
-	}
+	rlRouter := ratelimit.NewRouter(
+		ratelimit.FailPolicy(cfg.RateLimitFailPolicy).Resolve(),
+		logger,
+	)
+	ensureRateLimitBackends(ctx, rlRouter, store, cfg, js, logger)
+	watcher.OnChange(func() {
+		ensureRateLimitBackends(ctx, rlRouter, store, cfg, js, logger)
+	})
 	defer func() { _ = rlRouter.Close() }()
 
 	requester := buildRequesterOrDie(nc, logger)
@@ -281,4 +281,106 @@ func buildProxyHandler(
 		Logger:      logger,
 		RateLimiter: rlRouter,
 	})
+}
+
+// scanNeededBackends returns the distinct set of rate-limit backend
+// ids currently referenced by any route in the registry snapshot.
+//
+// The "memory" backend is always included because it is the router's
+// fallback when a route declares no store, an empty string, or an
+// unknown backend id — the router invariant "memory is always
+// registered" must hold regardless of what routes happen to be in
+// the KV bucket when the scan runs.
+func scanNeededBackends(store *registry.Store) map[string]struct{} {
+	needed := map[string]struct{}{"memory": {}}
+	for _, entry := range store.Get().Entries {
+		if entry.RateLimit != nil && entry.RateLimit.Store != "" {
+			needed[entry.RateLimit.Store] = struct{}{}
+		}
+	}
+
+	return needed
+}
+
+// rateLimitBackendFactory returns a factory for the rate-limit Store
+// implementation named by id, or nil when the build has no
+// implementation for that id. A nil return is NOT an error: the
+// Router's StoreFor falls back to memory at request time with a
+// warning log, which is the correct behaviour for an operator who
+// references a backend that has not shipped yet (e.g., "redis"
+// before a Redis adapter lands).
+//
+// New backends ship by adding a case here; no other wiring changes
+// are required because ensureRateLimitBackends walks every declared
+// id on every registry delta.
+func rateLimitBackendFactory(
+	id string,
+	ctx context.Context,
+	cfg *config.Config,
+	js jetstream.JetStream,
+	logger zerolog.Logger,
+) func() (ratelimit.Store, error) {
+	switch id {
+	case "memory":
+		return func() (ratelimit.Store, error) {
+			return ratelimit.NewMemoryStore(cfg.RateLimitKeyTTL), nil
+		}
+	case "nats-kv":
+		return func() (ratelimit.Store, error) {
+			return ratelimit.NewNATSKVStore(ctx, ratelimit.NATSKVStoreConfig{
+				JS:            js,
+				HandlerBucket: cfg.KVBucket,
+				BucketSuffix:  "_ratelimit",
+				KeyTTL:        cfg.RateLimitKeyTTL,
+				Logger:        logger,
+			})
+		}
+	case "redis":
+		// Declared by the SDK for forward-compatibility; no Go
+		// implementation yet. Router.StoreFor falls back to memory
+		// with a warning counter so operators see the gap through
+		// metrics instead of a silent downgrade.
+		return nil
+	default:
+		return nil
+	}
+}
+
+// ensureRateLimitBackends registers a Store with the Router for
+// every backend id declared by any route in the current registry
+// snapshot. Idempotent: EnsureBackend is a no-op for ids that are
+// already registered, so the same call is safe to run at startup
+// AND on every registry delta. The delta path is how new backends
+// become available lazily — when an operator publishes a route
+// declaring a previously-unseen backend id, the next watcher
+// callback picks it up and instantiates the Store.
+//
+// Unknown ids (no factory) are skipped silently because the Router
+// already logs a fallback warning at request time, and double-logging
+// from the startup path would produce operator-confusing duplicates
+// without adding signal.
+//
+// MUST run after watcher.Start has published the initial snapshot,
+// otherwise the scan sees an empty map and only the implicit
+// "memory" entry is registered.
+func ensureRateLimitBackends(
+	ctx context.Context,
+	router *ratelimit.Router,
+	store *registry.Store,
+	cfg *config.Config,
+	js jetstream.JetStream,
+	logger zerolog.Logger,
+) {
+	for id := range scanNeededBackends(store) {
+		factory := rateLimitBackendFactory(id, ctx, cfg, js, logger)
+		if factory == nil {
+			continue
+		}
+		if err := router.EnsureBackend(id, factory); err != nil {
+			logger.Warn().
+				Err(err).
+				Str("backend", id).
+				Msg("ratelimit backend init failed")
+		}
+	}
 }
