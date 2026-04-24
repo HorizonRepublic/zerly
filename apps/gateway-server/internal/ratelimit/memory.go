@@ -2,6 +2,7 @@ package ratelimit
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -85,7 +86,7 @@ func (s *MemoryStore) Allow(ctx context.Context, key string, rps, burst int) (De
 
 	for {
 		if err := ctx.Err(); err != nil {
-			return Decision{}, err
+			return Decision{}, fmt.Errorf("ratelimit memory: %w", err)
 		}
 
 		currentNs := e.tat.Load()
