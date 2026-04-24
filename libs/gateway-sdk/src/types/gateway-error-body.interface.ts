@@ -23,4 +23,6 @@
  * `GATEWAY_ERROR_BODY_FACTORY` and return whatever object shape makes
  * sense for their contract. The gateway does not prescribe any fields.
  */
-export type IGatewayErrorBody = Readonly<Record<string, unknown>>;
+export interface IGatewayErrorBody {
+  readonly [key: string]: unknown;
+}
