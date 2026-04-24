@@ -49,6 +49,20 @@ func NewRequester(conns []*natsgo.Conn) (*Requester, error) {
 // Errors are wrapped with the subject name and propagated verbatim
 // from nats.go so callers can use errors.Is against nats.ErrTimeout
 // to discriminate timeouts from connection failures upstream.
+//
+// Invariant: this gateway intentionally sets NO user headers on
+// outbound NATS messages — all per-request metadata (request id,
+// traceparent, remote addr, timeout budget, auth claims, forwarded
+// HTTP headers) travels in the JSON envelope body rendered by the
+// proxy encoder. The envelope body is the single source of truth
+// for what the downstream handler sees; mixing transport headers in
+// would break the zero-trust header contract and require
+// `nestjs-jetstream` to merge two metadata planes on every call.
+// Future contributors adding outbound header writes MUST first
+// validate the chosen names against the `nestjs-jetstream` reserved
+// header set (error discrimination, retry metadata, reply-to
+// routing) before changing this — a collision with a reserved
+// name silently corrupts the downstream control plane.
 func (r *Requester) Request(subject string, payload []byte, timeout time.Duration) ([]byte, error) {
 	idx := r.counter.Add(1) % uint64(len(r.conns))
 	msg, err := r.conns[idx].Request(subject, payload, timeout)
