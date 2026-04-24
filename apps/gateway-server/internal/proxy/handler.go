@@ -3,6 +3,8 @@ package proxy
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -272,12 +274,19 @@ func (h *Handler) handlePreflight(table routing.Table, in *ServeInput) *ServeRes
 //     (429 Too Many Requests), or
 //   - the store returns an error AND the configured FailPolicy
 //     resolves to reject (closed-on-failure deployments).
+//   - the verifier-supplied claims fail to unmarshal AND the
+//     configured FailPolicy resolves to reject. Surfacing the
+//     unmarshal failure through FailPolicy is critical for
+//     multi-tenant deployments — silently falling back to clientIP
+//     would collapse every NAT'd tenant onto one bucket.
 //
-// Rate-limit headers are computed on every path (allowed or rejected)
-// so clients always see the accurate limit budget alongside the 429
-// body. The caller merges them into the main reply headers when the
-// gate allows, or we inject them directly into the short-circuit
-// result here when it rejects.
+// Rate-limit headers are computed on every path. On the happy path
+// and on a 429 the full triplet (Limit, Remaining, Reset) is emitted.
+// On the fail-open branch (store errored or claims failed to parse,
+// FailPolicy resolved to allow) the Decision is unpopulated, so
+// BuildHeaders only emits the static X-RateLimit-Limit — Remaining/
+// Reset would otherwise convey "bucket exhausted, resets in year 1"
+// because time.Time{}.Unix() is negative.
 //
 // No gate is applied when the route has no RateLimit block, the
 // Router dependency is nil, or RPS <= 0 — the last case being the
@@ -302,7 +311,39 @@ func (h *Handler) applyRateLimitGate(
 		return nil, nil
 	}
 
-	rlKey := h.resolveRateLimitKey(in, route, claims)
+	rlKey, claimsErr := h.resolveRateLimitKey(in, route, claims)
+	if claimsErr != nil {
+		// Multi-tenant safety: a NAT'd fleet whose verifier ships
+		// malformed claims would otherwise collapse onto a single
+		// IP-keyed bucket, defeating per-user isolation. Route the
+		// failure through the same FailPolicy that handles store
+		// outages so closed-on-error deployments reject (likely 503)
+		// while open-on-error deployments fall back to IP and emit
+		// the WARN line below for operator visibility.
+		h.cfg.Logger.Warn().
+			Err(claimsErr).
+			Str("event", "ratelimit.claims.unmarshal_failed").
+			Str("route", route.Method+":"+route.PathTemplate).
+			Strs("key_by", route.RateLimit.KeyBy).
+			Str("claims_preview", previewClaimsForLog(claims)).
+			Msg("ratelimit: verifier claims failed to unmarshal; routing through FailPolicy")
+
+		allowed := h.cfg.RateLimiter.FailPolicy().Apply(claimsErr, route, rlKey, h.cfg.Logger)
+
+		rlHeaders := ratelimit.BuildHeaders(route.RateLimit, ratelimit.Decision{})
+		if !allowed {
+			result := toServeResult(gerrors.ServiceUnavailable)
+			for k, v := range rlHeaders {
+				result.Headers[k] = []string{v}
+			}
+
+			return rlHeaders, result
+		}
+		// Fail-open: continue with the IP-fallback key the resolver
+		// already produced. Partial enforcement during the
+		// degraded-claims window is strictly better than no
+		// enforcement.
+	}
 
 	burst := route.RateLimit.Burst
 	if burst == 0 {
@@ -318,6 +359,12 @@ func (h *Handler) applyRateLimitGate(
 
 	allowed := decision.Allowed
 	if rlErr != nil {
+		// Drop the partial Decision returned alongside the error so
+		// BuildHeaders sees Decision{}.IsZero() and emits the static
+		// X-RateLimit-Limit only. The previous behaviour (forwarding
+		// the unpopulated Decision verbatim) leaked Remaining: 0 /
+		// Reset: -62135596800 to clients on the fail-open branch.
+		decision = ratelimit.Decision{}
 		allowed = h.cfg.RateLimiter.FailPolicy().Apply(rlErr, route, fullKey, h.cfg.Logger)
 	}
 
@@ -337,28 +384,72 @@ func (h *Handler) applyRateLimitGate(
 
 // resolveRateLimitKey computes the rate-limit bucket key from the
 // route's keyBy chain, falling back to clientIP if nothing resolves.
+//
+// The returned error is non-nil only when the verifier-supplied
+// claims payload is non-empty but fails JSON unmarshal. Callers MUST
+// route that error through their FailPolicy instead of treating it
+// as a clean key resolution: a multi-tenant deployment that silently
+// fell back to clientIP for tenants with malformed claims would
+// collapse every NAT'd tenant onto one bucket, defeating per-user
+// isolation. Every other keyBy strategy resolves through pure
+// header / cookie / IP reads that cannot fail.
 func (h *Handler) resolveRateLimitKey(
 	in *ServeInput,
 	route routing.Route,
 	claims json.RawMessage,
-) string {
+) (string, error) {
 	keyBy := route.RateLimit.KeyBy
 	if len(keyBy) == 0 {
 		keyBy = []string{"ip"}
 	}
 
 	var claimsMap map[string]any
+	var unmarshalErr error
 	if len(claims) > 0 {
-		_ = json.Unmarshal(claims, &claimsMap)
+		if err := json.Unmarshal(claims, &claimsMap); err != nil {
+			unmarshalErr = fmt.Errorf("ratelimit: claims unmarshal: %w", err)
+		}
 	}
 
-	return ratelimit.ResolveKey(
+	key := ratelimit.ResolveKey(
 		keyBy,
 		in.RemoteAddr,
 		func(name string) string { return in.Headers[name] },
 		func(name string) string { return extractCookie(in.Headers, name) },
 		claimsMap,
 	)
+
+	return key, unmarshalErr
+}
+
+// claimsRedactPattern matches JSON object-key prefixes likely to
+// contain secrets in a verifier reply payload. Compiled once at
+// package init so the redaction step on the WARN log path stays
+// cheap; matched substrings are replaced with `***`. Match is
+// deliberately permissive — false positives only obscure preview
+// data, false negatives leak credentials to operator logs.
+var claimsRedactPattern = regexp.MustCompile(
+	`(?i)"(password|token|secret|key|authorization|auth)"\s*:\s*"[^"]*"`,
+)
+
+// previewClaimsForLog returns up to 256 bytes of claims with any
+// password/token/secret/key field values replaced by `***`. Used in
+// the structured WARN line emitted when a verifier reply fails to
+// parse — operators need enough context to spot a multi-tenant NAT
+// collision (the original failure mode), but they MUST NOT see raw
+// credentials in cleartext logs.
+func previewClaimsForLog(claims json.RawMessage) string {
+	if len(claims) == 0 {
+		return ""
+	}
+
+	const maxPreview = 256
+	preview := string(claims)
+	if len(preview) > maxPreview {
+		preview = preview[:maxPreview]
+	}
+
+	return claimsRedactPattern.ReplaceAllString(preview, `"$1":"***"`)
 }
 
 // extractCookie parses a single named cookie from the Cookie header.

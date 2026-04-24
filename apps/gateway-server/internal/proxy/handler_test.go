@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -1213,13 +1214,15 @@ func newOncePerKeyLimiter() *oncePerKeyLimiter {
 
 func (o *oncePerKeyLimiter) Allow(_ context.Context, key string, rps, burst int) (ratelimit.Decision, error) {
 	o.calls = append(o.calls, rateLimitCall{key: key, rps: rps, burst: burst})
+
+	resetAt := time.Unix(1_700_000_000, 0)
 	if o.seen[key] {
-		return ratelimit.Decision{Allowed: false}, nil
+		return ratelimit.Decision{Allowed: false, ResetAt: resetAt}, nil
 	}
 
 	o.seen[key] = true
 
-	return ratelimit.Decision{Allowed: true}, nil
+	return ratelimit.Decision{Allowed: true, ResetAt: resetAt}, nil
 }
 
 func (o *oncePerKeyLimiter) FlushPrefix(_ context.Context, _ string) error { return nil }
@@ -1637,4 +1640,233 @@ func TestHandler_DeadlineExceededReturns504(t *testing.T) {
 
 	assert.Equal(t, 504, result.Status,
 		"context.DeadlineExceeded from the requester is a timeout-class outcome")
+}
+
+// --- Rate-limit fail-policy and claims-unmarshal tests ---
+
+// erroringRateLimiter unconditionally returns the configured error
+// from Allow alongside a zero Decision, mirroring the shape of a
+// real backend outage (NATS-KV unreachable, CAS budget exhausted).
+type erroringRateLimiter struct {
+	err error
+}
+
+func (e *erroringRateLimiter) Allow(_ context.Context, _ string, _, _ int) (ratelimit.Decision, error) {
+	return ratelimit.Decision{}, e.err
+}
+
+func (erroringRateLimiter) FlushPrefix(_ context.Context, _ string) error { return nil }
+
+func (erroringRateLimiter) Close() error { return nil }
+
+func (erroringRateLimiter) Counters() map[string]int64 {
+	return map[string]int64{
+		"ratelimit_erroring_decisions_allowed":  0,
+		"ratelimit_erroring_decisions_rejected": 0,
+		"ratelimit_erroring_backend_errors":     0,
+	}
+}
+
+// routerWithStoreAndPolicy mirrors routerWithStore but lets the test
+// pin a non-default fail-policy (e.g. closed) so handler-level
+// closed-on-error behaviour is exercisable without touching the
+// router internals.
+func routerWithStoreAndPolicy(
+	t *testing.T,
+	s ratelimit.Store,
+	fp ratelimit.FailPolicy,
+) *ratelimit.Router {
+	t.Helper()
+	router := ratelimit.NewRouter(fp.Resolve(), zerolog.Nop())
+	require.NoError(t, router.EnsureBackend("memory", func() (ratelimit.Store, error) {
+		return s, nil
+	}))
+
+	return router
+}
+
+// TestHandler_RateLimitFailOpenEmitsOnlyLimitHeader pins the
+// fail-open header contract: when Store.Allow returns an error and
+// the FailPolicy resolves to allow, the response carries only the
+// static X-RateLimit-Limit. Forwarding the unpopulated Decision
+// would otherwise emit X-RateLimit-Remaining: 0 (looks like
+// exhaustion) and X-RateLimit-Reset: -62135596800 (year 1 — utter
+// nonsense), giving clients a worse signal than no signal at all.
+func TestHandler_RateLimitFailOpenEmitsOnlyLimitHeader(t *testing.T) {
+	rl := &erroringRateLimiter{err: errors.New("backend offline")}
+	table := &fakeTable{routes: map[string]routing.Route{
+		"GET /users": {
+			Subject: "svc.cmd.users.list", PathTemplate: "/users",
+			Method: "GET",
+			RateLimit: &registry.RateLimitMeta{RPS: 10, Burst: 20},
+		},
+	}}
+	nats := newFakeNats()
+	nats.reply = []byte(`{"status":200,"headers":{},"body":null}`)
+
+	h := NewHandler(HandlerConfig{
+		Table:       func() routing.Table { return table },
+		Nats:        nats,
+		Encoder:     NewDefaultEncoder(),
+		Decoder:     NewDefaultDecoder(),
+		Timeout:     30 * time.Second,
+		Logger:      zerolog.Nop(),
+		RateLimiter: routerWithStoreAndPolicy(t, rl, ratelimit.FailPolicyOpen),
+	})
+
+	in := emptyServeInput("GET", "/users")
+	in.RemoteAddr = "1.2.3.4"
+
+	result := h.Handle(context.Background(), in)
+
+	assert.Equal(t, 200, result.Status, "fail-open allows the request through")
+	assert.Equal(t, []string{"10"}, result.Headers["X-RateLimit-Limit"])
+	_, hasRemaining := result.Headers["X-RateLimit-Remaining"]
+	assert.False(t, hasRemaining,
+		"fail-open must not emit Remaining (Decision is unpopulated)")
+	_, hasReset := result.Headers["X-RateLimit-Reset"]
+	assert.False(t, hasReset,
+		"fail-open must not emit Reset (Decision is unpopulated)")
+	_, hasRetry := result.Headers["Retry-After"]
+	assert.False(t, hasRetry, "fail-open is allow, not reject")
+}
+
+// TestHandler_RateLimitFailClosedRejectsWith429 pins the symmetrical
+// closed branch: the same backend error under FailPolicyClosed
+// surfaces as a 429-class rejection. The static X-RateLimit-Limit
+// still rides along so clients see the configured budget.
+func TestHandler_RateLimitFailClosedRejectsWith429(t *testing.T) {
+	rl := &erroringRateLimiter{err: errors.New("backend offline")}
+	table := &fakeTable{routes: map[string]routing.Route{
+		"GET /users": {
+			Subject: "svc.cmd.users.list", PathTemplate: "/users",
+			Method: "GET",
+			RateLimit: &registry.RateLimitMeta{RPS: 10, Burst: 20},
+		},
+	}}
+
+	h := NewHandler(HandlerConfig{
+		Table:       func() routing.Table { return table },
+		Nats:        newFakeNats(),
+		Encoder:     NewDefaultEncoder(),
+		Decoder:     NewDefaultDecoder(),
+		Timeout:     30 * time.Second,
+		Logger:      zerolog.Nop(),
+		RateLimiter: routerWithStoreAndPolicy(t, rl, ratelimit.FailPolicyClosed),
+	})
+
+	result := h.Handle(context.Background(), emptyServeInput("GET", "/users"))
+
+	assert.Equal(t, 429, result.Status, "fail-closed rejects with 429")
+	assert.Equal(t, []string{"10"}, result.Headers["X-RateLimit-Limit"])
+	_, hasRemaining := result.Headers["X-RateLimit-Remaining"]
+	assert.False(t, hasRemaining,
+		"fail-closed reject still has no populated Decision; omit Remaining")
+}
+
+// TestHandler_ClaimsUnmarshalFailsClosedReturns503 pins the
+// multi-tenant safety contract: when the verifier replies with
+// non-JSON-object claims, a route configured with
+// keyBy: ['user:...'] MUST NOT silently fall back to clientIP — every
+// NAT'd tenant would otherwise collapse onto one bucket. The handler
+// routes the failure through FailPolicy. Closed → 503; open is
+// covered by a sibling test below.
+func TestHandler_ClaimsUnmarshalFailsClosedReturns503(t *testing.T) {
+	verifierSubject := "auth-svc__microservice.cmd.auth.verifier.jwt"
+	routeSubject := "users-svc__microservice.cmd.users.me"
+
+	nats := newFakeNats()
+	// Verifier replies 200 with a body whose JSON shape is a string
+	// rather than an object — json.Unmarshal into map[string]any
+	// rejects that.
+	nats.program(
+		verifierSubject,
+		[]byte(`{"status":200,"headers":{},"body":"not-an-object"}`),
+		nil,
+	)
+
+	route := routing.Route{
+		Subject:      routeSubject,
+		Method:       "GET",
+		PathTemplate: "/users/me",
+		Auth:         &routing.RouteAuth{VerifierSubject: verifierSubject},
+		RateLimit: &registry.RateLimitMeta{
+			RPS: 5, Burst: 10,
+			KeyBy: []string{"user:id", "ip"},
+		},
+	}
+
+	rl := newOncePerKeyLimiter()
+
+	h := NewHandler(HandlerConfig{
+		Table:       func() routing.Table { return stubTable(route) },
+		Nats:        nats,
+		Encoder:     NewDefaultEncoder(),
+		Decoder:     NewDefaultDecoder(),
+		Timeout:     30 * time.Second,
+		Logger:      zerolog.Nop(),
+		RateLimiter: routerWithStoreAndPolicy(t, rl, ratelimit.FailPolicyClosed),
+	})
+
+	in := authServeInput("GET", "/users/me")
+	in.RemoteAddr = "10.0.0.1"
+	in.Headers["authorization"] = "Bearer tok"
+
+	result := h.Handle(context.Background(), in)
+
+	assert.Equal(t, 503, result.Status,
+		"closed FailPolicy must reject when claims fail to unmarshal")
+	assert.Equal(t, []string{"5"}, result.Headers["X-RateLimit-Limit"])
+}
+
+// TestPreviewClaimsForLog_RedactsCredentials pins the redaction
+// contract on the WARN log preview: substrings keyed by
+// password/token/secret/key are blanked to `***` so operators see
+// the structural shape of malformed claims (helpful for diagnosing
+// a misbehaving verifier) without the actual credential ever
+// landing in cleartext logs.
+func TestPreviewClaimsForLog_RedactsCredentials(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{
+			name: "password field is redacted",
+			in:   `{"id":"u1","password":"hunter2"}`,
+			want: `{"id":"u1","password":"***"}`,
+		},
+		{
+			name: "token field is redacted",
+			in:   `{"token":"abc.def.ghi","sub":"u1"}`,
+			want: `{"token":"***","sub":"u1"}`,
+		},
+		{
+			name: "case-insensitive match",
+			in:   `{"Secret":"oops"}`,
+			want: `{"Secret":"***"}`,
+		},
+		{
+			name: "non-secret fields untouched",
+			in:   `{"id":"u1","email":"u@test.com"}`,
+			want: `{"id":"u1","email":"u@test.com"}`,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := previewClaimsForLog(json.RawMessage(c.in))
+			assert.Equal(t, c.want, got)
+		})
+	}
+}
+
+// TestPreviewClaimsForLog_TruncatesAt256Bytes pins the cap: a long
+// claims payload is preserved verbatim only up to 256 bytes so
+// operator logs never balloon under attack-shaped inputs.
+func TestPreviewClaimsForLog_TruncatesAt256Bytes(t *testing.T) {
+	long := bytes.Repeat([]byte("A"), 1024)
+	got := previewClaimsForLog(json.RawMessage(long))
+
+	assert.Len(t, got, 256)
 }
