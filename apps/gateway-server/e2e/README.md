@@ -128,6 +128,23 @@ watcher → delta → routing-table refresh pipeline end-to-end.
 | 10 | forRoot header default reaches undecorated routes           | header applied globally |
 | 11 | Bare `res.cookie(...)` merges forRoot cookie defaults       | `HttpOnly` / `SameSite` / `Path` / `Max-Age` flow through |
 
+### Multi-replica scenarios (`ratelimit_multi_replica_test.go`)
+
+These tests spawn a SECOND gateway process on `:8081` alongside the
+primary on `:8080`, both pointed at the same NATS cluster. The
+secondary process is launched in-test via `exec.CommandContext`
+against the prebuilt binary in `dist/apps/gateway-server/gateway`.
+
+Tests skip gracefully (not fail) if the binary is missing — a clear
+log line directs the developer to run `pnpm nx build gateway-server`
+before re-running e2e.
+
+| # | Scenario                                         | Expected |
+|---|--------------------------------------------------|----------|
+| 1 | 30 req across 2 pods, route rps=10               | ~10 allowed, ~20 rejected, X-RateLimit-* headers on every response |
+
+Task 8.3 adds the fail-policy scenario to this same file.
+
 ## Two-profile trusted-proxy protocol
 
 Since 2026-04-17 the `e2e` suite has two profiles driven by the
