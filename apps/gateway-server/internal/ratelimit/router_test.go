@@ -138,6 +138,47 @@ func TestRouter_CloseIsIdempotent(t *testing.T) {
 		"second Close must be a no-op rather than double-closing the underlying stores")
 }
 
+// TestRouter_StoreForReturnsClosedSentinelWhenMemoryMissing pins
+// the defensive behaviour at the bottom of the resolution chain: if
+// bootstrap forgets to register the memory backend, StoreFor MUST
+// return a non-nil Store whose Allow surfaces ErrStoreClosed. The
+// hot-path handler dereferences the result without nil checks, so a
+// nil return here would be a panic.
+func TestRouter_StoreForReturnsClosedSentinelWhenMemoryMissing(t *testing.T) {
+	r := NewRouter(FailPolicyOpen.Resolve(), zerolog.Nop())
+
+	store := r.StoreFor(routing.Route{Method: "GET", PathTemplate: "/x"})
+	require.NotNil(t, store, "StoreFor must never return nil; the handler dereferences it on the hot path")
+
+	_, err := store.Allow(context.Background(), "k", 10, 5)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrStoreClosed)
+
+	// The fallback counter must have bumped so operators can surface
+	// the misconfiguration through metrics — otherwise a missing
+	// backend hides forever behind the nil-safe FailPolicy decision.
+	assert.GreaterOrEqual(t, r.Counters()["ratelimit_store_fallback"], int64(1),
+		"missing memory backend must bump the fallback counter")
+}
+
+// TestRouter_StoreForUnknownStoreWithoutMemoryReturnsClosedSentinel
+// covers the combined path: declared backend missing, memory backend
+// also missing. Both fallbacks log and bump the counter, but the
+// final return must still be a non-nil Store.
+func TestRouter_StoreForUnknownStoreWithoutMemoryReturnsClosedSentinel(t *testing.T) {
+	r := NewRouter(FailPolicyOpen.Resolve(), zerolog.Nop())
+
+	store := r.StoreFor(routing.Route{
+		Method:       "POST",
+		PathTemplate: "/y",
+		RateLimit:    &registry.RateLimitMeta{Store: "redis"},
+	})
+	require.NotNil(t, store, "StoreFor must never return nil even when both declared and fallback backends are missing")
+
+	_, err := store.Allow(context.Background(), "k", 10, 5)
+	require.ErrorIs(t, err, ErrStoreClosed)
+}
+
 func TestRouter_EnsureBackendAfterCloseRefuses(t *testing.T) {
 	r := NewRouter(FailPolicyOpen.Resolve(), zerolog.Nop())
 	require.NoError(t, r.Close())

@@ -100,6 +100,12 @@ func buildServeInput(ctx *app.RequestContext) *proxy.ServeInput {
 	// merge on the way in: upstream handlers see one header with all
 	// observations preserved, and the ServeInput.Headers surface stays
 	// a flat map[string]string for every other consumer.
+	//
+	// Cookie is the documented exception (RFC 6265 §5.4): cookie pairs
+	// MUST be joined with "; " — not ", " — so a server-side parser
+	// (including the gateway's own extractCookie helper) sees a
+	// well-formed cookie header rather than one whose pairs run
+	// together with comma-comma confusion.
 	headers := make(map[string]string, initialHeadersCap)
 	ctx.Request.Header.VisitAll(func(key, value []byte) {
 		lowerKey := string(bytes.ToLower(key))
@@ -109,7 +115,7 @@ func buildServeInput(ctx *app.RequestContext) *proxy.ServeInput {
 
 		v := string(value)
 		if existing, ok := headers[lowerKey]; ok {
-			headers[lowerKey] = existing + ", " + v
+			headers[lowerKey] = existing + headerJoinSeparator(lowerKey) + v
 
 			return
 		}
@@ -211,6 +217,25 @@ func writeServeResult(ctx *app.RequestContext, result *proxy.ServeResult) {
 
 	ctx.SetStatusCode(result.Status)
 	ctx.Response.SetBody(result.Body)
+}
+
+// headerJoinSeparator returns the delimiter used when merging
+// repeated occurrences of the same header into one value.
+//
+// RFC 7230 §3.2.2 allows a receiver to combine multiple field-value
+// observations into one comma-joined string for every header except
+// Set-Cookie. Cookie itself uses "; " per RFC 6265 §5.4 — the
+// individual cookie-pair delimiter — so a request carrying multiple
+// Cookie lines lands in headers["cookie"] as a single, well-formed
+// cookie string that the gateway's extractCookie helper (and any
+// upstream consumer) can parse without confusing comma-separated
+// pairs with intra-cookie commas.
+func headerJoinSeparator(lowerKey string) string {
+	if lowerKey == "cookie" {
+		return "; "
+	}
+
+	return ", "
 }
 
 // resolveRemoteAddr returns the client IP the handler should see.

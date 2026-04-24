@@ -104,6 +104,29 @@ func TestBuildServeInput_CookieHeaderArrivesPreMerged(t *testing.T) {
 		"Hertz is expected to join Cookie lines with \"; \" before VisitAll fires")
 }
 
+// TestHeaderJoinSeparator pins the per-header delimiter contract:
+// Cookie joins with "; " (RFC 6265 §5.4), every other repeated header
+// joins with ", " (RFC 7230 §3.2.2). Any future Hertz behavioural
+// drift that surfaces multiple Cookie callbacks would land in the
+// merge path and rely on this helper picking the right separator.
+func TestHeaderJoinSeparator(t *testing.T) {
+	cases := []struct {
+		key      string
+		expected string
+	}{
+		{"cookie", "; "},
+		{"accept-encoding", ", "},
+		{"x-forward-chain", ", "},
+		{"set-cookie", ", "}, // request-side header, response-side never reaches this path.
+	}
+
+	for _, c := range cases {
+		t.Run(c.key, func(t *testing.T) {
+			assert.Equal(t, c.expected, headerJoinSeparator(c.key))
+		})
+	}
+}
+
 func TestBuildServeInput_CollectsSingleValueQuery(t *testing.T) {
 	ctx := ut.CreateUtRequestContext("GET", "https://gateway.test/x?include=profile", nil)
 

@@ -13,6 +13,14 @@ import (
 	"github.com/rs/zerolog"
 )
 
+// ErrWatcherStopped is returned by Start when invoked on a Watcher
+// whose lifecycle has already terminated via Stop. Restarting a
+// stopped watcher is a structural lifecycle violation: the start/stop
+// pair is single-shot by design so resources held by the previous run
+// are not silently revived. Callers that need a second life should
+// construct a fresh Watcher.
+var ErrWatcherStopped = errors.New("registry: watcher stopped")
+
 // reconcileInterval is how often the watcher performs a full-bucket
 // key scan and drops any store entries that no longer exist in KV.
 // Paired with the nestjs-jetstream heartbeat TTL (default 30 s on the
@@ -55,11 +63,12 @@ type Watcher struct {
 	callbacks []ChangeCallback
 	cbMu      sync.RWMutex
 
-	cancel    context.CancelFunc
-	done      chan struct{}
-	startOnce sync.Once
-	startErr  error
-	stopOnce  sync.Once
+	lifecycleMu sync.Mutex
+	cancel      context.CancelFunc
+	done        chan struct{}
+	startOnce   sync.Once
+	startErr    error
+	stopped     bool
 }
 
 // NewWatcher constructs a Watcher for the given KV bucket and store.
@@ -103,7 +112,19 @@ func (w *Watcher) OnChange(cb ChangeCallback) {
 // the error (or nil) observed on the first invocation. This prevents
 // goroutine leaks from an accidental double-Start during bootstrap
 // refactors and makes the lifecycle symmetric with Stop.
+//
+// Calling Start on a watcher that has already been Stop()ped returns
+// ErrWatcherStopped so accidental Start→Stop→Start sequences fail loud
+// rather than silently leak the previous goroutine's resources or
+// resurrect a torn-down lifecycle.
 func (w *Watcher) Start(ctx context.Context) error {
+	w.lifecycleMu.Lock()
+	if w.stopped {
+		w.lifecycleMu.Unlock()
+		return ErrWatcherStopped
+	}
+	w.lifecycleMu.Unlock()
+
 	w.startOnce.Do(func() {
 		if err := w.initialLoad(ctx); err != nil {
 			w.startErr = fmt.Errorf("registry watcher initial load: %w", err)
@@ -111,7 +132,10 @@ func (w *Watcher) Start(ctx context.Context) error {
 		}
 
 		watchCtx, cancel := context.WithCancel(context.Background())
+
+		w.lifecycleMu.Lock()
 		w.cancel = cancel
+		w.lifecycleMu.Unlock()
 
 		go w.watchLoop(watchCtx)
 	})
@@ -119,16 +143,30 @@ func (w *Watcher) Start(ctx context.Context) error {
 }
 
 // Stop cancels the watch loop's context and waits for the goroutine to
-// exit. Safe to call multiple times and before Start (the second and
-// later calls are no-ops).
+// exit. Safe to call multiple times and before Start; every later call
+// is a no-op. After Stop returns, the watcher is in a terminal state —
+// further Start calls return ErrWatcherStopped instead of resurrecting
+// the lifecycle.
 func (w *Watcher) Stop() {
-	w.stopOnce.Do(func() {
-		if w.cancel == nil {
-			return
-		}
-		w.cancel()
-		<-w.done
-	})
+	w.lifecycleMu.Lock()
+	alreadyStopped := w.stopped
+	cancel := w.cancel
+	w.stopped = true
+	w.lifecycleMu.Unlock()
+
+	if alreadyStopped {
+		return
+	}
+
+	if cancel == nil {
+		// Stop called before Start ever installed a cancel func. The
+		// stopped flag is now set so any subsequent Start returns
+		// ErrWatcherStopped instead of leaking a goroutine.
+		return
+	}
+
+	cancel()
+	<-w.done
 }
 
 func (w *Watcher) initialLoad(ctx context.Context) error {

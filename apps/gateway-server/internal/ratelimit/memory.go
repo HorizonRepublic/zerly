@@ -22,6 +22,11 @@ type MemoryStore struct {
 	entries sync.Map // map[string]*memoryEntry
 	ttl     time.Duration
 	stop    chan struct{}
+	// closeOnce serializes Close so concurrent shutdown callers cannot
+	// race the select/close sequence and panic on a double close. The
+	// sync.Once token is consumed on the first call regardless of
+	// success, which matches the documented "idempotent" contract.
+	closeOnce sync.Once
 
 	counters struct {
 		allowed  atomic.Int64
@@ -93,14 +98,14 @@ func (s *MemoryStore) FlushPrefix(_ context.Context, prefix string) error {
 	return nil
 }
 
-// Close is idempotent.
+// Close is idempotent and safe to call from multiple goroutines.
+// sync.Once guards the channel close so a concurrent second invocation
+// observes the consumed token and returns without re-closing the
+// channel — racing two close(stop) calls would panic the runtime.
 func (s *MemoryStore) Close() error {
-	select {
-	case <-s.stop:
-		// already closed
-	default:
+	s.closeOnce.Do(func() {
 		close(s.stop)
-	}
+	})
 	return nil
 }
 

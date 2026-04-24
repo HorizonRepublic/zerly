@@ -196,6 +196,42 @@ func TestComputeDelta_ModifiedSortsDeterministically(t *testing.T) {
 	assert.Less(t, delta.Modified[0], delta.Modified[1])
 }
 
+// TestHeadersEqual_DistinctKeysWithEmptyValuesAreNotEqual pins the
+// fix for the false-positive in the previous bare lookup: when the
+// two maps carry the same length but different key sets and one of
+// the values is the empty string, `b[k]` returned the zero value and
+// the loop wrongly accepted them as equal. The two-value access via
+// the ok flag closes that gap and ensures key-set differences are
+// always detected.
+func TestHeadersEqual_DistinctKeysWithEmptyValuesAreNotEqual(t *testing.T) {
+	a := map[string]string{"x": ""}
+	b := map[string]string{"y": ""}
+
+	assert.False(t, headersEqual(a, b), "distinct key sets must not be equal")
+	assert.False(t, headersEqual(b, a), "comparison must be symmetric")
+}
+
+// TestHeadersEqual_LengthMismatchShortCircuits asserts the cheap
+// length precheck still wins on inputs of obviously different size.
+func TestHeadersEqual_LengthMismatchShortCircuits(t *testing.T) {
+	a := map[string]string{"x": "1"}
+	b := map[string]string{"x": "1", "y": "2"}
+
+	assert.False(t, headersEqual(a, b), "different-length maps cannot match")
+}
+
+// TestHeadersEqual_IdenticalMapsAreEqual is the happy-path baseline:
+// same keys with same values must be reported as equal even after the
+// safer two-value lookup is in place.
+func TestHeadersEqual_IdenticalMapsAreEqual(t *testing.T) {
+	a := map[string]string{"x-debug": "1", "x-trace": "abc"}
+	b := map[string]string{"x-debug": "1", "x-trace": "abc"}
+
+	assert.True(t, headersEqual(a, b))
+	assert.True(t, headersEqual(map[string]string{}, map[string]string{}))
+	assert.True(t, headersEqual(nil, nil))
+}
+
 func TestRouteDelta_IsEmpty_TrueWhenBothZero(t *testing.T) {
 	delta := RouteDelta{Unchanged: 42}
 	assert.True(t, delta.IsEmpty())

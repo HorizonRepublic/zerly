@@ -130,3 +130,38 @@ func countEntries(s *MemoryStore) int {
 	})
 	return n
 }
+
+// TestMemoryStore_Close_ConcurrentCallsAreIdempotent pins the
+// guarantee that concurrent shutdown does not race the channel close.
+// The previous select/close implementation could panic when two
+// goroutines passed the default arm before either reached close(stop).
+func TestMemoryStore_Close_ConcurrentCallsAreIdempotent(t *testing.T) {
+	s := NewMemoryStore(time.Minute)
+
+	const goroutines = 32
+	var (
+		wg     sync.WaitGroup
+		start  = make(chan struct{})
+		errMu  sync.Mutex
+		errors []error
+	)
+	wg.Add(goroutines)
+	for i := 0; i < goroutines; i++ {
+		go func() {
+			defer wg.Done()
+			<-start
+			if err := s.Close(); err != nil {
+				errMu.Lock()
+				errors = append(errors, err)
+				errMu.Unlock()
+			}
+		}()
+	}
+
+	assert.NotPanics(t, func() {
+		close(start)
+		wg.Wait()
+	}, "concurrent Close calls must not panic on the channel close")
+
+	assert.Empty(t, errors, "every Close call must return nil")
+}

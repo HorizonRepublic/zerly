@@ -274,13 +274,20 @@ func authEqual(a, b *RouteAuth) bool {
 	return reflect.DeepEqual(a, b)
 }
 
+// headersEqual reports whether two header maps carry the same set of
+// keys with the same values. A bare `b[k] != v` lookup wrongly treats
+// a missing key as equal to an empty-string value because Go returns
+// the zero value for absent map entries — which would silently mask a
+// route swap from `{x: ""}` to `{y: ""}`. The two-value access via the
+// ok flag closes that gap.
 func headersEqual(a, b map[string]string) bool {
 	if len(a) != len(b) {
 		return false
 	}
 
 	for k, v := range a {
-		if b[k] != v {
+		bv, ok := b[k]
+		if !ok || bv != v {
 			return false
 		}
 	}

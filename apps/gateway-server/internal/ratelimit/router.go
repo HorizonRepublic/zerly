@@ -124,6 +124,11 @@ func (r *Router) EnsureBackend(id string, factory func() (Store, error)) error {
 //  3. Declared id matches a registered backend → that backend.
 //  4. Declared id has no matching backend → memory + fallback warn log
 //     + fallback counter bump.
+//  5. Memory backend itself missing (misconfiguration: bootstrap forgot
+//     to register it) → the closed-sentinel store. Allow surfaces
+//     ErrStoreClosed so the FailPolicy turns the broken wiring into a
+//     well-defined backend-outage decision instead of a nil-Store
+//     panic on the hot path.
 //
 // The hot-path memory backend lookup uses RLock; it is safe to call
 // concurrently with EnsureBackend and Close. In-flight requests that
@@ -156,7 +161,28 @@ func (r *Router) StoreFor(route routing.Route) Store {
 		r.counters.fallback.Add(1)
 	}
 
-	return r.stores["memory"]
+	memory, ok := r.stores["memory"]
+	if !ok {
+		// Defensive bottom of the resolution chain: the gateway
+		// bootstrap is contractually required to register the memory
+		// backend before any Allow call reaches the router. If that
+		// invariant is broken we MUST NOT return nil — the proxy
+		// handler would dereference it on the hot path. The closed
+		// sentinel makes Allow return ErrStoreClosed so the
+		// configured FailPolicy decides allow/reject, the log line
+		// gives operators a loud signal that startup wiring is broken,
+		// and the fallback counter bumps so the misconfiguration is
+		// observable through metrics.
+		r.logger.Error().
+			Str("event", "ratelimit.store.memory_missing").
+			Str("route", route.Method+":"+route.PathTemplate).
+			Msg("ratelimit memory backend missing; using closed sentinel")
+		r.counters.fallback.Add(1)
+
+		return closedStore{}
+	}
+
+	return memory
 }
 
 // FailPolicy returns the resolved Policy. Request handlers invoke

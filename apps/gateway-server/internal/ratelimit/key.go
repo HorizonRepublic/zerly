@@ -1,6 +1,7 @@
 package ratelimit
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -93,11 +94,45 @@ func ResolveKey(
 			if claims != nil {
 				field := key[5:]
 				if v, ok := claims[field]; ok {
-					return fmt.Sprint(v)
+					return stringifyClaim(v)
 				}
 			}
 		}
 	}
 
 	return clientIP
+}
+
+// stringifyClaim renders a JWT claim value into a deterministic
+// rate-limit key fragment.
+//
+// fmt.Sprint on a map or slice walks the runtime's randomized map
+// iteration order, so the same claim payload would otherwise produce
+// different rate-limit keys across goroutines and pods — buckets
+// would dilute or collide instead of converging on the configured
+// rate. JSON marshalling sorts map keys lexicographically (per
+// encoding/json since Go 1.12), so json.Marshal is the canonical way
+// to derive a stable representation for object/array claims.
+//
+// Scalar primitives go through fmt.Sprint directly because their wire
+// form is already deterministic. The json.Marshal failure branch
+// falls back to fmt.Sprintf so a malformed claim still produces some
+// key — the worst case is non-determinism on a value that already
+// failed to encode, which is no worse than the prior behavior.
+func stringifyClaim(v any) string {
+	switch val := v.(type) {
+	case nil:
+		return ""
+	case string:
+		return val
+	case bool, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64:
+		return fmt.Sprint(val)
+	}
+
+	encoded, err := json.Marshal(v)
+	if err != nil {
+		return fmt.Sprintf("%v", v)
+	}
+
+	return string(encoded)
 }

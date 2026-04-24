@@ -55,6 +55,14 @@ type NATSConn interface {
 	Drain() error
 }
 
+// WatcherStopper is the narrow contract the Drain routine needs from
+// the registry watcher. *registry.Watcher satisfies it natively;
+// extracting an interface lets tests assert step ordering with a
+// recording fake.
+type WatcherStopper interface {
+	Stop()
+}
+
 // Options bundles the resources Drain must quiesce on shutdown.
 // Every field is required and a nil value triggers a deliberate
 // nil-pointer dereference so bootstrap wiring bugs surface loudly
@@ -65,7 +73,7 @@ type Options struct {
 	HTTP HTTPServer
 	// Watcher is the registry watcher whose Stop method cancels its
 	// background goroutine.
-	Watcher *registry.Watcher
+	Watcher WatcherStopper
 	// NATS is the NATS connection whose Drain method waits for
 	// in-flight subscriptions and publishes to finish.
 	NATS NATSConn
@@ -146,10 +154,30 @@ func stopWatcher(opts Options) {
 // drainNATS waits for in-flight subscriptions and publishes on the
 // NATS connection to finish before tearing down the socket. Errors
 // are logged but do not abort the shutdown.
+//
+// Drain runs on a worker goroutine so a hung NATS connection cannot
+// block the gateway past the configured shutdown timeout. When the
+// deadline elapses before Drain returns, the lifecycle layer logs at
+// WARN (timeout is a lifecycle signal, not a defect) and yields control
+// to the process exit path — the orphan goroutine completes whenever
+// the underlying socket finally drops.
 func drainNATS(opts Options) {
 	opts.Logger.Debug().Msg("shutdown step: nats drain")
-	if err := opts.NATS.Drain(); err != nil {
-		opts.Logger.Error().Err(err).Msg("nats drain failed")
+
+	done := make(chan error, 1)
+	go func() {
+		done <- opts.NATS.Drain()
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			opts.Logger.Error().Err(err).Msg("nats drain failed")
+		}
+	case <-time.After(opts.Timeout):
+		opts.Logger.Warn().
+			Dur("timeout", opts.Timeout).
+			Msg("nats drain timed out; forcing shutdown")
 	}
 }
 
@@ -161,3 +189,8 @@ var _ HTTPServer = (*server.Hertz)(nil)
 // Compile-time assertion that a *nats.Conn implements the NATSConn
 // contract.
 var _ NATSConn = (*natsgo.Conn)(nil)
+
+// Compile-time assertion that *registry.Watcher implements the
+// WatcherStopper contract so the bootstrap layer can wire it directly
+// into Options.Watcher without an explicit adapter.
+var _ WatcherStopper = (*registry.Watcher)(nil)

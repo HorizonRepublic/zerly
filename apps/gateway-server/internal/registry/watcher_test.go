@@ -310,6 +310,54 @@ func TestWatcher_Stop_IdempotentAfterStart(t *testing.T) {
 	assert.NotPanics(t, watcher.Stop, "second Stop must be a no-op")
 }
 
+// TestWatcher_Start_AfterStopReturnsErrWatcherStopped pins the
+// lifecycle invariant that Start on a stopped watcher refuses to
+// resurrect. Without the explicit guard, an accidental
+// Start→Stop→Start sequence used to silently leak the second
+// goroutine because sync.Once consumed its token on the first run
+// and Stop became a no-op the second time around.
+func TestWatcher_Start_AfterStopReturnsErrWatcherStopped(t *testing.T) {
+	kv := &fakeKeyValue{
+		keysFunc: func(context.Context) ([]string, error) { return nil, jetstream.ErrNoKeysFound },
+		watchAllFunc: func(context.Context) (jetstream.KeyWatcher, error) {
+			return newFakeKeyWatcher(), nil
+		},
+	}
+
+	watcher, _ := newWatcherWithFake(t, kv)
+	require.NoError(t, watcher.Start(context.Background()))
+
+	watcher.Stop()
+
+	err := watcher.Start(context.Background())
+	require.ErrorIs(t, err, ErrWatcherStopped, "Start after Stop must surface the lifecycle violation")
+
+	// A second Stop must still be a no-op rather than panic, since the
+	// terminal state is the same regardless of how many times callers
+	// announce it.
+	assert.NotPanics(t, watcher.Stop, "Stop after refusal must remain a no-op")
+}
+
+// TestWatcher_StopBeforeStart_ThenStartIsRefused exercises the
+// pre-Start Stop path: even when the watcher never ran, Stop flips
+// the terminal flag so the first Start call after it returns
+// ErrWatcherStopped instead of spawning a goroutine.
+func TestWatcher_StopBeforeStart_ThenStartIsRefused(t *testing.T) {
+	kv := &fakeKeyValue{
+		keysFunc: func(context.Context) ([]string, error) { return nil, jetstream.ErrNoKeysFound },
+		watchAllFunc: func(context.Context) (jetstream.KeyWatcher, error) {
+			return newFakeKeyWatcher(), nil
+		},
+	}
+
+	watcher, _ := newWatcherWithFake(t, kv)
+
+	watcher.Stop() // Pre-Start Stop must be safe.
+
+	err := watcher.Start(context.Background())
+	require.ErrorIs(t, err, ErrWatcherStopped, "Start after a pre-Start Stop must be refused")
+}
+
 // TestWatcher_Start_Idempotent verifies the sync.Once guard on Start:
 // repeated Start calls must return the same error observed on the first
 // invocation without re-running initialLoad.
