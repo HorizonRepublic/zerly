@@ -34,12 +34,17 @@ import (
 // nine because forwarding the gateway's own Host header to a
 // downstream RPC is meaningless and would only confuse handlers
 // that key on it for multi-tenancy.
+//
+// Note: the canonical spelling is "trailer" (singular), per RFC 7230.
+// The older "trailers" spelling surfaces in some HTTP/2 stacks so both
+// are listed to stay defensive against non-canonical inputs.
 var hopByHopHeaders = map[string]struct{}{
 	"connection":          {},
 	"keep-alive":          {},
 	"proxy-authenticate":  {},
 	"proxy-authorization": {},
 	"te":                  {},
+	"trailer":             {},
 	"trailers":            {},
 	"transfer-encoding":   {},
 	"upgrade":             {},
@@ -87,13 +92,29 @@ func buildServeInput(ctx *app.RequestContext) *proxy.ServeInput {
 	method := string(ctx.Method())
 	path := string(ctx.Path())
 
+	// Hertz's VisitAll fires once per (key, value) pair, so a request
+	// carrying repeated headers (e.g. multiple Cookie lines) would
+	// otherwise lose every value but the last under a plain map
+	// assignment. RFC 7230 §3.2.2 allows a receiver to combine
+	// repeated field values into a single ", "-joined string, so
+	// merge on the way in: upstream handlers see one header with all
+	// observations preserved, and the ServeInput.Headers surface stays
+	// a flat map[string]string for every other consumer.
 	headers := make(map[string]string, initialHeadersCap)
 	ctx.Request.Header.VisitAll(func(key, value []byte) {
 		lowerKey := string(bytes.ToLower(key))
 		if _, skip := hopByHopHeaders[lowerKey]; skip {
 			return
 		}
-		headers[lowerKey] = string(value)
+
+		v := string(value)
+		if existing, ok := headers[lowerKey]; ok {
+			headers[lowerKey] = existing + ", " + v
+
+			return
+		}
+
+		headers[lowerKey] = v
 	})
 
 	query := collectQueryValues(ctx)

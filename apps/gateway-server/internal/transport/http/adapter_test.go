@@ -43,6 +43,8 @@ func TestBuildServeInput_StripsHopByHopHeaders(t *testing.T) {
 		ut.Header{Key: "Connection", Value: "keep-alive"},
 		ut.Header{Key: "Transfer-Encoding", Value: "chunked"},
 		ut.Header{Key: "Upgrade", Value: "h2c"},
+		ut.Header{Key: "Trailer", Value: "Expires"},
+		ut.Header{Key: "Trailers", Value: "Expires"},
 	)
 
 	input := buildServeInput(ctx)
@@ -50,6 +52,56 @@ func TestBuildServeInput_StripsHopByHopHeaders(t *testing.T) {
 	assert.NotContains(t, input.Headers, "connection")
 	assert.NotContains(t, input.Headers, "transfer-encoding")
 	assert.NotContains(t, input.Headers, "upgrade")
+	assert.NotContains(t, input.Headers, "trailer",
+		"the canonical singular `Trailer` header is hop-by-hop and must be stripped")
+	assert.NotContains(t, input.Headers, "trailers",
+		"the legacy plural `Trailers` spelling is also hop-by-hop")
+}
+
+// TestBuildServeInput_MergesRepeatedHeaderValues pins the RFC 7230
+// §3.2.2 combining contract: a request that carries the same header
+// twice must surface to upstream handlers as a single ", "-joined
+// value rather than whichever value happened to arrive last. The
+// previous implementation overwrote on every VisitAll callback, so
+// multi-value headers silently lost observations.
+//
+// Cookie is a special case — Hertz itself merges repeated Cookie lines
+// with "; " per RFC 6265 §5.4 before VisitAll fires — so this test
+// exercises generic multi-value headers (Accept-Encoding and a custom
+// X-Forward-Chain) that Hertz surfaces as separate callbacks.
+func TestBuildServeInput_MergesRepeatedHeaderValues(t *testing.T) {
+	ctx := ut.CreateUtRequestContext("GET", "https://gateway.test/x", nil,
+		ut.Header{Key: "Accept-Encoding", Value: "gzip"},
+		ut.Header{Key: "Accept-Encoding", Value: "br"},
+		ut.Header{Key: "X-Forward-Chain", Value: "edge-1"},
+		ut.Header{Key: "X-Forward-Chain", Value: "edge-2"},
+		ut.Header{Key: "X-Forward-Chain", Value: "edge-3"},
+	)
+
+	input := buildServeInput(ctx)
+
+	assert.Equal(t, "gzip, br", input.Headers["accept-encoding"],
+		"repeated Accept-Encoding headers must merge per RFC 7230 §3.2.2")
+	assert.Equal(t, "edge-1, edge-2, edge-3", input.Headers["x-forward-chain"],
+		"three or more observations must all survive the merge in VisitAll order")
+}
+
+// TestBuildServeInput_CookieHeaderArrivesPreMerged documents the
+// Hertz behaviour around Cookie: RFC 6265 §5.4 already collapses
+// repeated Cookie lines with "; " before VisitAll fires, so the
+// adapter sees a single callback and the merge path is a no-op.
+// Guard against a future Hertz behavioural drift that would surface
+// multi-callback cookies and force a different join separator.
+func TestBuildServeInput_CookieHeaderArrivesPreMerged(t *testing.T) {
+	ctx := ut.CreateUtRequestContext("GET", "https://gateway.test/x", nil,
+		ut.Header{Key: "Cookie", Value: "a=1"},
+		ut.Header{Key: "Cookie", Value: "b=2"},
+	)
+
+	input := buildServeInput(ctx)
+
+	assert.Equal(t, "a=1; b=2", input.Headers["cookie"],
+		"Hertz is expected to join Cookie lines with \"; \" before VisitAll fires")
 }
 
 func TestBuildServeInput_CollectsSingleValueQuery(t *testing.T) {
