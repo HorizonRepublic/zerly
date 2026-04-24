@@ -227,7 +227,8 @@ func (s *NATSKVStore) Allow(ctx context.Context, key string, rps, burst int) (De
 			s.counters.circuitRejected.Add(1)
 			return Decision{}, ErrCircuitOpen
 		}
-		return Decision{}, err
+
+		return Decision{}, fmt.Errorf("ratelimit breaker execute: %w", err)
 	}
 	d, ok := result.(Decision)
 	if !ok {
@@ -255,7 +256,7 @@ func (s *NATSKVStore) allowInternal(ctx context.Context, key string, rps, burst 
 		}
 		if attempt > 0 {
 			if !sleepCtx(ctx, nextBackoff(attempt)) {
-				return Decision{}, ctx.Err()
+				return Decision{}, fmt.Errorf("ratelimit cas wait: %w", ctx.Err())
 			}
 		}
 

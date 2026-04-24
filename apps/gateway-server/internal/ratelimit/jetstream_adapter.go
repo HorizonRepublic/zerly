@@ -208,8 +208,9 @@ type jsKVAdapter struct {
 }
 
 // Get returns the latest entry for key or errKVKeyNotFound if the
-// key is absent. Any other error is propagated unchanged so the
-// breaker counts it as a backend failure.
+// key is absent. Any other error is wrapped with the operation
+// context so the breaker-level log carries enough information for
+// triage without consulting stack traces.
 func (a *jsKVAdapter) Get(ctx context.Context, key string) (kvEntry, error) {
 	entry, err := a.kv.Get(ctx, key)
 	if err != nil {
@@ -217,7 +218,7 @@ func (a *jsKVAdapter) Get(ctx context.Context, key string) (kvEntry, error) {
 			return nil, errKVKeyNotFound
 		}
 
-		return nil, err
+		return nil, fmt.Errorf("jetstream kv get %q: %w", key, err)
 	}
 
 	return jsEntryAdapter{entry: entry}, nil
@@ -234,7 +235,7 @@ func (a *jsKVAdapter) Create(ctx context.Context, key string, value []byte) (uin
 			return 0, errCASConflict
 		}
 
-		return 0, err
+		return 0, fmt.Errorf("jetstream kv create %q: %w", key, err)
 	}
 
 	return rev, nil
@@ -253,7 +254,7 @@ func (a *jsKVAdapter) Update(ctx context.Context, key string, value []byte, revi
 			return 0, errCASConflict
 		}
 
-		return 0, err
+		return 0, fmt.Errorf("jetstream kv update %q: %w", key, err)
 	}
 
 	return rev, nil

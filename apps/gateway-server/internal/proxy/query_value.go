@@ -1,6 +1,9 @@
 package proxy
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"fmt"
+)
 
 // QueryValue mirrors the TypeScript `string | readonly string[]` union
 // that appears in `IGatewayRequest.query` values. Go has no native sum
@@ -56,9 +59,20 @@ func NewQueryValueStrings(values []string) QueryValue {
 // bare values.
 func (q QueryValue) MarshalJSON() ([]byte, error) {
 	if q.Multi != nil {
-		return json.Marshal(q.Multi)
+		b, err := json.Marshal(q.Multi)
+		if err != nil {
+			return nil, fmt.Errorf("query value marshal multi: %w", err)
+		}
+
+		return b, nil
 	}
-	return json.Marshal(q.Single)
+
+	b, err := json.Marshal(q.Single)
+	if err != nil {
+		return nil, fmt.Errorf("query value marshal single: %w", err)
+	}
+
+	return b, nil
 }
 
 // UnmarshalJSON accepts either a JSON string (routed to the scalar
@@ -74,21 +88,23 @@ func (q *QueryValue) UnmarshalJSON(data []byte) error {
 	case '"':
 		var s string
 		if err := json.Unmarshal(data, &s); err != nil {
-			return err
+			return fmt.Errorf("query value unmarshal string: %w", err)
 		}
 		q.Single = s
 		q.Multi = nil
+
 		return nil
 	case '[':
 		var slice []string
 		if err := json.Unmarshal(data, &slice); err != nil {
-			return err
+			return fmt.Errorf("query value unmarshal slice: %w", err)
 		}
 		if slice == nil {
 			slice = []string{}
 		}
 		q.Single = ""
 		q.Multi = slice
+
 		return nil
 	default:
 		return &json.UnmarshalTypeError{Value: string(data), Type: nil}
