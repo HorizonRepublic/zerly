@@ -100,6 +100,7 @@ type RateLimitMeta struct {
 	RPS   int      `json:"rps"`
 	Burst int      `json:"burst,omitempty"`
 	KeyBy []string `json:"keyBy,omitempty"`
+	Store string   `json:"store,omitempty"`
 }
 
 // HandlerEntry is a single deserialized record from the handler_registry
