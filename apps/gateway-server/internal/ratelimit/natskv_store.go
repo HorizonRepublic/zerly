@@ -53,11 +53,19 @@ var ErrCircuitOpen = errors.New("ratelimit: circuit open")
 // past its wall-clock budget without winning a write. Indicates
 // sustained contention on a single key; callers SHOULD treat it
 // the same as a transient backend outage for fail-policy purposes.
+// Bumps the budgetExhausted counter (exposed as
+// ratelimit_natskv_budget_exhausted) — distinct from the
+// attempt-cap counter so operators can tell time-based exhaustion
+// apart from a KV that always conflicts.
 var ErrCASBudgetExhausted = errors.New("ratelimit: cas budget exhausted")
 
 // ErrCASMaxAttempts is returned when the CAS retry loop hits its
 // hard attempt cap. Defensive bound; reaching it implies a broken
-// KV (every attempt races), not ordinary contention.
+// KV (every attempt races), not ordinary contention. Bumps the
+// casAttemptsExceeded counter (exposed as
+// ratelimit_natskv_cas_attempts_exceeded), which is intentionally
+// separate from the time-budget counter — the two failure modes
+// have different operational responses.
 var ErrCASMaxAttempts = errors.New("ratelimit: cas max attempts")
 
 const (
@@ -113,14 +121,15 @@ type NATSKVStore struct {
 	budget  time.Duration
 
 	counters struct {
-		allowed            atomic.Int64
-		rejected           atomic.Int64
-		casRetries         atomic.Int64
-		budgetExhausted    atomic.Int64
-		circuitState       atomic.Int64
-		breakerTransitions atomic.Int64
-		circuitRejected    atomic.Int64
-		corruptTAT         atomic.Int64
+		allowed             atomic.Int64
+		rejected            atomic.Int64
+		casRetries          atomic.Int64
+		budgetExhausted     atomic.Int64
+		casAttemptsExceeded atomic.Int64
+		circuitState        atomic.Int64
+		breakerTransitions  atomic.Int64
+		circuitRejected     atomic.Int64
+		corruptTAT          atomic.Int64
 	}
 }
 
@@ -310,6 +319,7 @@ func (s *NATSKVStore) allowInternal(ctx context.Context, key string, rps, burst 
 		}
 		return Decision{}, fmt.Errorf("nats-kv write: %w", err)
 	}
+	s.counters.casAttemptsExceeded.Add(1)
 	return Decision{}, ErrCASMaxAttempts
 }
 
@@ -411,13 +421,14 @@ func sleepCtx(ctx context.Context, d time.Duration) bool {
 // cannot produce a torn read. Intended for OpenTelemetry plumbing.
 func (s *NATSKVStore) Counters() map[string]int64 {
 	return map[string]int64{
-		"ratelimit_natskv_decisions_allowed":   s.counters.allowed.Load(),
-		"ratelimit_natskv_decisions_rejected":  s.counters.rejected.Load(),
-		"ratelimit_natskv_cas_retries":         s.counters.casRetries.Load(),
-		"ratelimit_natskv_budget_exhausted":    s.counters.budgetExhausted.Load(),
-		"ratelimit_natskv_circuit_state":       s.counters.circuitState.Load(),
-		"ratelimit_natskv_breaker_transitions": s.counters.breakerTransitions.Load(),
-		"ratelimit_natskv_circuit_rejected":    s.counters.circuitRejected.Load(),
-		"ratelimit_natskv_corrupt_tat":         s.counters.corruptTAT.Load(),
+		"ratelimit_natskv_decisions_allowed":      s.counters.allowed.Load(),
+		"ratelimit_natskv_decisions_rejected":     s.counters.rejected.Load(),
+		"ratelimit_natskv_cas_retries":            s.counters.casRetries.Load(),
+		"ratelimit_natskv_budget_exhausted":       s.counters.budgetExhausted.Load(),
+		"ratelimit_natskv_cas_attempts_exceeded":  s.counters.casAttemptsExceeded.Load(),
+		"ratelimit_natskv_circuit_state":          s.counters.circuitState.Load(),
+		"ratelimit_natskv_breaker_transitions":    s.counters.breakerTransitions.Load(),
+		"ratelimit_natskv_circuit_rejected":       s.counters.circuitRejected.Load(),
+		"ratelimit_natskv_corrupt_tat":            s.counters.corruptTAT.Load(),
 	}
 }

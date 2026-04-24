@@ -331,6 +331,34 @@ func TestIsBucketAlreadyExistsErr(t *testing.T) {
 	}
 }
 
+// TestNATSKVStore_CASMaxAttemptsDistinctFromBudget pins the
+// observability split between time-based exhaustion and the hard
+// per-call retry cap. A KV that conflicts on every CAS attempt drives
+// the loop into the maxCASAttempts guard; the resulting error MUST
+// surface as ErrCASMaxAttempts and bump a dedicated counter so
+// operators can distinguish "hot key under contention" (budget)
+// from "broken KV that always conflicts" (attempt cap).
+func TestNATSKVStore_CASMaxAttemptsDistinctFromBudget(t *testing.T) {
+	kv := newFakeKV()
+	kv.setInitial("k", encodeTAT(time.Now().Add(-time.Second)))
+	// Force every Update to conflict; with a generous budget the loop
+	// hits maxCASAttempts before the wall-clock deadline.
+	kv.setCASConflictCount(1_000_000)
+
+	sut := testNATSKVStore(t, kv, withCASBudget(time.Hour))
+
+	_, err := sut.Allow(context.Background(), "k", 100, 5)
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrCASMaxAttempts)
+	assert.Equal(t, int64(1), sut.counters.casAttemptsExceeded.Load(),
+		"hitting the attempt cap must bump the dedicated counter, not budgetExhausted")
+	assert.Equal(t, int64(0), sut.counters.budgetExhausted.Load(),
+		"attempt-cap exhaustion must not pollute the time-budget counter")
+	assert.Contains(t, sut.Counters(), "ratelimit_natskv_cas_attempts_exceeded",
+		"the counter must surface in the snapshot for OTel export")
+}
+
 func TestNATSKVStore_BreakerOpensAfterFailures(t *testing.T) {
 	kv := newFakeKV()
 	kv.setWriteError(errors.New("nats down"))
