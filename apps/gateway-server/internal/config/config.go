@@ -144,7 +144,28 @@ type Config struct {
 	// backends apply it as bucket MaxAge; MemoryStore uses it as
 	// the idle-entry sweeper interval. 10 minutes covers all
 	// realistic rps profiles without penalizing infrequent clients.
+	//
+	// Semantics differ between backends and operators MUST account for
+	// this when sizing the value:
+	//   - memory  — idle-entry sweep interval; active keys retained
+	//               indefinitely. The value only controls how often
+	//               the sweeper scans for inactive entries.
+	//   - nats-kv — bucket MaxAge; keys are reaped after this duration
+	//               regardless of activity. Raise the value to preserve
+	//               state longer across traffic gaps.
 	RateLimitKeyTTL time.Duration `env:"RATELIMIT_KEY_TTL" envDefault:"10m"`
+
+	// RateLimitTimeout bounds the wall-clock budget the rate-limit
+	// gate may consume per request. It is intentionally separate from
+	// RequestTimeout so a flaky distributed store cannot starve handler
+	// latency under retry pressure (CAS contention, breaker probes).
+	//
+	// Recommended: 50 ms. Hard bounds: must be > 0 and ≤ 1s. Values
+	// larger than 1s are rejected at Load() because they defeat the
+	// purpose of having a separate budget — the route timeout should
+	// cover that range. Values ≤ 0 are rejected because they would
+	// trigger immediate timeouts in every gate evaluation.
+	RateLimitTimeout time.Duration `env:"RATELIMIT_TIMEOUT" envDefault:"50ms"`
 
 	// LogLevel is the minimum zerolog level to emit. Valid values:
 	// trace, debug, info, warn, error, fatal, panic, disabled.
@@ -209,6 +230,10 @@ func Load() (*Config, error) {
 	// writing the wrong environment's routing metadata.
 	if cfg.KVBucket == "" {
 		return nil, fmt.Errorf("KV_BUCKET must be set explicitly (no default — value selects which NATS KV bucket holds the handler registry)")
+	}
+
+	if cfg.RateLimitTimeout <= 0 || cfg.RateLimitTimeout > time.Second {
+		return nil, fmt.Errorf("RATELIMIT_TIMEOUT must be > 0 and ≤ 1s, got %s", cfg.RateLimitTimeout)
 	}
 
 	return cfg, nil

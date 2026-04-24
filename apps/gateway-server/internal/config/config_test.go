@@ -43,6 +43,7 @@ func TestLoad_AppliesDefaultsWhenOnlyRequiredSet(t *testing.T) {
 
 	assert.Equal(t, "open", cfg.RateLimitFailPolicy)
 	assert.Equal(t, 10*time.Minute, cfg.RateLimitKeyTTL)
+	assert.Equal(t, 50*time.Millisecond, cfg.RateLimitTimeout)
 
 	assert.Equal(t, "info", cfg.LogLevel)
 	assert.Equal(t, "json", cfg.LogFormat)
@@ -154,6 +155,49 @@ func TestLoad_RateLimitDefaults(t *testing.T) {
 
 	assert.Equal(t, "open", cfg.RateLimitFailPolicy)
 	assert.Equal(t, 10*time.Minute, cfg.RateLimitKeyTTL)
+	assert.Equal(t, 50*time.Millisecond, cfg.RateLimitTimeout)
+}
+
+// TestLoad_RateLimitTimeout pins the per-request rate-limit gate
+// budget knob. The default keeps the gate well below typical route
+// timeouts so a flaky distributed store cannot starve handler latency
+// under retry pressure (CAS contention, breaker probes).
+func TestLoad_RateLimitTimeout(t *testing.T) {
+	t.Run("custom value within bounds", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("RATELIMIT_TIMEOUT", "100ms")
+
+		cfg, err := Load()
+		require.NoError(t, err)
+		assert.Equal(t, 100*time.Millisecond, cfg.RateLimitTimeout)
+	})
+
+	t.Run("zero is rejected", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("RATELIMIT_TIMEOUT", "0s")
+
+		_, err := Load()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "RATELIMIT_TIMEOUT")
+	})
+
+	t.Run("above 1s upper bound is rejected", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("RATELIMIT_TIMEOUT", "2s")
+
+		_, err := Load()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "RATELIMIT_TIMEOUT")
+	})
+
+	t.Run("exact 1s upper bound accepted", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("RATELIMIT_TIMEOUT", "1s")
+
+		cfg, err := Load()
+		require.NoError(t, err)
+		assert.Equal(t, time.Second, cfg.RateLimitTimeout)
+	})
 }
 
 func TestLoad_RateLimitValidFailPolicyClosed(t *testing.T) {
