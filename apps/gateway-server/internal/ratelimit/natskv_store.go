@@ -188,12 +188,25 @@ func newNATSKVStoreFromKV(kv kvAPI, opts ...natskvOption) *NATSKVStore {
 // newBreaker builds a gobreaker.CircuitBreaker with a
 // consecutive-failure trip rule and a hook that mirrors the
 // breaker's state into the provided atomic gauge for metric export.
+//
+// IsSuccessful reclassifies request-context cancellations and
+// deadlines as breaker-side successes. An upstream handler timeout
+// cascade would otherwise be misattributed to the KV — the breaker
+// would trip open on a healthy backend simply because callers stopped
+// waiting. The error is still returned to the Allow caller so its
+// FailPolicy applies; only the breaker's failure-streak accounting
+// excludes these benign terminations.
 func newBreaker(failures uint32, timeout time.Duration, logger zerolog.Logger, stateGauge, transitions *atomic.Int64) *gobreaker.CircuitBreaker {
 	settings := gobreaker.Settings{
 		Name:    "ratelimit-natskv",
 		Timeout: timeout,
 		ReadyToTrip: func(counts gobreaker.Counts) bool {
 			return counts.ConsecutiveFailures >= failures
+		},
+		IsSuccessful: func(err error) bool {
+			return err == nil ||
+				errors.Is(err, context.Canceled) ||
+				errors.Is(err, context.DeadlineExceeded)
 		},
 		OnStateChange: func(name string, from, to gobreaker.State) {
 			transitions.Add(1)

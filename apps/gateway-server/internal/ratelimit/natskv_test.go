@@ -359,6 +359,36 @@ func TestNATSKVStore_CASMaxAttemptsDistinctFromBudget(t *testing.T) {
 		"the counter must surface in the snapshot for OTel export")
 }
 
+// TestNATSKVStore_CancelledCtxDoesNotTripBreaker pins the
+// fail-classification fix: a cancelled or deadline-exceeded request
+// context MUST NOT count as a backend failure for the circuit breaker.
+// Otherwise an upstream handler timeout cascade would hammer the
+// breaker open against a perfectly healthy KV. The Allow caller still
+// sees the propagated ctx error so its FailPolicy can decide allow vs
+// reject.
+func TestNATSKVStore_CancelledCtxDoesNotTripBreaker(t *testing.T) {
+	kv := newFakeKV()
+	kv.setInitial("k", encodeTAT(time.Now().Add(-time.Second)))
+	// Force every CAS attempt to conflict so the loop reaches the
+	// backoff sleepCtx, where a cancelled context surfaces.
+	kv.setCASConflictCount(1_000_000)
+
+	// Tight breaker so a single misclassified failure flips state.
+	sut := testNATSKVStore(t, kv, withBreakerFailures(2), withCASBudget(time.Hour))
+
+	for i := 0; i < 50; i++ {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		_, err := sut.Allow(ctx, "k", 100, 5)
+		require.Error(t, err, "iteration %d: cancelled ctx must surface an error", i)
+		// The breaker MUST still be closed: no cancellation should be
+		// counted as a real failure.
+		require.NotErrorIs(t, err, ErrCircuitOpen,
+			"iteration %d: cancelled ctx must not trip the breaker open", i)
+	}
+}
+
 func TestNATSKVStore_BreakerOpensAfterFailures(t *testing.T) {
 	kv := newFakeKV()
 	kv.setWriteError(errors.New("nats down"))
