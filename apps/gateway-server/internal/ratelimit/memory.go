@@ -60,17 +60,25 @@ func NewMemoryStore(ttl time.Duration) *MemoryStore {
 // the current TAT, compute the decision via Check, and either
 // return (rejection path) or CAS the new TAT into place. A lost
 // CAS means another goroutine advanced the TAT for the same key —
-// retry so the late arrival sees the updated state. ctx is
-// accepted for interface symmetry with NATSKVStore but not
-// consulted: every branch is pure CPU and returns in microseconds.
+// retry so the late arrival sees the updated state.
+//
+// ctx is consulted at the top of the loop so a cancelled or
+// deadline-exceeded request surfaces ctx.Err() rather than producing
+// a side-effecting decision. The check is a single atomic load
+// against ctx.Done(), negligible against the rest of the loop, and
+// keeps Memory and NATS-KV aligned for callers wiring shared upstream
+// timeout chains.
 func (s *MemoryStore) Allow(ctx context.Context, key string, rps, burst int) (Decision, error) {
-	_ = ctx
 	now := time.Now()
 	v, _ := s.entries.LoadOrStore(key, &memoryEntry{})
 	e := v.(*memoryEntry)
 	e.lastSeen.Store(now.UnixNano())
 
 	for {
+		if err := ctx.Err(); err != nil {
+			return Decision{}, err
+		}
+
 		currentNs := e.tat.Load()
 		currentTAT := time.Unix(0, currentNs)
 		decision, newTAT := Check(currentTAT, now, rps, burst)

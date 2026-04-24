@@ -2,6 +2,7 @@ package ratelimit
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -129,6 +130,25 @@ func countEntries(s *MemoryStore) int {
 		return true
 	})
 	return n
+}
+
+// TestMemoryStore_AllowHonoursCtxCancellation pins the cancellation
+// contract: even though the CAS loop is pure CPU, callers that
+// cancel their context before invocation expect Allow to surface
+// ctx.Err() rather than producing a side-effecting decision. Honouring
+// the cancellation keeps Memory and NATS-KV semantically aligned for
+// shared upstream timeout chains.
+func TestMemoryStore_AllowHonoursCtxCancellation(t *testing.T) {
+	s := NewMemoryStore(time.Minute)
+	defer func() { _ = s.Close() }()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := s.Allow(ctx, "k", 10, 5)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, context.Canceled),
+		"cancelled ctx must propagate as context.Canceled")
 }
 
 // TestMemoryStore_Close_ConcurrentCallsAreIdempotent pins the
