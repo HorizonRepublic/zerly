@@ -212,3 +212,25 @@ func TestHandlerEntry_SDKWireFormatContract(t *testing.T) {
 	require.NotNil(t, entry.Timeout)
 	assert.Equal(t, 15000, *entry.Timeout)
 }
+
+func TestRateLimitMeta_JSONRoundTripWithStore(t *testing.T) {
+	in := RateLimitMeta{RPS: 10, Burst: 20, Store: "nats-kv"}
+	raw, err := json.Marshal(in)
+	require.NoError(t, err)
+	assert.Contains(t, string(raw), `"store":"nats-kv"`)
+
+	var out RateLimitMeta
+	require.NoError(t, json.Unmarshal(raw, &out))
+	assert.Equal(t, in, out)
+}
+
+func TestRateLimitMeta_JSONRoundTripWithoutStore(t *testing.T) {
+	in := RateLimitMeta{RPS: 10}
+	raw, err := json.Marshal(in)
+	require.NoError(t, err)
+	assert.NotContains(t, string(raw), `"store"`)
+
+	var out RateLimitMeta
+	require.NoError(t, json.Unmarshal(raw, &out))
+	assert.Equal(t, "", out.Store)
+}
