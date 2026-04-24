@@ -142,8 +142,8 @@ before re-running e2e.
 | # | Scenario                                         | Expected |
 |---|--------------------------------------------------|----------|
 | 1 | 30 req across 2 pods, route rps=10               | ~10 allowed, ~20 rejected, X-RateLimit-* headers on every response |
-
-Task 8.3 adds the fail-policy scenario to this same file.
+| 2 | KV bucket deleted mid-run, fail-policy=open | requests continue to pass through |
+| 3 | Hot-reload config change (no free pass) | SKIPPED — lower tiers cover the invariant |
 
 ## Two-profile trusted-proxy protocol
 

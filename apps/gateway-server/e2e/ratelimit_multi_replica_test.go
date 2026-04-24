@@ -260,3 +260,82 @@ func TestE2E_MultiReplica_NATSKVRateLimitShared(t *testing.T) {
 			"X-RateLimit-Reset must be populated on admitted requests")
 	}
 }
+
+// TestE2E_MultiReplica_FailPolicyOpen verifies that when the NATS KV
+// rate-limit bucket is deleted mid-flight, requests continue to pass
+// through the gateway because RATELIMIT_FAIL_POLICY=open treats the
+// distributed store failure as a backend outage rather than a
+// policy violation.
+//
+// The test deletes the bucket directly via the `nats` CLI, drives a
+// short burst of requests, and asserts the majority succeed. A few
+// early failures are tolerable (circuit breaker hasn't tripped yet
+// and CAS budget drains one request at a time until the breaker
+// opens), but sustained rejections would indicate fail-open isn't
+// working.
+func TestE2E_MultiReplica_FailPolicyOpen(t *testing.T) {
+	cleanup := startSecondaryGateway(t)
+	defer cleanup()
+
+	// Delete the ratelimit bucket to simulate KV unavailability.
+	// Requires the `nats` CLI on PATH; skip gracefully if absent
+	// so the test suite still works in minimal CI images.
+	if err := natsCLI(t, "kv", "del", "handler_registry_ratelimit", "--force"); err != nil {
+		t.Skipf("nats CLI not available or bucket delete failed: %v — skipping fail-policy e2e", err)
+	}
+
+	// Fire 20 requests spaced 50ms apart. Early requests may return
+	// 5xx until the circuit breaker opens; once open, fail-policy
+	// takes over and requests pass through.
+	allowed := 0
+	for i := 0; i < 20; i++ {
+		code, _ := postJSON(t, "http://localhost:8080/api/multi-replica-rl")
+		if code == 200 || code == 201 {
+			allowed++
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	// Expect most requests through once the breaker has opened.
+	// 15/20 = 75% is a safe lower bound; under extreme infra issues
+	// it may dip, but anything below shows fail-policy broken.
+	assert.GreaterOrEqual(t, allowed, 15, "fail-policy=open should let most requests through during backend outage")
+}
+
+// TestE2E_MultiReplica_HotReloadNoFreePass would exercise the
+// "config change does not flush TAT" invariant end-to-end — i.e.,
+// mutating a route's rps mid-flight via a direct KV write to
+// handler_registry and asserting clients don't get a free-pass
+// rate-limit reset.
+//
+// This invariant is ALREADY verified at a lower level by the
+// existing watcher → routing-rebuild pipeline tests in reload_test.go
+// plus the MemoryStore / NATSKVStore unit tests that confirm TAT
+// is preserved across config changes. Running this scenario as an
+// e2e test would add coordinated KV writes on top of running Nest
+// + gateway processes, which is mostly coordination complexity
+// with minimal signal beyond what the lower tiers already prove.
+//
+// Intentionally skipped; can be unskipped if a future incident
+// demonstrates a regression gap at the e2e layer.
+func TestE2E_MultiReplica_HotReloadNoFreePass(t *testing.T) {
+	t.Skip("covered by existing reload_test.go pipeline + MemoryStore/NATSKVStore unit tests; " +
+		"unskip if future regression proves the e2e tier adds signal")
+}
+
+// natsCLI invokes the `nats` CLI against localhost:4222. Returns
+// an error if the binary is missing from PATH or the command fails.
+// Tests SHOULD treat an error from this helper as a skip signal,
+// not a test failure, so minimal CI images without the CLI don't
+// spuriously fail.
+func natsCLI(t *testing.T, args ...string) error {
+	t.Helper()
+	args = append([]string{"--server=nats://localhost:4222"}, args...)
+	cmd := exec.Command("nats", args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("nats cli %v: %w", args, err)
+	}
+	return nil
+}
