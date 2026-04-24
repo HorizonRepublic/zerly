@@ -18,9 +18,9 @@
  * a transparent proxy for error semantics.
  *
  * Applications that want a custom error shape (extra correlation fields,
- * RFC 7807 problem+json, i18n codes, domain-specific metadata) bind
- * their own `IErrorBodyFactory` via `GATEWAY_ERROR_BODY_FACTORY` and
- * return whatever object shape makes sense for their contract. The
- * gateway does not prescribe any fields.
+ * RFC 9457 (formerly RFC 7807) problem+json, i18n codes, domain-specific
+ * metadata) bind their own `IErrorBodyFactory` via
+ * `GATEWAY_ERROR_BODY_FACTORY` and return whatever object shape makes
+ * sense for their contract. The gateway does not prescribe any fields.
  */
 export type IGatewayErrorBody = Readonly<Record<string, unknown>>;

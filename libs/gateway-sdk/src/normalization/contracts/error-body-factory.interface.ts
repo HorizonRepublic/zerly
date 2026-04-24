@@ -15,10 +15,10 @@ import type { IGatewayRequest } from '../../types/gateway-request.interface';
  * shape Nest uses for unrecognised throws.
  *
  * Applications that need a richer error format (correlation fields,
- * RFC 7807 problem+json, i18n codes, domain-specific metadata) provide
- * their own `IErrorBodyFactory` implementation and bind it against the
- * `GATEWAY_ERROR_BODY_FACTORY` token. The factory returns whatever
- * body shape the project's HTTP contract requires — the gateway
+ * RFC 9457 (formerly RFC 7807) problem+json, i18n codes, domain-specific
+ * metadata) provide their own `IErrorBodyFactory` implementation and bind
+ * it against the `GATEWAY_ERROR_BODY_FACTORY` token. The factory returns
+ * whatever body shape the project's HTTP contract requires — the gateway
  * transports the result verbatim.
  *
  * Implementations should be stateless. DI-injectable state (logger,
