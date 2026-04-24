@@ -1,8 +1,17 @@
-import { describe, expect, it } from '@jest/globals';
+import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 
 import { serializeCookie } from './cookie-serializer';
 
 describe('serializeCookie', () => {
+  let warnSpy: jest.SpiedFunction<typeof console.warn>;
+
+  beforeEach(() => {
+    warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    warnSpy.mockRestore();
+  });
   it('emits name=value with no attributes when options are empty', () => {
     const sut = serializeCookie('sid', 'abc123');
 
@@ -116,6 +125,45 @@ describe('serializeCookie', () => {
     const sut = serializeCookie('sid', '', { maxAge: 0 });
 
     expect(sut).toBe('sid=; Max-Age=0');
+  });
+
+  describe('SameSite=None without Secure guard', () => {
+    it('warns when SameSite=None is paired with no Secure flag', () => {
+      serializeCookie('warn-none-1', 'abc', { sameSite: 'none' });
+
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(warnSpy.mock.calls[0]?.[0]).toEqual(
+        expect.stringContaining('SameSite=None MUST be Secure'),
+      );
+      expect(warnSpy.mock.calls[0]?.[0]).toEqual(expect.stringContaining('warn-none-1'));
+    });
+
+    it('warns when SameSite=None is paired with Secure: false', () => {
+      serializeCookie('warn-none-2', 'abc', { sameSite: 'none', secure: false });
+
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not warn when SameSite=None is paired with Secure: true', () => {
+      serializeCookie('ok-none-secure', 'abc', { sameSite: 'none', secure: true });
+
+      expect(warnSpy).not.toHaveBeenCalled();
+    });
+
+    it('does not warn for SameSite=Strict or SameSite=Lax', () => {
+      serializeCookie('ok-strict', 'abc', { sameSite: 'strict' });
+      serializeCookie('ok-lax', 'abc', { sameSite: 'lax' });
+
+      expect(warnSpy).not.toHaveBeenCalled();
+    });
+
+    it('deduplicates the warning by cookie name', () => {
+      serializeCookie('dedupe-me', 'abc', { sameSite: 'none' });
+      serializeCookie('dedupe-me', 'def', { sameSite: 'none' });
+      serializeCookie('dedupe-me', 'ghi', { sameSite: 'none' });
+
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe('defaults merging', () => {

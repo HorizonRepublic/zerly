@@ -19,6 +19,42 @@ const SAME_SITE_LABELS = {
 } as const;
 
 /**
+ * Module-level dedupe set for the `SameSite=None without Secure`
+ * warning. Logs once per cookie name so a hot handler doesn't
+ * spam stderr on every request while still surfacing the
+ * configuration bug on first emission.
+ */
+const sameSiteNoneInsecureWarned = new Set<string>();
+
+/**
+ * Emit a one-time warning when a `Set-Cookie` serialization pairs
+ * `SameSite=None` with `Secure !== true`. Modern browsers reject
+ * the combination outright (the cookie never reaches the client
+ * jar), so this is almost always a developer bug caught at
+ * local-dev time before it ships.
+ */
+const warnIfSameSiteNoneWithoutSecure = (name: string, merged: ICookieOptions): void => {
+  if (merged.sameSite !== 'none') {
+    return;
+  }
+
+  if (merged.secure === true) {
+    return;
+  }
+
+  if (sameSiteNoneInsecureWarned.has(name)) {
+    return;
+  }
+
+  sameSiteNoneInsecureWarned.add(name);
+  // eslint-disable-next-line no-console
+  console.warn(
+    `gateway: Set-Cookie with SameSite=None MUST be Secure; ` +
+      `modern browsers will reject it. Cookie name: ${name}.`,
+  );
+};
+
+/**
  * Serializes a single `Set-Cookie` header value per RFC 6265
  * §4.1.1. Pure function, no external dependencies.
  * @param name - Cookie name. Percent-encoded if it contains
@@ -45,6 +81,8 @@ export const serializeCookie = (
   defaults: Partial<ICookieOptions> = {},
 ): string => {
   const merged: ICookieOptions = { ...defaults, ...options };
+
+  warnIfSameSiteNoneWithoutSecure(name, merged);
 
   const encodedName = TOKEN_SAFE.test(name) ? name : encodeURIComponent(name);
   const encodedValue = TOKEN_SAFE.test(value) ? value : encodeURIComponent(value);
