@@ -2,8 +2,14 @@ package proxy
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 )
+
+// errQueryValueEmptyJSON signals that UnmarshalJSON received an empty
+// byte slice. Exposed as a sentinel so tests can assert via errors.Is
+// without depending on the exact wording of the formatted message.
+var errQueryValueEmptyJSON = errors.New("query value: empty JSON input")
 
 // QueryValue mirrors the TypeScript `string | readonly string[]` union
 // that appears in `IGatewayRequest.query` values. Go has no native sum
@@ -82,7 +88,7 @@ func (q QueryValue) MarshalJSON() ([]byte, error) {
 // corrupting the handler's view of the query string.
 func (q *QueryValue) UnmarshalJSON(data []byte) error {
 	if len(data) == 0 {
-		return &json.SyntaxError{}
+		return errQueryValueEmptyJSON
 	}
 	switch data[0] {
 	case '"':
@@ -107,6 +113,12 @@ func (q *QueryValue) UnmarshalJSON(data []byte) error {
 
 		return nil
 	default:
-		return &json.UnmarshalTypeError{Value: string(data), Type: nil}
+		// Do not return a *json.UnmarshalTypeError here: its Error()
+		// method dereferences the embedded reflect.Type, so the
+		// zero-value Type would panic the first time the error is
+		// formatted (logs, %w wrapping, test assertions). A plain
+		// formatted error keeps the message stable and allocation-free
+		// at the call site.
+		return fmt.Errorf("query value: cannot unmarshal %s into string or []string", string(data))
 	}
 }
