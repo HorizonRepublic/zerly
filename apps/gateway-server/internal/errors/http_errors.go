@@ -23,18 +23,26 @@ import (
 
 // HTTPError bundles an HTTP status code with a pre-encoded JSON body.
 // Values of this type are constructed exactly once at package init()
-// time and are safe to share across goroutines; the underlying byte
-// slice is never mutated after construction.
+// time and are safe to share across goroutines.
 //
-// Consumers read Status and Body directly — there are no setters or
-// mutators on purpose, so accidental mutation of a shared error body
-// would require going out of the Go type system.
+// Immutability is a package convention, not a type-system guarantee.
+// Go has no read-only struct field, so external code COULD reassign
+// Status or mutate the Body slice in place — doing so would corrupt
+// every subsequent response that reads the same shared instance.
+// Callers MUST treat both fields as read-only. The httpBuild factory
+// produces a fresh slice per HTTPError so the package-level values
+// do not alias each other; once init() returns, the slices are
+// treated as frozen for the remainder of the process lifetime.
 type HTTPError struct {
 	// Status is the HTTP status code the gateway returns to the
 	// client. Always a valid RFC 9110 status in the 400-599 range.
+	// Treat as read-only; reassignment changes the wire shape every
+	// other goroutine observes.
 	Status int
 	// Body is the pre-marshalled JSON response body. Always
-	// non-empty.
+	// non-empty. Treat as read-only; mutating the underlying byte
+	// slice corrupts every subsequent response that reads the same
+	// shared instance.
 	Body []byte
 }
 

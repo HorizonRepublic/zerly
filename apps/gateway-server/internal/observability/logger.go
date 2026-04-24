@@ -15,9 +15,24 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/rs/zerolog"
 )
+
+// init forces zerolog to stamp every event timestamp in UTC.
+//
+// zerolog defaults TimestampFunc to time.Now, which renders in the
+// local timezone of whichever pod hosts the gateway. Multi-region
+// deployments would emit interleaved logs whose timestamps cannot be
+// compared without timezone arithmetic. UTC is the only reliable
+// shared frame of reference and matches the godoc claim made on
+// NewLogger about UTC-stamped output.
+func init() {
+	zerolog.TimestampFunc = func() time.Time {
+		return time.Now().UTC()
+	}
+}
 
 // serviceName is stamped on every log entry as the "service" field so
 // downstream log aggregators (Loki, Elasticsearch, Datadog) can filter

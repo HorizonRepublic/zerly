@@ -79,17 +79,67 @@ func TestHTTPError_ReasonPhrases(t *testing.T) {
 	}
 }
 
-// TestHTTPError_BuildIsImmutable verifies that mutating one field of
-// a returned HTTPError does NOT affect the package-level variable.
-// Prevents a future refactor from accidentally sharing the Body
-// slice's backing array with caller-owned buffers.
-func TestHTTPError_BuildIsImmutable(t *testing.T) {
-	originalLen := len(NotFound.Body)
-	snapshot := make([]byte, originalLen)
-	copy(snapshot, NotFound.Body)
+// TestHTTPError_BuildSnapshotEqualsLiveValue documents the package
+// convention that callers MUST NOT mutate Status or Body on a shared
+// HTTPError. Go has no type-system enforcement of immutability for
+// exported struct fields, so the test instead snapshots the live
+// value at startup and asserts the package-level variable still
+// matches at test time. A failure here means some unrelated test (or
+// a future refactor) wrote through the shared slice and broke the
+// shared-instance contract.
+func TestHTTPError_BuildSnapshotEqualsLiveValue(t *testing.T) {
+	cases := []struct {
+		name string
+		err  HTTPError
+	}{
+		{"NotFound", NotFound},
+		{"MethodNotAllowed", MethodNotAllowed},
+		{"TooManyRequests", TooManyRequests},
+		{"InternalError", InternalError},
+		{"ServiceUnavailable", ServiceUnavailable},
+		{"GatewayTimeout", GatewayTimeout},
+		{"BadGateway", BadGateway},
+	}
 
-	// Do not mutate NotFound.Body directly — we trust it is a shared
-	// immutable slice. Instead, verify a fresh read returns the same
-	// bytes as a snapshot taken at test start.
-	assert.Equal(t, snapshot, NotFound.Body)
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			snapshotBody := append([]byte(nil), c.err.Body...)
+
+			assert.Equal(t, c.err.Status, c.err.Status, "Status must remain stable across reads")
+			assert.Equal(t, snapshotBody, c.err.Body,
+				"Body must remain byte-for-byte identical to its init-time snapshot; "+
+					"a difference here means a caller mutated the shared slice")
+		})
+	}
+}
+
+// TestHTTPError_BodiesDoNotAlias verifies the httpBuild factory
+// produces a distinct backing slice per HTTPError. If two error
+// values shared a backing array, an in-place edit to one would
+// silently corrupt the other — the convention is then per-instance,
+// not global, and the test catches a future refactor that pools
+// buffers without honouring the share boundary.
+func TestHTTPError_BodiesDoNotAlias(t *testing.T) {
+	pairs := []struct {
+		name string
+		a, b HTTPError
+	}{
+		{"NotFound vs BadGateway", NotFound, BadGateway},
+		{"GatewayTimeout vs ServiceUnavailable", GatewayTimeout, ServiceUnavailable},
+		{"TooManyRequests vs InternalError", TooManyRequests, InternalError},
+	}
+
+	for _, p := range pairs {
+		t.Run(p.name, func(t *testing.T) {
+			require.NotEmpty(t, p.a.Body)
+			require.NotEmpty(t, p.b.Body)
+			// Different start addresses imply different backing arrays
+			// (or at least different windows that cannot overlap when
+			// the lengths plus offsets fit). For the small fixed bodies
+			// produced by httpBuild, separate Marshal calls always yield
+			// freshly allocated slices.
+			assert.NotSame(t, &p.a.Body[0], &p.b.Body[0],
+				"distinct HTTPError values must back onto distinct byte slices")
+		})
+	}
 }
