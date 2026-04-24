@@ -48,3 +48,25 @@ func TestBuildHeaders_LimitReportsRPSNotBurst(t *testing.T) {
 	h := BuildHeaders(rl, d)
 	assert.Equal(t, "100", h["X-RateLimit-Limit"])
 }
+
+// TestBuildHeaders_ZeroDecisionEmitsOnlyLimit pins the fail-open
+// defence: when Store.Allow errors out and the configured FailPolicy
+// resolves to "allow", the handler passes a zero Decision{} into
+// BuildHeaders. The bucket state fields (Remaining, Reset, Retry-After)
+// are not meaningful on that path and a zero ResetAt would otherwise
+// emit `X-RateLimit-Reset: -62135596800` (the Unix encoding of
+// time.Time{}.Unix()), which is misleading. Only the static
+// X-RateLimit-Limit must reach the wire on this branch.
+func TestBuildHeaders_ZeroDecisionEmitsOnlyLimit(t *testing.T) {
+	rl := &registry.RateLimitMeta{RPS: 100}
+
+	h := BuildHeaders(rl, Decision{})
+
+	assert.Equal(t, "100", h["X-RateLimit-Limit"])
+	_, hasRemaining := h["X-RateLimit-Remaining"]
+	assert.False(t, hasRemaining, "zero Decision must not emit X-RateLimit-Remaining")
+	_, hasReset := h["X-RateLimit-Reset"]
+	assert.False(t, hasReset, "zero Decision must not emit X-RateLimit-Reset")
+	_, hasRetry := h["Retry-After"]
+	assert.False(t, hasRetry, "zero Decision must not emit Retry-After")
+}
