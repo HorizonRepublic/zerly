@@ -128,7 +128,7 @@ func Drain(opts Options) {
 
 	shutdownHTTP(ctx, opts)
 	stopWatcher(opts)
-	drainNATS(opts)
+	drainNATS(ctx, opts)
 
 	opts.Logger.Info().Msg("gateway shutdown: drain complete")
 }
@@ -156,12 +156,15 @@ func stopWatcher(opts Options) {
 // are logged but do not abort the shutdown.
 //
 // Drain runs on a worker goroutine so a hung NATS connection cannot
-// block the gateway past the configured shutdown timeout. When the
-// deadline elapses before Drain returns, the lifecycle layer logs at
-// WARN (timeout is a lifecycle signal, not a defect) and yields control
-// to the process exit path — the orphan goroutine completes whenever
-// the underlying socket finally drops.
-func drainNATS(opts Options) {
+// block the gateway past the configured shutdown timeout. The
+// deadline is the SHARED ctx from Drain — not a fresh timer — so
+// the NATS step cannot escape the global shutdown budget. If HTTP
+// shutdown already consumed most of it, NATS gets only what remains;
+// on timeout the lifecycle layer logs at WARN (timeout is a
+// lifecycle signal, not a defect) and yields control to the process
+// exit path. The orphan goroutine completes whenever the underlying
+// socket finally drops.
+func drainNATS(ctx context.Context, opts Options) {
 	opts.Logger.Debug().Msg("shutdown step: nats drain")
 
 	done := make(chan error, 1)
@@ -174,9 +177,9 @@ func drainNATS(opts Options) {
 		if err != nil {
 			opts.Logger.Error().Err(err).Msg("nats drain failed")
 		}
-	case <-time.After(opts.Timeout):
+	case <-ctx.Done():
 		opts.Logger.Warn().
-			Dur("timeout", opts.Timeout).
+			Err(ctx.Err()).
 			Msg("nats drain timed out; forcing shutdown")
 	}
 }

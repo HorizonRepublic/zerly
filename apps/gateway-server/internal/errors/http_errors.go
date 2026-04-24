@@ -29,7 +29,7 @@ import (
 // Go has no read-only struct field, so external code COULD reassign
 // Status or mutate the Body slice in place — doing so would corrupt
 // every subsequent response that reads the same shared instance.
-// Callers MUST treat both fields as read-only. The httpBuild factory
+// Callers MUST treat both fields as read-only. The build factory
 // produces a fresh slice per HTTPError so the package-level values
 // do not alias each other; once init() returns, the slices are
 // treated as frozen for the remainder of the process lifetime.

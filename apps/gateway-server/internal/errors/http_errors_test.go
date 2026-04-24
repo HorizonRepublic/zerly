@@ -103,17 +103,26 @@ func TestHTTPError_BuildSnapshotEqualsLiveValue(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
+			snapshotStatus := c.err.Status
 			snapshotBody := append([]byte(nil), c.err.Body...)
 
-			assert.Equal(t, c.err.Status, c.err.Status, "Status must remain stable across reads")
-			assert.Equal(t, snapshotBody, c.err.Body,
+			// Re-read both fields through a fresh binding to surface any
+			// in-place mutation that happened after init(). Comparing
+			// snapshot vs live value is the point — comparing the live
+			// value to itself would be a tautology.
+			liveStatus := c.err.Status
+			liveBody := c.err.Body
+
+			assert.Equal(t, snapshotStatus, liveStatus,
+				"Status must remain stable across reads; a mismatch means something reassigned the exported field")
+			assert.Equal(t, snapshotBody, liveBody,
 				"Body must remain byte-for-byte identical to its init-time snapshot; "+
 					"a difference here means a caller mutated the shared slice")
 		})
 	}
 }
 
-// TestHTTPError_BodiesDoNotAlias verifies the httpBuild factory
+// TestHTTPError_BodiesDoNotAlias verifies the build factory
 // produces a distinct backing slice per HTTPError. If two error
 // values shared a backing array, an in-place edit to one would
 // silently corrupt the other — the convention is then per-instance,
@@ -136,7 +145,7 @@ func TestHTTPError_BodiesDoNotAlias(t *testing.T) {
 			// Different start addresses imply different backing arrays
 			// (or at least different windows that cannot overlap when
 			// the lengths plus offsets fit). For the small fixed bodies
-			// produced by httpBuild, separate Marshal calls always yield
+			// produced by build, separate Marshal calls always yield
 			// freshly allocated slices.
 			assert.NotSame(t, &p.a.Body[0], &p.b.Body[0],
 				"distinct HTTPError values must back onto distinct byte slices")
