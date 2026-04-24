@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/rs/zerolog"
 
@@ -55,10 +56,19 @@ type Router struct {
 // closedStore is the Store implementation returned by StoreFor after
 // Close(). Allow always surfaces ErrStoreClosed so the handler's
 // FailPolicy path runs; FlushPrefix and Close are idempotent no-ops.
+//
+// The Decision returned alongside ErrStoreClosed is intentionally
+// populated with header-safe defaults: Allowed=true so a fail-open
+// caller that ignores the error sees an unambiguous pass-through, and
+// ResetAt=time.Now() so downstream BuildHeaders does not encode
+// time.Time{}.Unix() (a negative year-1 epoch) as X-RateLimit-Reset.
+// Conscientious callers that honour the error path are unaffected by
+// these defaults; the safeguard exists for the failure mode where
+// they don't.
 type closedStore struct{}
 
 func (closedStore) Allow(_ context.Context, _ string, _, _ int) (Decision, error) {
-	return Decision{}, ErrStoreClosed
+	return Decision{Allowed: true, Remaining: 0, ResetAt: time.Now()}, ErrStoreClosed
 }
 
 func (closedStore) FlushPrefix(_ context.Context, _ string) error { return nil }

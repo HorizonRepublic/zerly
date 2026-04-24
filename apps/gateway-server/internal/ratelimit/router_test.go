@@ -346,6 +346,25 @@ func TestMemoryStoreCountersIncludeMinimumSchema(t *testing.T) {
 		"memory has no remote dependencies so backend_errors stays 0")
 }
 
+// TestRouter_ClosedSentinelReturnsDefensibleDecision pins the
+// invariant that every Decision returned by closedStore.Allow carries
+// non-zero, header-safe fields. A consumer that ignores the
+// ErrStoreClosed error and feeds the Decision into BuildHeaders must
+// not encode time.Time{}.Unix() (negative epoch, year 1) as
+// X-RateLimit-Reset; the Allowed flag must default to true so a
+// fail-open caller sees an unambiguous pass-through.
+func TestRouter_ClosedSentinelReturnsDefensibleDecision(t *testing.T) {
+	d, err := closedStore{}.Allow(context.Background(), "k", 100, 5)
+
+	require.ErrorIs(t, err, ErrStoreClosed)
+	assert.True(t, d.Allowed,
+		"closed sentinel must default Allowed=true so fail-open callers ignoring the error see a pass-through")
+	assert.False(t, d.ResetAt.IsZero(),
+		"closed sentinel must populate ResetAt so BuildHeaders does not encode a year-1 reset timestamp")
+	assert.GreaterOrEqual(t, d.ResetAt.Unix(), int64(0),
+		"closed sentinel ResetAt must be a real Unix-epoch timestamp")
+}
+
 func TestRouter_EnsureBackendAfterCloseRefuses(t *testing.T) {
 	r := NewRouter(FailPolicyOpen.Resolve(), zerolog.Nop())
 	require.NoError(t, r.Close())
