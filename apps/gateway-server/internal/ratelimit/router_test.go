@@ -33,7 +33,7 @@ func (*stubStore) Close() error {
 
 func TestRouter_DispatchByStoreField(t *testing.T) {
 	mem := NewMemoryStore(time.Minute)
-	defer mem.Close()
+	defer func() { _ = mem.Close() }()
 	kv := &stubStore{name: "nats-kv"}
 
 	r := NewRouter(FailPolicyOpen.Resolve(), zerolog.Nop())
@@ -46,7 +46,7 @@ func TestRouter_DispatchByStoreField(t *testing.T) {
 
 func TestRouter_EmptyStoreDefaultsToMemory(t *testing.T) {
 	mem := NewMemoryStore(time.Minute)
-	defer mem.Close()
+	defer func() { _ = mem.Close() }()
 
 	r := NewRouter(FailPolicyOpen.Resolve(), zerolog.Nop())
 	require.NoError(t, r.EnsureBackend("memory", func() (Store, error) { return mem, nil }))
@@ -56,7 +56,7 @@ func TestRouter_EmptyStoreDefaultsToMemory(t *testing.T) {
 
 func TestRouter_NilRateLimitReturnsMemory(t *testing.T) {
 	mem := NewMemoryStore(time.Minute)
-	defer mem.Close()
+	defer func() { _ = mem.Close() }()
 
 	r := NewRouter(FailPolicyOpen.Resolve(), zerolog.Nop())
 	require.NoError(t, r.EnsureBackend("memory", func() (Store, error) { return mem, nil }))
@@ -66,7 +66,7 @@ func TestRouter_NilRateLimitReturnsMemory(t *testing.T) {
 
 func TestRouter_UnknownStoreFallsBackToMemory(t *testing.T) {
 	mem := NewMemoryStore(time.Minute)
-	defer mem.Close()
+	defer func() { _ = mem.Close() }()
 
 	r := NewRouter(FailPolicyOpen.Resolve(), zerolog.Nop())
 	require.NoError(t, r.EnsureBackend("memory", func() (Store, error) { return mem, nil }))
