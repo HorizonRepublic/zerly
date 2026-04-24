@@ -753,6 +753,20 @@ func (f *fakeRateLimiter) FlushPrefix(_ context.Context, _ string) error { retur
 
 func (f *fakeRateLimiter) Close() error { return nil }
 
+// routerWithStore wraps an existing ratelimit.Store in a Router whose
+// "memory" backend returns that Store on EnsureBackend. Tests use this
+// to plug their bespoke fake into the handler without re-implementing
+// the Router's dispatch semantics.
+func routerWithStore(t *testing.T, s ratelimit.Store) *ratelimit.Router {
+	t.Helper()
+	router := ratelimit.NewRouter(ratelimit.FailPolicyOpen.Resolve(), zerolog.Nop())
+	require.NoError(t, router.EnsureBackend("memory", func() (ratelimit.Store, error) {
+		return s, nil
+	}))
+
+	return router
+}
+
 func TestHandler_RateLimitReturns429(t *testing.T) {
 	rl := &fakeRateLimiter{allowed: false}
 	table := &fakeTable{routes: map[string]routing.Route{
@@ -772,7 +786,7 @@ func TestHandler_RateLimitReturns429(t *testing.T) {
 		Decoder:     NewDefaultDecoder(),
 		Timeout:     30 * time.Second,
 		Logger:      zerolog.Nop(),
-		RateLimiter: rl,
+		RateLimiter: routerWithStore(t, rl),
 	})
 
 	in := emptyServeInput("GET", "/users")
@@ -782,10 +796,12 @@ func TestHandler_RateLimitReturns429(t *testing.T) {
 
 	assert.Equal(t, 429, result.Status)
 	assert.Equal(t, gerrors.TooManyRequests.Body, result.Body)
-	assert.Equal(t, []string{"1"}, result.Headers["retry-after"])
+	assert.Equal(t, []string{"1"}, result.Headers["Retry-After"])
+	assert.Equal(t, []string{"10"}, result.Headers["X-RateLimit-Limit"])
+	assert.Equal(t, []string{"0"}, result.Headers["X-RateLimit-Remaining"])
 
 	require.Len(t, rl.calls, 1)
-	assert.Equal(t, "GET:/users:1.2.3.4", rl.calls[0].key)
+	assert.Equal(t, ratelimit.BuildBucketKey("GET", "/users", "1.2.3.4"), rl.calls[0].key)
 	assert.Equal(t, 10, rl.calls[0].rps)
 	assert.Equal(t, 20, rl.calls[0].burst)
 
@@ -809,7 +825,7 @@ func TestHandler_RateLimitDefaultBurstIs2xRPS(t *testing.T) {
 		Decoder:     NewDefaultDecoder(),
 		Timeout:     30 * time.Second,
 		Logger:      zerolog.Nop(),
-		RateLimiter: rl,
+		RateLimiter: routerWithStore(t, rl),
 	})
 
 	h.Handle(emptyServeInput("GET", "/users"))
@@ -1068,7 +1084,7 @@ func TestHandler_RateLimitKeyByHeader(t *testing.T) {
 		Decoder:     NewDefaultDecoder(),
 		Timeout:     30 * time.Second,
 		Logger:      zerolog.Nop(),
-		RateLimiter: rl,
+		RateLimiter: routerWithStore(t, rl),
 	})
 
 	// First request: IP=1.1.1.1, x-api-key=shared-key → allowed
@@ -1091,8 +1107,9 @@ func TestHandler_RateLimitKeyByHeader(t *testing.T) {
 
 	assert.Equal(t, 429, r2.Status)
 	require.Len(t, rl.calls, 2)
-	assert.Equal(t, "GET:/api:shared-key", rl.calls[0].key)
-	assert.Equal(t, "GET:/api:shared-key", rl.calls[1].key,
+	expectedKey := ratelimit.BuildBucketKey("GET", "/api", "shared-key")
+	assert.Equal(t, expectedKey, rl.calls[0].key)
+	assert.Equal(t, expectedKey, rl.calls[1].key,
 		"both requests keyed on header value, not IP")
 }
 
@@ -1134,7 +1151,7 @@ func TestHandler_RateLimitKeyByUserField(t *testing.T) {
 		Decoder:     NewDefaultDecoder(),
 		Timeout:     30 * time.Second,
 		Logger:      zerolog.Nop(),
-		RateLimiter: rl,
+		RateLimiter: routerWithStore(t, rl),
 	})
 
 	// First request: IP=10.0.0.1, user:id=user-123 → allowed
@@ -1155,8 +1172,9 @@ func TestHandler_RateLimitKeyByUserField(t *testing.T) {
 
 	assert.Equal(t, 429, r2.Status)
 	require.Len(t, rl.calls, 2)
-	assert.Equal(t, "GET:/users/me:user-123", rl.calls[0].key)
-	assert.Equal(t, "GET:/users/me:user-123", rl.calls[1].key,
+	expectedKey := ratelimit.BuildBucketKey("GET", "/users/me", "user-123")
+	assert.Equal(t, expectedKey, rl.calls[0].key)
+	assert.Equal(t, expectedKey, rl.calls[1].key,
 		"both requests keyed on user:id, not IP")
 }
 
@@ -1183,7 +1201,7 @@ func TestHandler_RateLimitKeyByCookie(t *testing.T) {
 		Decoder:     NewDefaultDecoder(),
 		Timeout:     30 * time.Second,
 		Logger:      zerolog.Nop(),
-		RateLimiter: rl,
+		RateLimiter: routerWithStore(t, rl),
 	})
 
 	// First request with session cookie
@@ -1204,8 +1222,9 @@ func TestHandler_RateLimitKeyByCookie(t *testing.T) {
 
 	assert.Equal(t, 429, r2.Status)
 	require.Len(t, rl.calls, 2)
-	assert.Equal(t, "GET:/dashboard:abc", rl.calls[0].key)
-	assert.Equal(t, "GET:/dashboard:abc", rl.calls[1].key,
+	expectedKey := ratelimit.BuildBucketKey("GET", "/dashboard", "abc")
+	assert.Equal(t, expectedKey, rl.calls[0].key)
+	assert.Equal(t, expectedKey, rl.calls[1].key,
 		"both requests keyed on cookie value, not IP")
 }
 
@@ -1232,7 +1251,7 @@ func TestHandler_RateLimitKeyByFallsBackToIP(t *testing.T) {
 		Decoder:     NewDefaultDecoder(),
 		Timeout:     30 * time.Second,
 		Logger:      zerolog.Nop(),
-		RateLimiter: rl,
+		RateLimiter: routerWithStore(t, rl),
 	})
 
 	// Request WITHOUT x-api-key header → falls back to IP
@@ -1243,7 +1262,7 @@ func TestHandler_RateLimitKeyByFallsBackToIP(t *testing.T) {
 
 	assert.Equal(t, 200, result.Status)
 	require.Len(t, rl.calls, 1)
-	assert.Equal(t, "GET:/api:5.5.5.5", rl.calls[0].key,
+	assert.Equal(t, ratelimit.BuildBucketKey("GET", "/api", "5.5.5.5"), rl.calls[0].key,
 		"falls back to IP when header:x-api-key is absent")
 }
 

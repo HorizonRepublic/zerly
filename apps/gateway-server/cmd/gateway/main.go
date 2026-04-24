@@ -64,11 +64,16 @@ func main() {
 		logger.Fatal().Err(err).Msg("registry watcher start failed")
 	}
 
-	rateLimiterStore := ratelimit.NewMemoryStore(10 * time.Minute) // TODO(task 7.2): read from config.
-	defer rateLimiterStore.Close()
+	rlRouter := ratelimit.NewRouter(ratelimit.FailPolicyOpen.Resolve(), logger)
+	if err := rlRouter.EnsureBackend("memory", func() (ratelimit.Store, error) {
+		return ratelimit.NewMemoryStore(10 * time.Minute), nil
+	}); err != nil {
+		logger.Fatal().Err(err).Msg("ratelimit memory backend init failed")
+	}
+	defer func() { _ = rlRouter.Close() }()
 
 	requester := buildRequesterOrDie(nc, logger)
-	handler := buildProxyHandler(cfg, currentTable, requester, rateLimiterStore, logger)
+	handler := buildProxyHandler(cfg, currentTable, requester, rlRouter, logger)
 	httpServer := httptransport.NewServer(cfg, handler)
 
 	// Run the Hertz server directly instead of Spin() so that its
@@ -258,7 +263,7 @@ func buildProxyHandler(
 	cfg *config.Config,
 	currentTable *atomic.Value,
 	requester *natstransport.Requester,
-	rateLimiterStore ratelimit.Store,
+	rlRouter *ratelimit.Router,
 	logger zerolog.Logger,
 ) *proxy.Handler {
 	return proxy.NewHandler(proxy.HandlerConfig{
@@ -270,6 +275,6 @@ func buildProxyHandler(
 		Decoder:     proxy.NewDefaultDecoder(),
 		Timeout:     cfg.RequestTimeout,
 		Logger:      logger,
-		RateLimiter: rateLimiterStore,
+		RateLimiter: rlRouter,
 	})
 }

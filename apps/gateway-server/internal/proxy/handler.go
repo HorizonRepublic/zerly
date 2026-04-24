@@ -27,13 +27,16 @@ type TableProvider func() routing.Table
 // at construction; all fields are required (except RateLimiter) and the
 // zero value of a HandlerConfig is NOT safe to use.
 type HandlerConfig struct {
-	Table       TableProvider
-	Nats        NatsRequester
-	Encoder     Encoder
-	Decoder     Decoder
-	Timeout     time.Duration
-	Logger      zerolog.Logger
-	RateLimiter ratelimit.Store // nil = rate limiting disabled globally
+	Table   TableProvider
+	Nats    NatsRequester
+	Encoder Encoder
+	Decoder Decoder
+	Timeout time.Duration
+	Logger  zerolog.Logger
+	// RateLimiter is the per-route store router. nil = rate limiting
+	// disabled globally for this handler. Backends are registered via
+	// Router.EnsureBackend by the gateway bootstrap.
+	RateLimiter *ratelimit.Router
 }
 
 // Handler is the HTTP→NATS→HTTP orchestrator. It owns one request from
@@ -124,6 +127,8 @@ func (h *Handler) Handle(in *ServeInput) *ServeResult {
 		authHeaders = authOutcome.AuthHeaders
 	}
 
+	var rlHeaders map[string]string
+
 	// GCRA contract: rps >= 1. Treat rps <= 0 as "no RL" — fail safe.
 	if route.RateLimit != nil && route.RateLimit.RPS > 0 && h.cfg.RateLimiter != nil {
 		rlKey := h.resolveRateLimitKey(in, route, claims)
@@ -133,14 +138,25 @@ func (h *Handler) Handle(in *ServeInput) *ServeResult {
 			burst = route.RateLimit.RPS * 2
 		}
 
-		fullKey := route.Method + ":" + route.PathTemplate + ":" + rlKey
-		// Scaffolding: the RL error path is intentionally ignored here.
-		// A later change wires this through a per-route store router,
-		// fail-policy resolution, and full X-RateLimit-* header emission.
-		decision, _ := h.cfg.RateLimiter.Allow(context.Background(), fullKey, route.RateLimit.RPS, burst)
-		if !decision.Allowed {
+		fullKey := ratelimit.BuildBucketKey(route.Method, route.PathTemplate, rlKey)
+		store := h.cfg.RateLimiter.StoreFor(route)
+
+		rlCtx, cancel := context.WithTimeout(context.Background(), timeout)
+		decision, rlErr := store.Allow(rlCtx, fullKey, route.RateLimit.RPS, burst)
+		cancel()
+
+		allowed := decision.Allowed
+		if rlErr != nil {
+			allowed = h.cfg.RateLimiter.FailPolicy().Apply(rlErr, route, fullKey, h.cfg.Logger)
+		}
+
+		rlHeaders = ratelimit.BuildHeaders(route.RateLimit, decision)
+
+		if !allowed {
 			result := toServeResult(gerrors.TooManyRequests)
-			result.Headers["retry-after"] = []string{"1"}
+			for k, v := range rlHeaders {
+				result.Headers[k] = []string{v}
+			}
 
 			return result
 		}
@@ -186,6 +202,12 @@ func (h *Handler) Handle(in *ServeInput) *ServeResult {
 
 	mergedHeaders := mergeHeaders(reply.Headers, in.RequestID)
 	mergeAuthHeaders(mergedHeaders, authHeaders)
+
+	for k, v := range rlHeaders {
+		if _, exists := mergedHeaders[k]; !exists {
+			mergedHeaders[k] = []string{v}
+		}
+	}
 
 	for k, v := range route.Headers {
 		if _, exists := mergedHeaders[k]; !exists {
