@@ -1,4 +1,4 @@
-import { Global, Module, type DynamicModule, type Provider } from '@nestjs/common';
+import { Global, Logger, Module, type DynamicModule, type Provider } from '@nestjs/common';
 import { DiscoveryModule } from '@nestjs/core';
 
 import { GatewayExceptionFilter } from '../filters/gateway-exception.filter';
@@ -7,6 +7,7 @@ import { assertCorsCredentialsNotWildcard } from '../normalization/cors-validato
 import { DefaultErrorBodyFactory } from '../normalization/default-error-body.factory';
 import { DefaultGatewayReplyBuilder } from '../normalization/default-reply.builder';
 import { DefaultStatusResolver } from '../normalization/default-status.resolver';
+import { assertRateLimitConfig } from '../normalization/rate-limit-validator';
 import { GatewayMetadataEnricher } from '../runtime/gateway-metadata-enricher';
 import {
   GATEWAY_DEFAULTS,
@@ -19,6 +20,62 @@ import type {
   IGatewayModuleAsyncOptions,
   IGatewayModuleOptions,
 } from './gateway-module-options.interface';
+import type { IGatewayDefaults } from '../types/gateway-defaults.interface';
+
+/**
+ * Light cross-field semantic checks on module-level defaults that
+ * cannot be expressed by the `IGatewayDefaults` type alone. CORS
+ * wildcard+credentials and rps/burst-shape errors throw — these
+ * defaults represent legal-but-suspicious topologies, so we WARN
+ * via the NestJS logger and let boot continue.
+ *
+ * Currently warns on:
+ *
+ *   - `rateLimit.burst < rateLimit.rps`. Legal — every GCRA reading
+ *     of `(rps, burst)` is well-defined for any non-negative pair —
+ *     but unusual. Most production rate-limit policies want a burst
+ *     ceiling that is at least equal to the sustained rate so a
+ *     single second of normal traffic doesn't immediately wedge the
+ *     bucket.
+ *   - `rateLimit.keyBy` includes a `'user:'` prefix while no `auth`
+ *     is required at the global level. The Go gateway falls back to
+ *     IP for anonymous traffic when a `user:` claim cannot resolve;
+ *     this is correct behaviour but can surprise operators who
+ *     expected per-user isolation across the board. The warn line
+ *     gives them a loud signal at boot.
+ *
+ * Pure function modulo the logger side effect.
+ */
+const validateDefaults = (defaults: IGatewayDefaults, logger: Logger): void => {
+  const { rateLimit } = defaults;
+
+  if (rateLimit === undefined) {
+    return;
+  }
+
+  if (rateLimit.burst !== undefined && rateLimit.burst < rateLimit.rps) {
+    logger.warn(
+      `defaults.rateLimit.burst (${String(rateLimit.burst)}) is less than ` +
+        `defaults.rateLimit.rps (${String(rateLimit.rps)}). This is legal but ` +
+        `unusual: a sub-rps burst causes the bucket to wedge after a single ` +
+        `second of sustained traffic. Confirm the policy is intentional.`,
+    );
+  }
+
+  if (rateLimit.keyBy !== undefined) {
+    const userKeyPresent = rateLimit.keyBy.some((k) => k.startsWith('user:'));
+
+    if (userKeyPresent) {
+      logger.warn(
+        `defaults.rateLimit.keyBy includes a 'user:' prefix. Anonymous ` +
+          `requests have no claims to extract from, so the gateway will fall ` +
+          `back to client IP for those — per-user isolation only applies ` +
+          `to authenticated traffic. Make auth required at the route ` +
+          `level for any endpoint where claim-based isolation is essential.`,
+      );
+    }
+  }
+};
 
 /**
  * Global NestJS module that wires the gateway SDK building blocks into the
@@ -52,9 +109,28 @@ export class GatewayModule {
    *                  Pass `defaults` to apply module-level endpoint defaults
    *                  merged into every `@GatewayRoute` handler at registration
    *                  time.
+   * @remarks
+   * Validation pass over `options.defaults`:
+   *
+   *   - **Throws** when `defaults.cors` combines `credentials: true`
+   *     with a wildcard origin (browsers silently reject that
+   *     combination per the Fetch Living Standard).
+   *   - **Throws** when `defaults.rateLimit.rps` is `<= 0` or
+   *     `defaults.rateLimit.burst` is negative — the Go gateway
+   *     would interpret those as "no limit" / undefined behaviour.
+   *   - **Warns (NestJS Logger)** when `defaults.rateLimit.burst`
+   *     is less than `defaults.rateLimit.rps`, or when
+   *     `defaults.rateLimit.keyBy` includes a `'user:'` prefix
+   *     (anonymous traffic falls back to client IP). These are
+   *     legal-but-suspicious shapes; boot continues.
    */
   public static forRoot(options: IGatewayModuleOptions = {}): DynamicModule {
     assertCorsCredentialsNotWildcard(options.defaults?.cors, 'GatewayModule.forRoot');
+    assertRateLimitConfig(options.defaults?.rateLimit, 'GatewayModule.forRoot');
+
+    if (options.defaults !== undefined) {
+      validateDefaults(options.defaults, new Logger(GatewayModule.name));
+    }
 
     const replyBuilderProvider: Provider = {
       provide: GATEWAY_REPLY_BUILDER,
@@ -136,6 +212,11 @@ export class GatewayModule {
         const resolved = await asyncOptions.useFactory(...args);
 
         assertCorsCredentialsNotWildcard(resolved.defaults?.cors, 'GatewayModule.forRootAsync');
+        assertRateLimitConfig(resolved.defaults?.rateLimit, 'GatewayModule.forRootAsync');
+
+        if (resolved.defaults !== undefined) {
+          validateDefaults(resolved.defaults, new Logger(GatewayModule.name));
+        }
 
         return Object.freeze(resolved.defaults ?? {});
       },

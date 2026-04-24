@@ -1,6 +1,7 @@
+import { Logger } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 
-import { describe, expect, it } from '@jest/globals';
+import { afterEach, describe, expect, it, jest } from '@jest/globals';
 
 import { GatewayExceptionFilter } from '../filters/gateway-exception.filter';
 import { GatewayResponseInterceptor } from '../interceptors/gateway-response.interceptor';
@@ -312,6 +313,68 @@ describe('GatewayModule', () => {
       }).compile();
 
       await expect(moduleRef).rejects.toThrow(/cannot be combined with cors.origins: '\*'/);
+    });
+  });
+
+  describe('rateLimit defaults guard', () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('forRoot throws on rps: 0 in defaults.rateLimit', () => {
+      expect(() =>
+        GatewayModule.forRoot({
+          defaults: {
+            rateLimit: { rps: 0 },
+          },
+        }),
+      ).toThrow(/rateLimit\.rps must be a positive integer/);
+    });
+
+    it('forRoot throws on negative burst in defaults.rateLimit', () => {
+      expect(() =>
+        GatewayModule.forRoot({
+          defaults: {
+            rateLimit: { rps: 10, burst: -1 },
+          },
+        }),
+      ).toThrow(/rateLimit\.burst must be a non-negative integer/);
+    });
+
+    it('forRoot warns when defaults.rateLimit.burst is below rps', () => {
+      const warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => {});
+
+      GatewayModule.forRoot({
+        defaults: {
+          rateLimit: { rps: 100, burst: 1 },
+        },
+      });
+
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringMatching(/burst.*less than/));
+    });
+
+    it('forRoot warns when defaults.rateLimit.keyBy includes a user: prefix', () => {
+      const warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => {});
+
+      GatewayModule.forRoot({
+        defaults: {
+          rateLimit: { rps: 10, keyBy: ['user:id', 'ip'] },
+        },
+      });
+
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringMatching(/keyBy.*user:/));
+    });
+
+    it('forRoot does not warn for a well-formed rateLimit default', () => {
+      const warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => {});
+
+      GatewayModule.forRoot({
+        defaults: {
+          rateLimit: { rps: 10, burst: 20, keyBy: ['ip'] },
+        },
+      });
+
+      expect(warnSpy).not.toHaveBeenCalled();
     });
   });
 });

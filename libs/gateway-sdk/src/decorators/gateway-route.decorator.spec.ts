@@ -120,4 +120,54 @@ describe('GatewayRoute decorator', () => {
       }).toThrow(/cannot be combined with cors.origins: '\*'/);
     });
   });
+
+  describe('rateLimit shape guard', () => {
+    it('rejects rps: 0 at decoration time', () => {
+      expect(() => {
+        class BadController {
+          @GatewayRoute({
+            pattern: 'bad.rl.zero',
+            method: 'POST',
+            path: '/bad-zero',
+            rateLimit: { rps: 0 },
+          })
+          public handler(): void {}
+        }
+
+        return BadController;
+      }).toThrow(/rateLimit\.rps must be a positive integer/);
+    });
+
+    it('rejects negative burst at decoration time', () => {
+      expect(() => {
+        class BadController {
+          @GatewayRoute({
+            pattern: 'bad.rl.burst',
+            method: 'POST',
+            path: '/bad-burst',
+            rateLimit: { rps: 10, burst: -1 },
+          })
+          public handler(): void {}
+        }
+
+        return BadController;
+      }).toThrow(/rateLimit\.burst must be a non-negative integer/);
+    });
+
+    it('accepts a well-formed rateLimit block', () => {
+      expect(() => {
+        class OkController {
+          @GatewayRoute({
+            pattern: 'ok.rl',
+            method: 'GET',
+            path: '/ok-rl',
+            rateLimit: { rps: 1, burst: 0 },
+          })
+          public handler(): void {}
+        }
+
+        return OkController;
+      }).not.toThrow();
+    });
+  });
 });

@@ -44,15 +44,42 @@ export type RateLimitStore = 'memory' | 'nats-kv' | 'redis';
  * Per-route rate limiting policy.
  * Written to the `handler_registry` KV bucket as the `rateLimit` field.
  * Go gateway enforces via a token-bucket algorithm.
+ * @remarks
+ * Field-level invariants are checked at module init / decoration time
+ * by `assertRateLimitConfig` — `rps: 0` and negative `burst` are
+ * rejected with a descriptive error rather than silently degrading
+ * to "no limit" or producing undefined GCRA behaviour. Operators who
+ * want a route to be unlimited MUST omit the `rateLimit` block
+ * entirely.
+ *
+ * The Go gateway clamps `Retry-After` responses to a minimum of 1
+ * second even when the computed wait is sub-second. A
+ * `Retry-After: 0` is misleading to many client libraries (often
+ * treated as "retry immediately and hammer the server"), so the
+ * gateway will never emit `Retry-After: 0`. Client retry logic that
+ * needs sub-second granularity should rely on the bucket-aware
+ * `X-RateLimit-Reset` instead.
  */
 export interface IGatewayRateLimitConfig {
-  /** Maximum sustained requests per second. */
+  /**
+   * Maximum sustained requests per second.
+   * @remarks
+   * Must be a positive integer in `[1, 2^32 - 1]`. `rps: 0` is
+   * rejected at registration time — the Go gateway treats `RPS <= 0`
+   * as "no limit" and a developer who wrote `rps: 0` almost
+   * certainly meant the opposite. Omit the entire `rateLimit` block
+   * to express "no limit" instead.
+   */
   readonly rps: number;
 
   /**
    * Token bucket burst size — how many requests are allowed in a
    * short spike before the sustained rate kicks in.
    * Default: `rps * 2`.
+   * @remarks
+   * Must be a non-negative integer in `[0, 2^32 - 1]` when provided.
+   * Negative values are rejected at registration time because the
+   * Go-side GCRA divisor would wrap on the hot path.
    */
   readonly burst?: number;
 
