@@ -111,11 +111,17 @@ func NewRouter(failPolicy Policy, logger zerolog.Logger) *Router {
 }
 
 // EnsureBackend registers a Store for the given id if one is not
-// already present. factory runs exactly once per id; subsequent
-// calls with the same id are no-ops so the watcher hot-reload path
-// can re-scan the registry on every delta without duplicate
-// instantiation or side effects. A factory error is propagated
-// verbatim and leaves the router untouched.
+// already present. factory runs exactly once per id on success — once
+// a backend is in the map, subsequent calls for the same id are
+// no-ops so the watcher hot-reload path can re-scan the registry on
+// every delta without duplicate instantiation or side effects.
+//
+// If factory returns an error the router is left untouched and the
+// error is propagated verbatim. The next EnsureBackend call for the
+// same id will retry the factory because nothing was registered on
+// the failed attempt; the API does not memoise failures. Callers that
+// need retry-with-backoff or once-only semantics on failure MUST wrap
+// the factory themselves.
 //
 // Returns ErrStoreClosed if the router has already been Close()d;
 // factory is not invoked in that case so no resources leak after
