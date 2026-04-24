@@ -36,6 +36,7 @@ import (
 	natsgo "github.com/nats-io/nats.go"
 	"github.com/rs/zerolog"
 
+	"github.com/HorizonRepublic/zerly/apps/gateway-server/internal/ratelimit"
 	"github.com/HorizonRepublic/zerly/apps/gateway-server/internal/registry"
 )
 
@@ -63,10 +64,34 @@ type WatcherStopper interface {
 	Stop()
 }
 
+// RouterCloser is the narrow contract the Drain routine needs from
+// the rate-limit router. *ratelimit.Router satisfies it natively;
+// extracting an interface lets tests assert step ordering with a
+// recording fake.
+//
+// The router is closed AFTER the watcher stops and BEFORE the NATS
+// connection drains so two ordering invariants hold simultaneously:
+//
+//   - In-flight rate-limit checks (kicked off before HTTP.Shutdown
+//     started draining) get to observe a clean ratelimit.ErrStoreClosed
+//     sentinel via the Router's closed-state machinery instead of a
+//     raw "connection draining" error from the underlying NATS-KV
+//     store. The handler's FailPolicy then maps the sentinel to a
+//     deterministic allow/reject decision.
+//   - The NATS connection is still alive while the Router closes its
+//     stores, so any close-time RPC the NATS-KV store needs to issue
+//     (e.g., final ping or unsubscribe) does not race the connection
+//     teardown.
+type RouterCloser interface {
+	Close() error
+}
+
 // Options bundles the resources Drain must quiesce on shutdown.
 // Every field is required and a nil value triggers a deliberate
 // nil-pointer dereference so bootstrap wiring bugs surface loudly
-// instead of silently skipping a drain step.
+// instead of silently skipping a drain step. RateLimit is the one
+// exception — it may be nil in tests that exercise Drain without a
+// Router, and Drain skips the corresponding step in that case.
 type Options struct {
 	// HTTP is the HTTP server instance whose Shutdown method blocks
 	// on in-flight request completion.
@@ -74,6 +99,12 @@ type Options struct {
 	// Watcher is the registry watcher whose Stop method cancels its
 	// background goroutine.
 	Watcher WatcherStopper
+	// RateLimit is the rate-limit router whose Close method
+	// transitions every Store backend into the closed-sentinel state.
+	// Nil disables the corresponding drain step — useful for tests,
+	// for boot paths that have no rate limiting wired, and for unit
+	// fixtures of Drain itself.
+	RateLimit RouterCloser
 	// NATS is the NATS connection whose Drain method waits for
 	// in-flight subscriptions and publishes to finish.
 	NATS NATSConn
@@ -115,6 +146,24 @@ func WaitForSignal() os.Signal {
 // Drain runs the ordered shutdown sequence against opts and returns
 // once every step has completed or the global Timeout has elapsed.
 //
+// Step order:
+//
+//  1. HTTP server shutdown — stop accepting new connections and drain
+//     in-flight requests so no new rate-limit / NATS work originates
+//     after this point.
+//  2. Registry watcher stop — the routing table snapshot is now
+//     immutable; a late KV delta cannot mutate it after we stopped
+//     serving.
+//  3. Rate-limit router close — turns every Store backend into the
+//     closed-sentinel store so any in-flight rate-limit check kicked
+//     off during HTTP shutdown sees ratelimit.ErrStoreClosed instead
+//     of a raw "connection draining" error from the NATS-KV store.
+//     Skipped when opts.RateLimit is nil.
+//  4. NATS connection drain — waits for in-flight subscriptions and
+//     publishes to finish before closing the socket. Runs LAST so
+//     the rate-limit router's close-time RPC traffic (if any) lands
+//     before the connection goes away.
+//
 // Errors from individual steps are logged but do not abort the
 // sequence — a failed HTTP Shutdown must NOT prevent the NATS
 // connection from being drained, because the process is about to
@@ -128,6 +177,7 @@ func Drain(opts Options) {
 
 	shutdownHTTP(ctx, opts)
 	stopWatcher(opts)
+	closeRateLimitRouter(opts)
 	drainNATS(ctx, opts)
 
 	opts.Logger.Info().Msg("gateway shutdown: drain complete")
@@ -149,6 +199,33 @@ func shutdownHTTP(ctx context.Context, opts Options) {
 func stopWatcher(opts Options) {
 	opts.Logger.Debug().Msg("shutdown step: registry watcher")
 	opts.Watcher.Stop()
+}
+
+// closeRateLimitRouter transitions the rate-limit router into its
+// terminal closed state so in-flight Store.Allow calls observe a
+// well-defined ratelimit.ErrStoreClosed sentinel instead of a raw
+// "connection draining" error from the underlying NATS-KV store.
+// The handler's FailPolicy then maps the sentinel to a deterministic
+// allow/reject decision.
+//
+// Skipped when opts.RateLimit is nil — that mode exists for tests
+// and for boot paths that wire no rate-limiting at all.
+//
+// Errors are logged at ERROR but do not abort the rest of the drain.
+// A failing Close must NOT prevent the NATS drain from running,
+// because the process is about to exit and leaving the NATS socket
+// open is strictly worse than leaking a half-closed Store.
+func closeRateLimitRouter(opts Options) {
+	if opts.RateLimit == nil {
+		return
+	}
+
+	opts.Logger.Debug().Msg("shutdown step: ratelimit router")
+	if err := opts.RateLimit.Close(); err != nil {
+		opts.Logger.Error().Err(err).Msg("ratelimit router close failed; continuing drain")
+		return
+	}
+	opts.Logger.Debug().Msg("shutdown step: ratelimit router closed")
 }
 
 // drainNATS waits for in-flight subscriptions and publishes on the
@@ -197,3 +274,8 @@ var _ NATSConn = (*natsgo.Conn)(nil)
 // WatcherStopper contract so the bootstrap layer can wire it directly
 // into Options.Watcher without an explicit adapter.
 var _ WatcherStopper = (*registry.Watcher)(nil)
+
+// Compile-time assertion that *ratelimit.Router implements the
+// RouterCloser contract so the bootstrap layer can wire it directly
+// into Options.RateLimit without an explicit adapter.
+var _ RouterCloser = (*ratelimit.Router)(nil)

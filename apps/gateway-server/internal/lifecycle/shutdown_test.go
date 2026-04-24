@@ -101,18 +101,41 @@ func (r *recordingWatcher) Stop() {
 	}
 }
 
-func TestDrain_CallsAllThreeStepsInOrder(t *testing.T) {
+// recordingRouter is a RouterCloser used by ordering and error tests
+// to stamp the drain step's sequence number and to optionally
+// surface a configured Close error.
+type recordingRouter struct {
+	mu       sync.Mutex
+	called   bool
+	err      error
+	recorder *stepRecorder
+	order    int64
+}
+
+func (r *recordingRouter) Close() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.called = true
+	if r.recorder != nil {
+		r.order = r.recorder.next()
+	}
+	return r.err
+}
+
+func TestDrain_CallsAllFourStepsInOrder(t *testing.T) {
 	recorder := &stepRecorder{}
 	http := &fakeHTTPServer{recorder: recorder}
 	nats := &fakeNATSConn{recorder: recorder}
 	watcher := &recordingWatcher{recorder: recorder}
+	router := &recordingRouter{recorder: recorder}
 
 	Drain(Options{
-		HTTP:    http,
-		Watcher: watcher,
-		NATS:    nats,
-		Timeout: 1 * time.Second,
-		Logger:  zerolog.Nop(),
+		HTTP:      http,
+		Watcher:   watcher,
+		RateLimit: router,
+		NATS:      nats,
+		Timeout:   1 * time.Second,
+		Logger:    zerolog.Nop(),
 	})
 
 	http.mu.Lock()
@@ -125,6 +148,11 @@ func TestDrain_CallsAllThreeStepsInOrder(t *testing.T) {
 	watcherOrder := watcher.order
 	watcher.mu.Unlock()
 
+	router.mu.Lock()
+	require.True(t, router.called, "RateLimit.Close must be called")
+	routerOrder := router.order
+	router.mu.Unlock()
+
 	nats.mu.Lock()
 	require.True(t, nats.called, "NATS.Drain must be called")
 	natsOrder := nats.order
@@ -132,12 +160,69 @@ func TestDrain_CallsAllThreeStepsInOrder(t *testing.T) {
 
 	// Drain MUST quiesce HTTP first (stop accepting new work), watcher
 	// second (so a late KV delta cannot mutate the routing table after
-	// we have stopped serving), and NATS last (so any in-flight
-	// upstream replies have a chance to land before we close the
+	// we have stopped serving), the rate-limit router third (so
+	// in-flight Allow calls observe ratelimit.ErrStoreClosed instead
+	// of a raw NATS-draining error from the KV store), and NATS last
+	// (so any in-flight upstream replies — including the router's
+	// close-time RPCs — have a chance to land before we close the
 	// socket). Reordering breaks the no-request-left-behind guarantee
-	// during rolling deployments.
+	// during rolling deployments and surfaces transient backend
+	// errors as user-visible 500s during the drain window.
 	assert.Less(t, httpOrder, watcherOrder, "HTTP.Shutdown must run before Watcher.Stop")
-	assert.Less(t, watcherOrder, natsOrder, "Watcher.Stop must run before NATS.Drain")
+	assert.Less(t, watcherOrder, routerOrder, "Watcher.Stop must run before RateLimit.Close")
+	assert.Less(t, routerOrder, natsOrder, "RateLimit.Close must run before NATS.Drain")
+}
+
+func TestDrain_NoRouterSkipsCloseStep(t *testing.T) {
+	// Drain must remain usable when no rate-limit router is wired
+	// (legacy boot paths, tests, or feature-flag-disabled deployments).
+	// Skipping the step instead of crashing keeps Drain a uniform API
+	// across configurations.
+	http := &fakeHTTPServer{}
+	nats := &fakeNATSConn{}
+	watcher := stubWatcher()
+
+	assert.NotPanics(t, func() {
+		Drain(Options{
+			HTTP:    http,
+			Watcher: watcher,
+			NATS:    nats,
+			Timeout: 1 * time.Second,
+			Logger:  zerolog.Nop(),
+		})
+	})
+
+	nats.mu.Lock()
+	assert.True(t, nats.called, "NATS drain must still run when RateLimit is nil")
+	nats.mu.Unlock()
+}
+
+func TestDrain_RateLimitCloseErrorDoesNotAbortSequence(t *testing.T) {
+	// A failing rate-limit Close (e.g., a backend Store that errors
+	// during its own teardown) must NOT prevent the NATS connection
+	// from draining. The process is about to exit; leaving the NATS
+	// socket open is strictly worse than leaking a half-closed Store.
+	http := &fakeHTTPServer{}
+	nats := &fakeNATSConn{}
+	watcher := stubWatcher()
+	router := &recordingRouter{err: errors.New("ratelimit close boom")}
+
+	Drain(Options{
+		HTTP:      http,
+		Watcher:   watcher,
+		RateLimit: router,
+		NATS:      nats,
+		Timeout:   1 * time.Second,
+		Logger:    zerolog.Nop(),
+	})
+
+	router.mu.Lock()
+	assert.True(t, router.called, "RateLimit.Close must run even if it errors")
+	router.mu.Unlock()
+
+	nats.mu.Lock()
+	assert.True(t, nats.called, "NATS drain must still run after RateLimit close failure")
+	nats.mu.Unlock()
 }
 
 func TestDrain_HTTPErrorDoesNotAbortSequence(t *testing.T) {
