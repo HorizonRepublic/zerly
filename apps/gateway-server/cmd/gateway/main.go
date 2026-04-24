@@ -54,7 +54,8 @@ func main() {
 	ctx := context.Background()
 
 	nc := connectNATSOrDie(cfg, logger)
-	kv := openKVOrDie(ctx, nc, cfg, logger)
+	js, kv := openKVOrDie(ctx, nc, cfg, logger)
+	_ = js // consumed by the ratelimit Router bootstrap in the next wiring step
 
 	store := registry.NewStore()
 	watcher := registry.NewWatcher(kv, store, logger)
@@ -151,15 +152,18 @@ func connectNATSOrDie(cfg *config.Config, logger zerolog.Logger) *natsgo.Conn {
 
 // openKVOrDie initializes the JetStream client and opens the
 // handler_registry KV bucket that holds the routing metadata.
-// Failure is fatal because a gateway with no routing table cannot
-// forward a single request — refusing to start is strictly better
-// than starting in a state where every request 404s.
+// It returns both the JetStream context and the KeyValue handle:
+// the JetStream context is needed by downstream components that
+// create additional KV buckets at startup (e.g., the ratelimit
+// Router). Failure is fatal because a gateway with no routing table
+// cannot forward a single request — refusing to start is strictly
+// better than starting in a state where every request 404s.
 func openKVOrDie(
 	ctx context.Context,
 	nc *natsgo.Conn,
 	cfg *config.Config,
 	logger zerolog.Logger,
-) jetstream.KeyValue {
+) (jetstream.JetStream, jetstream.KeyValue) {
 	js, err := jetstream.New(nc)
 	if err != nil {
 		logger.Fatal().Err(err).Msg("jetstream init failed")
@@ -168,7 +172,7 @@ func openKVOrDie(
 	if err != nil {
 		logger.Fatal().Err(err).Str("bucket", cfg.KVBucket).Msg("open kv bucket failed")
 	}
-	return kv
+	return js, kv
 }
 
 // installRoutingRebuild wires the routing table rebuild callback into
