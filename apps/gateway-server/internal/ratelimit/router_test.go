@@ -96,3 +96,64 @@ func TestRouter_EnsureBackendFactoryError(t *testing.T) {
 	err := r.EnsureBackend("nats-kv", func() (Store, error) { return nil, errors.New("boom") })
 	assert.Error(t, err)
 }
+
+// TestRouter_StoreForAfterCloseReturnsClosedSentinel guards the race
+// where a request is dispatched through the router while shutdown is
+// in flight. Before the fix, Close() closed every store but left the
+// map populated, so StoreFor returned a closed store whose Allow
+// could panic or misbehave. The router now flips into a terminal
+// closed state and StoreFor returns a sentinel whose Allow surfaces
+// ErrStoreClosed, which the handler's FailPolicy maps to a
+// well-defined decision.
+func TestRouter_StoreForAfterCloseReturnsClosedSentinel(t *testing.T) {
+	mem := NewMemoryStore(time.Minute)
+
+	r := NewRouter(FailPolicyOpen.Resolve(), zerolog.Nop())
+	require.NoError(t, r.EnsureBackend("memory", func() (Store, error) { return mem, nil }))
+
+	require.NoError(t, r.Close())
+
+	store := r.StoreFor(routing.Route{})
+	require.NotNil(t, store, "StoreFor must never return nil; the handler dereferences it on the hot path")
+
+	// Allow on the sentinel must surface ErrStoreClosed — never a
+	// panic — so the FailPolicy path picks up the decision.
+	_, err := store.Allow(context.Background(), "k", 10, 5)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrStoreClosed)
+
+	// FlushPrefix and Close on the sentinel are idempotent no-ops.
+	assert.NoError(t, store.FlushPrefix(context.Background(), "k"))
+	assert.NoError(t, store.Close())
+}
+
+func TestRouter_CloseIsIdempotent(t *testing.T) {
+	mem := NewMemoryStore(time.Minute)
+
+	r := NewRouter(FailPolicyOpen.Resolve(), zerolog.Nop())
+	require.NoError(t, r.EnsureBackend("memory", func() (Store, error) { return mem, nil }))
+
+	require.NoError(t, r.Close())
+	require.NoError(t, r.Close(),
+		"second Close must be a no-op rather than double-closing the underlying stores")
+}
+
+func TestRouter_EnsureBackendAfterCloseRefuses(t *testing.T) {
+	r := NewRouter(FailPolicyOpen.Resolve(), zerolog.Nop())
+	require.NoError(t, r.Close())
+
+	// Factory must not even be invoked after close — that would leak
+	// resources the router cannot track through its shutdown path.
+	var called atomic.Bool
+	err := r.EnsureBackend("memory", func() (Store, error) {
+		called.Store(true)
+		mem := NewMemoryStore(time.Minute)
+		t.Cleanup(func() { _ = mem.Close() })
+
+		return mem, nil
+	})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrStoreClosed)
+	assert.False(t, called.Load(),
+		"factory must not run after Close; the sentinel prevents registration")
+}

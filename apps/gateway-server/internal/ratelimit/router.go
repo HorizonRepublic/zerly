@@ -1,6 +1,8 @@
 package ratelimit
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -9,6 +11,14 @@ import (
 
 	"github.com/HorizonRepublic/zerly/apps/gateway-server/internal/routing"
 )
+
+// ErrStoreClosed is returned by the sentinel store installed once a
+// Router has been Close()d. In-flight requests that race shutdown
+// observe this error from Store.Allow and route through the
+// configured FailPolicy, turning the race into a well-defined
+// backend-outage decision instead of a panic or a call into a
+// half-torn-down store.
+var ErrStoreClosed = errors.New("ratelimit: router closed")
 
 // Router dispatches Allow calls to the appropriate Store backend
 // based on a route's declared store id ("memory", "nats-kv",
@@ -28,12 +38,26 @@ import (
 type Router struct {
 	mu         sync.RWMutex
 	stores     map[string]Store
+	closed     bool
 	failPolicy Policy
 	logger     zerolog.Logger
 	counters   struct {
 		fallback atomic.Int64
 	}
 }
+
+// closedStore is the Store implementation returned by StoreFor after
+// Close(). Allow always surfaces ErrStoreClosed so the handler's
+// FailPolicy path runs; FlushPrefix and Close are idempotent no-ops.
+type closedStore struct{}
+
+func (closedStore) Allow(_ context.Context, _ string, _, _ int) (Decision, error) {
+	return Decision{}, ErrStoreClosed
+}
+
+func (closedStore) FlushPrefix(_ context.Context, _ string) error { return nil }
+
+func (closedStore) Close() error { return nil }
 
 // NewRouter creates an empty Router bound to the given fail-policy
 // and logger. Callers MUST register at least the "memory" backend
@@ -64,10 +88,18 @@ func NewRouter(failPolicy Policy, logger zerolog.Logger) *Router {
 // instantiation or side effects. A factory error is propagated
 // verbatim and leaves the router untouched.
 //
+// Returns ErrStoreClosed if the router has already been Close()d;
+// factory is not invoked in that case so no resources leak after
+// shutdown.
+//
 // Safe for concurrent use alongside StoreFor.
 func (r *Router) EnsureBackend(id string, factory func() (Store, error)) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
+	if r.closed {
+		return ErrStoreClosed
+	}
 
 	if _, ok := r.stores[id]; ok {
 		return nil
@@ -85,13 +117,18 @@ func (r *Router) EnsureBackend(id string, factory func() (Store, error)) error {
 // StoreFor returns the Store that should service the given route.
 // Resolution order:
 //
-//  1. `route.RateLimit == nil` or `route.RateLimit.Store == ""` → memory.
-//  2. Declared id matches a registered backend → that backend.
-//  3. Declared id has no matching backend → memory + fallback warn log
+//  1. Router has been Close()d → the closed-sentinel store, whose
+//     Allow returns ErrStoreClosed so the handler's FailPolicy
+//     decides allow/reject.
+//  2. `route.RateLimit == nil` or `route.RateLimit.Store == ""` → memory.
+//  3. Declared id matches a registered backend → that backend.
+//  4. Declared id has no matching backend → memory + fallback warn log
 //     + fallback counter bump.
 //
 // The hot-path memory backend lookup uses RLock; it is safe to call
-// concurrently with EnsureBackend.
+// concurrently with EnsureBackend and Close. In-flight requests that
+// race Close() cannot panic on a closed-but-still-mapped store
+// because Close installs the sentinel before releasing the lock.
 func (r *Router) StoreFor(route routing.Route) Store {
 	declared := "memory"
 	if route.RateLimit != nil && route.RateLimit.Store != "" {
@@ -100,6 +137,10 @@ func (r *Router) StoreFor(route routing.Route) Store {
 
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+
+	if r.closed {
+		return closedStore{}
+	}
 
 	if s, ok := r.stores[declared]; ok {
 		return s
@@ -127,9 +168,20 @@ func (r *Router) FailPolicy() Policy { return r.failPolicy }
 // Close closes every registered Store. The first error encountered
 // is returned; the remaining stores are still closed on a
 // best-effort basis so a failing backend does not leak the others.
+//
+// After Close returns, the router flips into a terminal closed state:
+// every subsequent StoreFor call returns a sentinel whose Allow
+// surfaces ErrStoreClosed, which the handler's FailPolicy turns into
+// a well-defined outage decision. EnsureBackend likewise refuses
+// further registrations. Close is idempotent; a second call is a
+// no-op and returns nil.
 func (r *Router) Close() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
+	if r.closed {
+		return nil
+	}
 
 	var firstErr error
 	for id, s := range r.stores {
@@ -137,6 +189,12 @@ func (r *Router) Close() error {
 			firstErr = fmt.Errorf("close %s: %w", id, err)
 		}
 	}
+
+	// Drop references to the underlying stores and flip the closed
+	// flag in a single critical section. The next StoreFor observes a
+	// consistent closed state rather than a half-populated map.
+	r.stores = map[string]Store{}
+	r.closed = true
 
 	return firstErr
 }
