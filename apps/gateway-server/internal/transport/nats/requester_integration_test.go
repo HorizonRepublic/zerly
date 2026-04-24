@@ -64,7 +64,7 @@ func TestRequester_RoundTripAgainstRealNATS(t *testing.T) {
 	requester, err := NewRequester([]*natsgo.Conn{gatewayConn})
 	require.NoError(t, err)
 
-	reply, err := requester.Request("test.echo", []byte("hello"), 5*time.Second)
+	reply, err := requester.Request(ctx, "test.echo", []byte("hello"), 5*time.Second)
 	require.NoError(t, err)
 	assert.Equal(t, "pong:hello", string(reply))
 }
@@ -121,9 +121,17 @@ func TestRequester_TimeoutPropagatesNatsErrTimeout(t *testing.T) {
 	requester, err := NewRequester([]*natsgo.Conn{gatewayConn})
 	require.NoError(t, err)
 
-	_, err = requester.Request("slow.responder", []byte("ping"), 100*time.Millisecond)
+	// Real NATS RequestWithContext surfaces deadline expiry as
+	// context.DeadlineExceeded, not nats.ErrTimeout — the request path
+	// no longer relies on the legacy timeout-only Request signature.
+	// Both are categorized as timeouts upstream by isTimeoutErr; we
+	// pin the wire-level shape here so any future nats.go regression
+	// that swaps the surface error makes the proxy timeout branch
+	// visibly fail.
+	_, err = requester.Request(ctx, "slow.responder", []byte("ping"), 100*time.Millisecond)
 	require.Error(t, err)
-	assert.ErrorIs(t, err, natsgo.ErrTimeout, "nats.go must wrap deadline expiry with ErrTimeout")
+	assert.ErrorIs(t, err, context.DeadlineExceeded,
+		"RequestWithContext must surface ctx deadline expiry as context.DeadlineExceeded")
 }
 
 // TestRequester_RejectsEmptyConnectionSlice is cheap and hermetic but

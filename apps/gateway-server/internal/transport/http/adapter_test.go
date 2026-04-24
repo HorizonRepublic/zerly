@@ -2,6 +2,7 @@ package http
 
 import (
 	"bytes"
+	"context"
 	"testing"
 	"time"
 
@@ -312,7 +313,7 @@ type fakeRequester struct {
 	reply []byte
 }
 
-func (f *fakeRequester) Request(string, []byte, time.Duration) ([]byte, error) {
+func (f *fakeRequester) Request(context.Context, string, []byte, time.Duration) ([]byte, error) {
 	return f.reply, nil
 }
 

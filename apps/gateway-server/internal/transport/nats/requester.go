@@ -1,6 +1,7 @@
 package nats
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync/atomic"
@@ -46,9 +47,26 @@ func NewRequester(conns []*natsgo.Conn) (*Requester, error) {
 
 // Request sends an RPC request to subject and waits for a reply.
 //
+// The supplied ctx propagates the inbound HTTP request lifetime down
+// into the NATS round trip via nats.Conn.RequestWithContext. If the
+// HTTP client disconnects mid-flight or the caller cancels ctx, the
+// request returns immediately with the wrapped ctx error instead of
+// running to the full timeout — matching the no-orphan-IO contract the
+// gateway expects from every outbound dependency.
+//
+// The timeout argument is layered ON TOP of ctx: a child context with
+// timeout is derived from ctx so the effective deadline is min(ctx
+// deadline, now+timeout). Callers that already attached a deadline to
+// ctx still get the per-route hard cap, and callers that pass a
+// background ctx still get the per-route timeout. Cancellation from
+// either the HTTP path or the per-route deadline tears down the
+// in-flight request through the same code path.
+//
 // Errors are wrapped with the subject name and propagated verbatim
 // from nats.go so callers can use errors.Is against nats.ErrTimeout
-// to discriminate timeouts from connection failures upstream.
+// (or context.DeadlineExceeded / context.Canceled, which nats.go
+// surfaces from RequestWithContext) to discriminate timeouts from
+// connection failures upstream.
 //
 // Invariant: this gateway intentionally sets NO user headers on
 // outbound NATS messages — all per-request metadata (request id,
@@ -63,9 +81,18 @@ func NewRequester(conns []*natsgo.Conn) (*Requester, error) {
 // header set (error discrimination, retry metadata, reply-to
 // routing) before changing this — a collision with a reserved
 // name silently corrupts the downstream control plane.
-func (r *Requester) Request(subject string, payload []byte, timeout time.Duration) ([]byte, error) {
+func (r *Requester) Request(
+	ctx context.Context,
+	subject string,
+	payload []byte,
+	timeout time.Duration,
+) ([]byte, error) {
 	idx := r.counter.Add(1) % uint64(len(r.conns))
-	msg, err := r.conns[idx].Request(subject, payload, timeout)
+
+	reqCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	msg, err := r.conns[idx].RequestWithContext(reqCtx, subject, payload)
 	if err != nil {
 		return nil, fmt.Errorf("nats request %q: %w", subject, err)
 	}

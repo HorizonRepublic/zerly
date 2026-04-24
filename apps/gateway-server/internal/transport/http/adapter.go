@@ -66,10 +66,19 @@ const (
 // handler by reference, so callers may share one adapter across the
 // entire Hertz route tree — there is no per-request state stored on
 // the adapter itself.
+//
+// The standard-library context Hertz passes as the first argument is
+// forwarded into proxy.Handler.Handle so any cancellation Hertz
+// surfaces (client disconnect, server shutdown deadline) propagates
+// into the rate-limit check and the upstream NATS round trip. Without
+// this propagation an in-flight request would continue consuming
+// downstream budget for the full per-route timeout even after the
+// client gave up, which is exactly the bug the ctx-aware request path
+// is meant to fix.
 func NewHertzAdapter(handler *proxy.Handler) app.HandlerFunc {
-	return func(_ context.Context, ctx *app.RequestContext) {
+	return func(stdCtx context.Context, ctx *app.RequestContext) {
 		input := buildServeInput(ctx)
-		result := handler.Handle(input)
+		result := handler.Handle(stdCtx, input)
 		writeServeResult(ctx, result)
 	}
 }

@@ -100,15 +100,25 @@ type ServeResult struct {
 // are translated to the appropriate HTTP status with a pre-encoded
 // JSON error body from the internal/errors package.
 //
+// The ctx argument is the inbound HTTP request's context. It is
+// propagated into every blocking dependency call (rate-limit store,
+// NATS round trip, verifier round trip) so a client disconnect or a
+// caller-imposed deadline tears down in-flight work instead of letting
+// it run to its independent timeout. Callers that have no parent
+// context to pass (legacy entry points, fuzz tests) may use
+// context.Background() — the per-route timeout still bounds every
+// downstream call.
+//
 // Payload ownership: the request envelope is marshalled into a
 // pooled scratch []byte acquired from payloadPool. The defer
 // releases the buffer back to the pool when Handle returns. This is
-// safe because nats.Conn.Request synchronously copies the outgoing
-// message into its write buffer before returning the reply — by the
-// time Request returns, the payload slice is no longer referenced by
-// NATS and is safe to reuse. Any future refactor that keeps the
-// payload slice alive beyond this function MUST stop using the pool.
-func (h *Handler) Handle(in *ServeInput) *ServeResult {
+// safe because nats.Conn.RequestWithContext synchronously copies the
+// outgoing message into its write buffer before returning the reply —
+// by the time Request returns, the payload slice is no longer
+// referenced by NATS and is safe to reuse. Any future refactor that
+// keeps the payload slice alive beyond this function MUST stop using
+// the pool.
+func (h *Handler) Handle(ctx context.Context, in *ServeInput) *ServeResult {
 	table := h.cfg.Table()
 
 	if in.Method == "OPTIONS" {
@@ -136,7 +146,7 @@ func (h *Handler) Handle(in *ServeInput) *ServeResult {
 	}
 
 	if route.Auth != nil {
-		authOutcome := h.runAuthFlow(in, route, params, timeout)
+		authOutcome := h.runAuthFlow(ctx, in, route, params, timeout)
 		if !authOutcome.Proceed {
 			return authOutcome.ShortCircuit
 		}
@@ -145,7 +155,7 @@ func (h *Handler) Handle(in *ServeInput) *ServeResult {
 		authHeaders = authOutcome.AuthHeaders
 	}
 
-	rlHeaders, rlShortCircuit := h.applyRateLimitGate(route, in, claims, timeout)
+	rlHeaders, rlShortCircuit := h.applyRateLimitGate(ctx, route, in, claims, timeout)
 	if rlShortCircuit != nil {
 		return rlShortCircuit
 	}
@@ -173,7 +183,7 @@ func (h *Handler) Handle(in *ServeInput) *ServeResult {
 		return toServeResult(gerrors.InternalError)
 	}
 
-	replyBytes, err := h.cfg.Nats.Request(route.Subject, *payload, timeout)
+	replyBytes, err := h.cfg.Nats.Request(ctx, route.Subject, *payload, timeout)
 	if err != nil {
 		if isTimeoutErr(err) {
 			return toServeResult(gerrors.GatewayTimeout)
@@ -273,7 +283,16 @@ func (h *Handler) handlePreflight(table routing.Table, in *ServeInput) *ServeRes
 // Router dependency is nil, or RPS <= 0 — the last case being the
 // fail-safe interpretation of a malformed limit (treat zero/negative
 // RPS as "no limit" instead of "block everything").
+//
+// The ctx argument is the inbound request context. The rate-limit
+// check derives a child context with the per-route timeout so a slow
+// or hung backend cannot stall the request beyond its own deadline
+// AND a client disconnect (ctx cancellation) tears down the in-flight
+// store call. Without ctx propagation a 30s NATS-KV stall would
+// outlive a client that gave up after 1s — leaking goroutine and
+// connection budget for nothing.
 func (h *Handler) applyRateLimitGate(
+	ctx context.Context,
 	route routing.Route,
 	in *ServeInput,
 	claims json.RawMessage,
@@ -293,7 +312,7 @@ func (h *Handler) applyRateLimitGate(
 	fullKey := ratelimit.BuildBucketKey(route.Method, route.PathTemplate, rlKey)
 	store := h.cfg.RateLimiter.StoreFor(route)
 
-	rlCtx, cancel := context.WithTimeout(context.Background(), timeout)
+	rlCtx, cancel := context.WithTimeout(ctx, timeout)
 	decision, rlErr := store.Allow(rlCtx, fullKey, route.RateLimit.RPS, burst)
 	cancel()
 
@@ -417,7 +436,15 @@ type authFlowResult struct {
 //     reply's response headers for merge into the main reply — only
 //     set on a 200 verifier reply so failed verifier replies never
 //     leak headers onto the main response.
+//
+// The ctx argument flows through to the verifier NATS round trip so
+// a client disconnect or a caller-imposed deadline tears down the
+// verifier sub-request alongside the main request. The verifier and
+// the main route share one timeout budget — the per-route Timeout —
+// because an upstream auth check that consumes the full budget
+// leaves nothing for the actual handler.
 func (h *Handler) runAuthFlow(
+	ctx context.Context,
 	in *ServeInput,
 	route routing.Route,
 	params map[string]string,
@@ -450,7 +477,7 @@ func (h *Handler) runAuthFlow(
 		return &authFlowResult{Proceed: false, ShortCircuit: toServeResult(gerrors.InternalError)}
 	}
 
-	replyBytes, err := h.cfg.Nats.Request(route.Auth.VerifierSubject, *verifyPayload, timeout)
+	replyBytes, err := h.cfg.Nats.Request(ctx, route.Auth.VerifierSubject, *verifyPayload, timeout)
 	if err != nil {
 		if isTimeoutErr(err) {
 			return &authFlowResult{Proceed: false, ShortCircuit: toServeResult(gerrors.GatewayTimeout)}
