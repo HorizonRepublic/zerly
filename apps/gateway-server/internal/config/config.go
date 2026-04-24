@@ -65,11 +65,10 @@ type Config struct {
 	EnableHTTP2 bool `env:"HTTP_ENABLE_H2"        envDefault:"true"`
 
 	// TrustedProxiesRaw is the operator-facing `TRUSTED_PROXIES` env
-	// value kept verbatim for diagnostics (log dumps, future
-	// /_gateway/config endpoint). Parsed into TrustedProxies by
-	// Load(). Supported forms: "" (trust nothing), "private" (the
-	// 7-range private-network sentinel), or a literal comma-separated
-	// CIDR list (`"10.0.0.0/8,172.16.0.0/12"`).
+	// value kept verbatim for diagnostics (log dumps). Parsed into
+	// TrustedProxies by Load(). Supported forms: "" (trust nothing),
+	// "private" (the 7-range private-network sentinel), or a literal
+	// comma-separated CIDR list (`"10.0.0.0/8,172.16.0.0/12"`).
 	TrustedProxiesRaw string `env:"TRUSTED_PROXIES"`
 
 	// TrustedProxies is the parsed CIDR list consumed by the HTTP
@@ -165,28 +164,6 @@ type Config struct {
 	// LogSamplingRate is the 1-in-N sampling rate for access logs when
 	// LogRequests is enabled. 1 means log every request.
 	LogSamplingRate int `env:"LOG_SAMPLING_RATE"  envDefault:"1"`
-
-	// MetricsEnabled toggles the Prometheus metrics endpoint.
-	MetricsEnabled bool `env:"METRICS_ENABLED"   envDefault:"true"`
-	// MetricsAddr is the host:port the metrics endpoint listens on,
-	// separate from the public HTTP listener so operators can firewall
-	// it to scrape-only subnets.
-	MetricsAddr string `env:"METRICS_ADDR"      envDefault:":9090"`
-	// MetricsPath is the HTTP path served by the metrics endpoint.
-	MetricsPath string `env:"METRICS_PATH"      envDefault:"/metrics"`
-	// TracingEnabled toggles OpenTelemetry trace export.
-	TracingEnabled bool `env:"TRACING_ENABLED"   envDefault:"false"`
-	// TracingSampleRate is the head-based trace sampling ratio in the
-	// [0.0, 1.0] range.
-	TracingSampleRate float64 `env:"TRACING_SAMPLE_RATE" envDefault:"0.01"`
-
-	// HealthEnabled toggles the built-in liveness and readiness
-	// endpoints on the public listener.
-	HealthEnabled bool `env:"HEALTH_ENABLED"    envDefault:"true"`
-	// HealthLivePath is the HTTP path for the liveness probe.
-	HealthLivePath string `env:"HEALTH_LIVE_PATH"  envDefault:"/_gateway/live"`
-	// HealthReadyPath is the HTTP path for the readiness probe.
-	HealthReadyPath string `env:"HEALTH_READY_PATH" envDefault:"/_gateway/ready"`
 
 	// Environment is a free-form deployment-tier label ("production",
 	// "staging", "development", ...). The gateway treats "production"

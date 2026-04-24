@@ -46,16 +46,6 @@ func TestLoad_AppliesDefaultsWhenOnlyRequiredSet(t *testing.T) {
 	assert.Equal(t, 1000, cfg.LogSlowRequestMs)
 	assert.Equal(t, 1, cfg.LogSamplingRate)
 
-	assert.True(t, cfg.MetricsEnabled)
-	assert.Equal(t, ":9090", cfg.MetricsAddr)
-	assert.Equal(t, "/metrics", cfg.MetricsPath)
-	assert.False(t, cfg.TracingEnabled)
-	assert.InDelta(t, 0.01, cfg.TracingSampleRate, 1e-9)
-
-	assert.True(t, cfg.HealthEnabled)
-	assert.Equal(t, "/_gateway/live", cfg.HealthLivePath)
-	assert.Equal(t, "/_gateway/ready", cfg.HealthReadyPath)
-
 	assert.Equal(t, "production", cfg.Environment)
 	assert.True(t, cfg.IsProduction())
 }
