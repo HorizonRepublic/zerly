@@ -1206,56 +1206,108 @@ func (o *oncePerKeyLimiter) FlushPrefix(_ context.Context, _ string) error { ret
 
 func (o *oncePerKeyLimiter) Close() error { return nil }
 
-func TestHandler_RateLimitKeyByHeader(t *testing.T) {
-	rl := newOncePerKeyLimiter()
-	nats := newFakeNats()
-	nats.reply = []byte(`{"status":200,"headers":{},"body":null}`)
+// TestHandler_RateLimitKeyByRequestAttribute exercises the rate-limit
+// key resolver across the wire-level attribute strategies (header,
+// cookie). Both variants share the same behavioural contract:
+//
+//  1. Two requests from different IPs but the same attribute value
+//     land on the same bucket key — the attribute value "wins" over
+//     IP because it appears first in the keyBy chain.
+//  2. The first request is allowed, the second is rate-limited (the
+//     shared once-per-key fake limiter simulates a single-token
+//     bucket).
+//
+// Parameterising lets a future third strategy (for example a
+// forwarded-for slice or a query parameter) land as one more case
+// instead of another 50-line copy.
+func TestHandler_RateLimitKeyByRequestAttribute(t *testing.T) {
+	type headerSetter func(in *ServeInput, value string)
 
-	table := &fakeTable{routes: map[string]routing.Route{
-		"GET /api": {
-			Subject: "svc.cmd.api", PathTemplate: "/api",
-			Method: "GET",
-			RateLimit: &registry.RateLimitMeta{
-				RPS: 10, Burst: 20,
-				KeyBy: []string{"header:x-api-key", "ip"},
+	cases := []struct {
+		name     string
+		path     string
+		subject  string
+		keyBy    string
+		value    string
+		setValue headerSetter
+	}{
+		{
+			name:    "header strategy wins over ip",
+			path:    "/api",
+			subject: "svc.cmd.api",
+			keyBy:   "header:x-api-key",
+			value:   "shared-key",
+			setValue: func(in *ServeInput, value string) {
+				in.Headers["x-api-key"] = value
 			},
 		},
-	}}
+		{
+			name:    "cookie strategy wins over ip",
+			path:    "/dashboard",
+			subject: "svc.cmd.dashboard",
+			keyBy:   "cookie:session",
+			// Cookie header carries an extra pair so we exercise the
+			// trim-and-key-match path in extractCookie.
+			value: "abc",
+			setValue: func(in *ServeInput, value string) {
+				in.Headers["cookie"] = "session=" + value + "; theme=dark"
+			},
+		},
+	}
 
-	h := NewHandler(HandlerConfig{
-		Table:       func() routing.Table { return table },
-		Nats:        nats,
-		Encoder:     NewDefaultEncoder(),
-		Decoder:     NewDefaultDecoder(),
-		Timeout:     30 * time.Second,
-		Logger:      zerolog.Nop(),
-		RateLimiter: routerWithStore(t, rl),
-	})
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rl := newOncePerKeyLimiter()
+			nats := newFakeNats()
+			nats.reply = []byte(`{"status":200,"headers":{},"body":null}`)
 
-	// First request: IP=1.1.1.1, x-api-key=shared-key → allowed
-	in1 := emptyServeInput("GET", "/api")
-	in1.RemoteAddr = "1.1.1.1"
-	in1.Headers["x-api-key"] = "shared-key"
+			table := &fakeTable{routes: map[string]routing.Route{
+				"GET " + tc.path: {
+					Subject: tc.subject, PathTemplate: tc.path,
+					Method: "GET",
+					RateLimit: &registry.RateLimitMeta{
+						RPS: 10, Burst: 20,
+						KeyBy: []string{tc.keyBy, "ip"},
+					},
+				},
+			}}
 
-	r1 := h.Handle(in1)
+			h := NewHandler(HandlerConfig{
+				Table:       func() routing.Table { return table },
+				Nats:        nats,
+				Encoder:     NewDefaultEncoder(),
+				Decoder:     NewDefaultDecoder(),
+				Timeout:     30 * time.Second,
+				Logger:      zerolog.Nop(),
+				RateLimiter: routerWithStore(t, rl),
+			})
 
-	assert.Equal(t, 200, r1.Status)
+			in1 := emptyServeInput("GET", tc.path)
+			in1.RemoteAddr = "1.1.1.1"
+			tc.setValue(in1, tc.value)
 
-	// Second request: different IP, same x-api-key → rate-limited
-	// because keyBy resolves on header:x-api-key before falling back
-	// to ip.
-	in2 := emptyServeInput("GET", "/api")
-	in2.RemoteAddr = "2.2.2.2"
-	in2.Headers["x-api-key"] = "shared-key"
+			r1 := h.Handle(in1)
 
-	r2 := h.Handle(in2)
+			assert.Equal(t, 200, r1.Status)
 
-	assert.Equal(t, 429, r2.Status)
-	require.Len(t, rl.calls, 2)
-	expectedKey := ratelimit.BuildBucketKey("GET", "/api", "shared-key")
-	assert.Equal(t, expectedKey, rl.calls[0].key)
-	assert.Equal(t, expectedKey, rl.calls[1].key,
-		"both requests keyed on header value, not IP")
+			// Different IP, same attribute value — must still share the
+			// bucket because the attribute-based strategy resolves
+			// before the ip fallback in the keyBy chain.
+			in2 := emptyServeInput("GET", tc.path)
+			in2.RemoteAddr = "2.2.2.2"
+			tc.setValue(in2, tc.value)
+
+			r2 := h.Handle(in2)
+
+			assert.Equal(t, 429, r2.Status)
+
+			require.Len(t, rl.calls, 2)
+			expectedKey := ratelimit.BuildBucketKey("GET", tc.path, tc.value)
+			assert.Equal(t, expectedKey, rl.calls[0].key)
+			assert.Equal(t, expectedKey, rl.calls[1].key,
+				"both requests keyed on %s value, not IP", tc.keyBy)
+		})
+	}
 }
 
 func TestHandler_RateLimitKeyByUserField(t *testing.T) {
@@ -1321,56 +1373,6 @@ func TestHandler_RateLimitKeyByUserField(t *testing.T) {
 	assert.Equal(t, expectedKey, rl.calls[0].key)
 	assert.Equal(t, expectedKey, rl.calls[1].key,
 		"both requests keyed on user:id, not IP")
-}
-
-func TestHandler_RateLimitKeyByCookie(t *testing.T) {
-	rl := newOncePerKeyLimiter()
-	nats := newFakeNats()
-	nats.reply = []byte(`{"status":200,"headers":{},"body":null}`)
-
-	table := &fakeTable{routes: map[string]routing.Route{
-		"GET /dashboard": {
-			Subject: "svc.cmd.dashboard", PathTemplate: "/dashboard",
-			Method: "GET",
-			RateLimit: &registry.RateLimitMeta{
-				RPS: 10, Burst: 20,
-				KeyBy: []string{"cookie:session", "ip"},
-			},
-		},
-	}}
-
-	h := NewHandler(HandlerConfig{
-		Table:       func() routing.Table { return table },
-		Nats:        nats,
-		Encoder:     NewDefaultEncoder(),
-		Decoder:     NewDefaultDecoder(),
-		Timeout:     30 * time.Second,
-		Logger:      zerolog.Nop(),
-		RateLimiter: routerWithStore(t, rl),
-	})
-
-	// First request with session cookie
-	in1 := emptyServeInput("GET", "/dashboard")
-	in1.RemoteAddr = "3.3.3.3"
-	in1.Headers["cookie"] = "session=abc; theme=dark"
-
-	r1 := h.Handle(in1)
-
-	assert.Equal(t, 200, r1.Status)
-
-	// Second request from a different IP but same session cookie
-	in2 := emptyServeInput("GET", "/dashboard")
-	in2.RemoteAddr = "4.4.4.4"
-	in2.Headers["cookie"] = "session=abc"
-
-	r2 := h.Handle(in2)
-
-	assert.Equal(t, 429, r2.Status)
-	require.Len(t, rl.calls, 2)
-	expectedKey := ratelimit.BuildBucketKey("GET", "/dashboard", "abc")
-	assert.Equal(t, expectedKey, rl.calls[0].key)
-	assert.Equal(t, expectedKey, rl.calls[1].key,
-		"both requests keyed on cookie value, not IP")
 }
 
 func TestHandler_RateLimitKeyByFallsBackToIP(t *testing.T) {

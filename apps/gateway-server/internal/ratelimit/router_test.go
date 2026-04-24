@@ -73,6 +73,8 @@ func TestRouter_UnknownStoreFallsBackToMemory(t *testing.T) {
 
 	got := r.StoreFor(routing.Route{RateLimit: &registry.RateLimitMeta{Store: "redis"}})
 	assert.Same(t, mem, got)
+	assert.Equal(t, int64(1), r.Counters()["ratelimit_store_fallback"],
+		"each fallback to memory bumps the observability counter")
 }
 
 func TestRouter_EnsureBackendIdempotent(t *testing.T) {
