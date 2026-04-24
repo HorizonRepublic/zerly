@@ -21,7 +21,14 @@ const defaultExposedHeaders = "X-Request-Id, X-RateLimit-Limit, X-RateLimit-Rema
 // MatchOrigin checks whether the request Origin is in the CORS
 // allowed origins list. Returns the matched origin to echo back,
 // or "" if no match. Wildcard "*" matches everything.
+//
+// A nil CORSMeta is treated as "no CORS configured" and returns "" so
+// callers can use MatchOrigin defensively without a prior nil check.
 func MatchOrigin(cors *registry.CORSMeta, origin string) string {
+	if cors == nil {
+		return ""
+	}
+
 	for _, allowed := range cors.Origins {
 		if allowed == "*" {
 			return "*"
@@ -50,7 +57,13 @@ func BuildPreflightHeaders(cors *registry.CORSMeta, matchedOrigin string) map[st
 		h["Access-Control-Allow-Headers"] = strings.Join(cors.Headers, ", ")
 	}
 
-	if cors.Credentials {
+	// Defense-in-depth: browsers silently reject a response that pairs
+	// Access-Control-Allow-Credentials: true with a wildcard origin, so
+	// never emit the credentials header when echoing "*". The SDK
+	// validator already refuses this combination at registration, but
+	// operators who bypass validation or hand-write KV entries would
+	// otherwise ship a broken CORS policy.
+	if cors.Credentials && matchedOrigin != "*" {
 		h["Access-Control-Allow-Credentials"] = "true"
 	}
 
@@ -81,7 +94,9 @@ func BuildResponseCORSHeaders(cors *registry.CORSMeta, matchedOrigin string) map
 
 	h["Access-Control-Allow-Origin"] = matchedOrigin
 
-	if cors.Credentials {
+	// See BuildPreflightHeaders for why "*" must never pair with the
+	// credentials header; the same guard applies on every response.
+	if cors.Credentials && matchedOrigin != "*" {
 		h["Access-Control-Allow-Credentials"] = "true"
 	}
 
