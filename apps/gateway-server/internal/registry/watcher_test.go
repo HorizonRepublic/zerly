@@ -3,6 +3,7 @@ package registry
 import (
 	"context"
 	"errors"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -834,4 +835,139 @@ func TestWatcher_Reconcile_PreservesStoreOnListError(t *testing.T) {
 
 	assert.Len(t, store.Get().Entries, 1, "store must not be mutated on list error")
 	assert.Equal(t, int32(0), callbackCount.Load())
+}
+
+// goroutineDelta is a coarse-grained leak detector that bounds the
+// amount of goroutines created by the body. The runtime startup
+// noise (timer goroutines, pollers) means runtime.NumGoroutine is
+// not perfectly stable across runs, so the test asserts on a small
+// slack window rather than exact equality.
+func goroutineDelta(t *testing.T, body func()) int {
+	t.Helper()
+	runtime.GC()
+	before := runtime.NumGoroutine()
+	body()
+
+	// Give scheduled goroutines a chance to wind down before we
+	// snapshot. A short sleep avoids hard-coding internal scheduler
+	// timing while still catching obvious leaks (a single leaked
+	// goroutine survives many seconds, not microseconds).
+	time.Sleep(50 * time.Millisecond)
+	runtime.GC()
+
+	return runtime.NumGoroutine() - before
+}
+
+// TestWatcher_StartStopRace_NoGoroutineLeak pins the lifecycle race
+// fix: a Stop firing concurrently with Start must always tear down
+// the watch goroutine instead of installing it after stopped=true is
+// already set.
+//
+// Before the fix, Start released lifecycleMu after the stopped check,
+// then re-acquired it later to install w.cancel. A Stop firing in
+// that window saw cancel == nil, set stopped=true, and returned
+// clean — but the watch goroutine was launched anyway because Start
+// had already entered startOnce.Do. The leaked goroutine ran past
+// the test's lifetime.
+//
+// The test launches Start and Stop concurrently many times against
+// fresh watchers and asserts the goroutine count converges back to
+// roughly its initial value. A real leak would accumulate goroutines
+// and produce a delta proportional to the iteration count.
+func TestWatcher_StartStopRace_NoGoroutineLeak(t *testing.T) {
+	const iterations = 30
+
+	delta := goroutineDelta(t, func() {
+		for i := 0; i < iterations; i++ {
+			kv := &fakeKeyValue{
+				keysFunc: func(context.Context) ([]string, error) { return nil, jetstream.ErrNoKeysFound },
+				watchAllFunc: func(context.Context) (jetstream.KeyWatcher, error) {
+					return newFakeKeyWatcher(), nil
+				},
+			}
+			watcher, _ := newWatcherWithFake(t, kv)
+
+			var wg sync.WaitGroup
+			wg.Add(2)
+			go func() {
+				defer wg.Done()
+				_ = watcher.Start(context.Background())
+			}()
+			go func() {
+				defer wg.Done()
+				watcher.Stop()
+			}()
+			wg.Wait()
+
+			// One last Stop ensures any goroutine that did get launched
+			// is cancelled before the next iteration. Idempotent by
+			// construction.
+			watcher.Stop()
+		}
+	})
+
+	// A few stragglers from the test runner are tolerable; a leak
+	// would scale with iterations and easily exceed this slack.
+	assert.LessOrEqual(t, delta, 4,
+		"watch goroutines must not leak under Start/Stop racing (delta=%d)", delta)
+}
+
+// TestWatcher_InitialLoadCanceledByStop pins the cancellation
+// invariant for the bootstrap path: a rapid Stop during a slow
+// initialLoad must interrupt the in-flight KV calls rather than
+// waiting for the bootstrap-time 10s timeout to expire.
+//
+// The fake's Keys callback blocks on its supplied ctx so the only
+// way Start returns is via Stop firing initialLoad's cancel func.
+// Without the fix, Stop has nothing to cancel until startOnce
+// completes — meaning a 10s wait for initialLoad's inner timeout to
+// pop, ten seconds during which the gateway shutdown sequence is
+// stalled.
+func TestWatcher_InitialLoadCanceledByStop(t *testing.T) {
+	keysEntered := make(chan struct{})
+
+	kv := &fakeKeyValue{
+		keysFunc: func(ctx context.Context) ([]string, error) {
+			close(keysEntered)
+			<-ctx.Done()
+			return nil, ctx.Err()
+		},
+		watchAllFunc: func(context.Context) (jetstream.KeyWatcher, error) {
+			return newFakeKeyWatcher(), nil
+		},
+	}
+
+	watcher, _ := newWatcherWithFake(t, kv)
+
+	startDone := make(chan error, 1)
+	go func() {
+		startDone <- watcher.Start(context.Background())
+	}()
+
+	select {
+	case <-keysEntered:
+	case <-time.After(testSyncTimeout):
+		t.Fatal("initialLoad never reached the kv.Keys call")
+	}
+
+	// Now race Stop against the blocked initialLoad. Without the
+	// cancel-on-Stop hook, Stop has nothing to cancel and Start
+	// blocks until the inner 10s timeout pops.
+	stopDone := make(chan struct{})
+	go func() {
+		watcher.Stop()
+		close(stopDone)
+	}()
+
+	select {
+	case <-stopDone:
+	case <-time.After(testSyncTimeout):
+		t.Fatal("Stop did not interrupt initialLoad within timeout")
+	}
+
+	select {
+	case <-startDone:
+	case <-time.After(testSyncTimeout):
+		t.Fatal("Start did not return after Stop cancelled initialLoad")
+	}
 }

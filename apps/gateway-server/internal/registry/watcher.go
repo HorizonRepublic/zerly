@@ -63,12 +63,18 @@ type Watcher struct {
 	callbacks []ChangeCallback
 	cbMu      sync.RWMutex
 
-	lifecycleMu sync.Mutex
-	cancel      context.CancelFunc
-	done        chan struct{}
-	startOnce   sync.Once
-	startErr    error
-	stopped     bool
+	// lifecycleMu guards every field below it. Cancel installation
+	// MUST happen while the lock is held so a Stop racing Start
+	// observes either both cancel funcs or neither — never a partial
+	// state that lets the watch goroutine survive past stopped=true.
+	lifecycleMu      sync.Mutex
+	initialCancel    context.CancelFunc
+	cancel           context.CancelFunc
+	goroutineStarted bool
+	done             chan struct{}
+	startOnce        sync.Once
+	startErr         error
+	stopped          bool
 }
 
 // NewWatcher constructs a Watcher for the given KV bucket and store.
@@ -117,6 +123,19 @@ func (w *Watcher) OnChange(cb ChangeCallback) {
 // ErrWatcherStopped so accidental Start→Stop→Start sequences fail loud
 // rather than silently leak the previous goroutine's resources or
 // resurrect a torn-down lifecycle.
+//
+// Race-safety: cancel funcs are installed under lifecycleMu inside
+// startOnce.Do so the first Start owns the lifecycle and subsequent
+// Starts pass through with the cached startErr. A Stop racing the
+// first Start either observes the cancel funcs (and tears down the
+// in-flight initialLoad plus the about-to-spawn watch goroutine) or
+// runs purely before any cancel is installed (and flips stopped=true,
+// so the re-check inside startOnce.Do refuses to spawn the goroutine).
+//
+// The previous design released the lock after the stopped check and
+// re-acquired it later to assign w.cancel — leaving a window where
+// Stop saw cancel == nil and returned clean while the watch goroutine
+// was launched anyway.
 func (w *Watcher) Start(ctx context.Context) error {
 	w.lifecycleMu.Lock()
 	if w.stopped {
@@ -126,15 +145,49 @@ func (w *Watcher) Start(ctx context.Context) error {
 	w.lifecycleMu.Unlock()
 
 	w.startOnce.Do(func() {
-		if err := w.initialLoad(ctx); err != nil {
+		// Install both cancel funcs under the lock so a concurrent
+		// Stop either sees both (and cancels both) or sees neither
+		// (and is a no-op). The lock is released before initialLoad
+		// blocks on KV calls — Stop concurrently flipping stopped=true
+		// is what cancels initialLoadCtx, and the post-load re-check
+		// of stopped inside the lock prevents the watch goroutine
+		// from being launched after the lifecycle is terminal.
+		w.lifecycleMu.Lock()
+		if w.stopped {
+			w.lifecycleMu.Unlock()
+			w.startErr = ErrWatcherStopped
+			return
+		}
+		initialLoadCtx, initialCancel := context.WithCancel(ctx)
+		watchCtx, watchCancel := context.WithCancel(context.Background())
+		w.initialCancel = initialCancel
+		w.cancel = watchCancel
+		w.lifecycleMu.Unlock()
+
+		if err := w.initialLoad(initialLoadCtx); err != nil {
+			// initialLoad failed (genuine KV error or Stop-driven
+			// cancellation). Cancel the watch ctx defensively so its
+			// resources are released — no goroutine ever consumed it.
+			watchCancel()
 			w.startErr = fmt.Errorf("registry watcher initial load: %w", err)
 			return
 		}
 
-		watchCtx, cancel := context.WithCancel(context.Background())
-
+		// Re-check stopped under lock BEFORE spawning the goroutine.
+		// A Stop firing between unlock and this point has already
+		// cancelled watchCtx and is not waiting on w.done (goroutine
+		// Started was still false when Stop sampled it). Launching
+		// the goroutine anyway would leak it past the gateway
+		// shutdown — runWatch would observe the cancel, close w.done,
+		// but no caller is listening. Skip the launch entirely when
+		// the lifecycle is already terminal.
 		w.lifecycleMu.Lock()
-		w.cancel = cancel
+		if w.stopped {
+			w.lifecycleMu.Unlock()
+			watchCancel()
+			return
+		}
+		w.goroutineStarted = true
 		w.lifecycleMu.Unlock()
 
 		go w.watchLoop(watchCtx)
@@ -147,10 +200,19 @@ func (w *Watcher) Start(ctx context.Context) error {
 // is a no-op. After Stop returns, the watcher is in a terminal state —
 // further Start calls return ErrWatcherStopped instead of resurrecting
 // the lifecycle.
+//
+// Stop also cancels the initial-load context so a Stop racing a slow
+// bootstrap (e.g., a flaky NATS handshake during shutdown) interrupts
+// the in-flight kv.Keys / kv.Get calls instead of waiting for the
+// inner 10s timeout to pop. Without that, the gateway shutdown
+// sequence would stall for ten seconds every time a SIGTERM arrived
+// before initialLoad completed.
 func (w *Watcher) Stop() {
 	w.lifecycleMu.Lock()
 	alreadyStopped := w.stopped
+	initialCancel := w.initialCancel
 	cancel := w.cancel
+	goroutineStarted := w.goroutineStarted
 	w.stopped = true
 	w.lifecycleMu.Unlock()
 
@@ -158,15 +220,20 @@ func (w *Watcher) Stop() {
 		return
 	}
 
-	if cancel == nil {
-		// Stop called before Start ever installed a cancel func. The
-		// stopped flag is now set so any subsequent Start returns
-		// ErrWatcherStopped instead of leaking a goroutine.
-		return
+	// Cancel the initial-load ctx first so an in-flight kv.Keys /
+	// kv.Get unblocks. If Stop ran before Start ever installed cancels,
+	// both pointers are nil — flipping stopped=true is enough to make
+	// any subsequent Start return ErrWatcherStopped.
+	if initialCancel != nil {
+		initialCancel()
+	}
+	if cancel != nil {
+		cancel()
 	}
 
-	cancel()
-	<-w.done
+	if goroutineStarted {
+		<-w.done
+	}
 }
 
 func (w *Watcher) initialLoad(ctx context.Context) error {
