@@ -196,7 +196,11 @@ func TestNATSKVStore_Integration_ConcurrentCreateRace(t *testing.T) {
 	wg.Wait()
 
 	for i, err := range errs {
-		assert.NoErrorf(t, err, "replica %d failed to acquire the shared bucket", i)
+		// require here, not assert: a backend acquire failure means the
+		// next stores[i] dereference would read a stale pointer from a
+		// previous iteration and the assertion below would pass on the
+		// wrong instance.
+		require.NoErrorf(t, err, "replica %d failed to acquire the shared bucket", i)
 		require.NotNil(t, stores[i])
 	}
 

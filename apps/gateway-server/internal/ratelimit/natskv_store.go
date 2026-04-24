@@ -327,9 +327,18 @@ func (s *NATSKVStore) allowInternal(ctx context.Context, key string, rps, burst 
 //
 // On the JetStream path the method iterates ListKeys in streaming
 // mode and issues a Delete (tombstone, not Purge) for each matching
-// key. The first error aborts the sweep and is returned; already-
-// deleted keys are reported by the iterator as future no-ops and do
-// not surface as errors.
+// key. The first Delete error aborts the sweep and is returned;
+// already-deleted keys are reported by the iterator as future no-ops
+// and do not surface as errors.
+//
+// Iteration error semantics: jetstream.KeyLister exposes only Keys
+// and Stop — there is no Err() accessor (verified against
+// nats.go v1.x). When the iterator closes its channel because of an
+// upstream failure (network drop, server-side error) the loop
+// terminates without surfacing the cause. Operators see the
+// inability to clean up a prefix only through the next reconcile
+// pass; this is a documented limitation pending an upstream
+// nats.go API addition.
 func (s *NATSKVStore) FlushPrefix(ctx context.Context, prefix string) error {
 	adapter, ok := s.kv.(*jsKVAdapter)
 	if !ok {

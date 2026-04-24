@@ -85,9 +85,7 @@ func BuildOptions(cfg *config.Config, logger zerolog.Logger) []natsgo.Option {
 				Str("connected_url", c.ConnectedUrl()).
 				Msg("nats reconnected")
 		}),
-		natsgo.DisconnectErrHandler(func(_ *natsgo.Conn, err error) {
-			logger.Error().Err(err).Msg("nats disconnected")
-		}),
+		natsgo.DisconnectErrHandler(buildDisconnectErrHandler(logger)),
 		natsgo.ClosedHandler(func(_ *natsgo.Conn) {
 			logger.Error().Msg("nats connection permanently closed")
 		}),
@@ -104,4 +102,28 @@ func BuildOptions(cfg *config.Config, logger zerolog.Logger) []natsgo.Option {
 	}
 
 	return opts
+}
+
+// buildDisconnectErrHandler returns the callback nats.go invokes
+// every time the client transitions out of CONNECTED.
+//
+// nats.go calls DisconnectErrHandler with a nil error on graceful
+// disconnects (Drain, Close on a healthy socket) and a non-nil error
+// on transport faults. Logging both at ERROR floods alerting
+// pipelines on every clean restart, so the handler distinguishes the
+// two cases: graceful disconnects log at INFO ("nats disconnected
+// gracefully"), genuine errors log at ERROR with the cause attached.
+//
+// Extracted from BuildOptions so unit tests can assert the level
+// switch without spinning up a real NATS connection.
+func buildDisconnectErrHandler(logger zerolog.Logger) natsgo.ConnErrHandler {
+	return func(_ *natsgo.Conn, err error) {
+		if err != nil {
+			logger.Error().Err(err).Msg("nats disconnected with error")
+
+			return
+		}
+
+		logger.Info().Msg("nats disconnected gracefully")
+	}
 }
