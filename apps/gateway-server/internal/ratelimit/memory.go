@@ -117,13 +117,20 @@ func (s *MemoryStore) Close() error {
 	return nil
 }
 
-// Counters returns a snapshot of internal counters for future
-// OpenTelemetry plumbing. Each value is read atomically so callers
-// see a consistent point-in-time view.
+// Counters returns a snapshot of internal counters for OpenTelemetry
+// plumbing. Each value is read atomically so callers see a consistent
+// point-in-time view.
+//
+// MemoryStore has no remote dependencies, so backend_errors is
+// hard-wired to 0. The key still ships in the snapshot so the
+// minimum schema declared on Store.Counters is satisfied — dashboards
+// graphing backend_errors across the deployment do not go dark on a
+// memory-only pod.
 func (s *MemoryStore) Counters() map[string]int64 {
 	return map[string]int64{
 		"ratelimit_memory_decisions_allowed":  s.counters.allowed.Load(),
 		"ratelimit_memory_decisions_rejected": s.counters.rejected.Load(),
+		"ratelimit_memory_backend_errors":     0,
 	}
 }
 

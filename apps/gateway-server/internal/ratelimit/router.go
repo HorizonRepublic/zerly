@@ -65,6 +65,19 @@ func (closedStore) FlushPrefix(_ context.Context, _ string) error { return nil }
 
 func (closedStore) Close() error { return nil }
 
+// Counters returns the minimum schema with zero-valued metrics. The
+// closed sentinel never serves real traffic, so the values are
+// constants — but the keys are still emitted so the dashboard schema
+// stays uniform across the gateway's lifetime regardless of when
+// shutdown happens.
+func (closedStore) Counters() map[string]int64 {
+	return map[string]int64{
+		"ratelimit_closed_decisions_allowed":  0,
+		"ratelimit_closed_decisions_rejected": 0,
+		"ratelimit_closed_backend_errors":     0,
+	}
+}
+
 // NewRouter creates an empty Router bound to the given fail-policy
 // and logger. Callers MUST register at least the "memory" backend
 // via EnsureBackend before any Allow call reaches the router; the
@@ -242,10 +255,40 @@ func (r *Router) Close() error {
 }
 
 // Counters returns a snapshot of router-level observability
-// counters. The keys are namespaced for future OpenTelemetry
-// plumbing.
+// counters. The keys are namespaced for OpenTelemetry plumbing.
+//
+// This snapshot covers ONLY the router's own dispatch-layer metrics
+// (e.g., backend fallback). For per-backend rate-limit counters use
+// CountersAll, which walks every registered backend and the router
+// in a single map.
 func (r *Router) Counters() map[string]int64 {
 	return map[string]int64{
 		"ratelimit_store_fallback": r.counters.fallback.Load(),
 	}
+}
+
+// CountersAll returns a unified snapshot of every backend's metric
+// surface plus the router's dispatch-layer counters. The outer key
+// is the backend id (the same string used by EnsureBackend, plus
+// "router" for the dispatch layer); the inner map carries the keys
+// that backend exposes via Store.Counters.
+//
+// The shape stays stable across backend swaps: a deployment that
+// migrates memory → natskv keeps the same outer-map structure (the
+// memory entry simply disappears) so dashboards do not need a rewrite.
+//
+// Safe for concurrent use; each call allocates a fresh map.
+func (r *Router) CountersAll() map[string]map[string]int64 {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	out := make(map[string]map[string]int64, len(r.stores)+1)
+	for id, s := range r.stores {
+		out[id] = s.Counters()
+	}
+	out["router"] = map[string]int64{
+		"ratelimit_store_fallback": r.counters.fallback.Load(),
+	}
+
+	return out
 }

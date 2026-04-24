@@ -35,4 +35,24 @@ type Store interface {
 
 	// Close releases resources. MUST be idempotent.
 	Close() error
+
+	// Counters returns a point-in-time snapshot of internal metric
+	// counters for OpenTelemetry export. Keys are stable metric
+	// names — dashboards rely on the schema staying constant across
+	// gateway restarts and across backend swaps.
+	//
+	// Implementations MUST include at minimum:
+	//   - ratelimit_<backend>_decisions_allowed
+	//   - ratelimit_<backend>_decisions_rejected
+	//   - ratelimit_<backend>_backend_errors
+	// where <backend> is the registered backend id (memory, natskv,
+	// ...). Backends with no concept of remote failure (e.g. memory)
+	// MUST still surface backend_errors with value 0 so a dashboard
+	// graphing the metric across backends does not go dark on a
+	// memory-only deployment. Additional, backend-specific keys are
+	// allowed and use the same prefixed shape.
+	//
+	// Returned maps are safe to mutate; each call allocates a fresh
+	// snapshot.
+	Counters() map[string]int64
 }

@@ -18,7 +18,8 @@ import (
 )
 
 type stubStore struct {
-	name string
+	name     string
+	counters map[string]int64
 }
 
 func (s *stubStore) Allow(context.Context, string, int, int) (Decision, error) {
@@ -31,6 +32,17 @@ func (*stubStore) FlushPrefix(context.Context, string) error {
 
 func (*stubStore) Close() error {
 	return nil
+}
+
+func (s *stubStore) Counters() map[string]int64 {
+	if s.counters == nil {
+		return map[string]int64{
+			"ratelimit_stub_decisions_allowed":  0,
+			"ratelimit_stub_decisions_rejected": 0,
+			"ratelimit_stub_backend_errors":     0,
+		}
+	}
+	return s.counters
 }
 
 func TestRouter_DispatchByStoreField(t *testing.T) {
@@ -281,6 +293,57 @@ func countWarnRecords(t *testing.T, payload []byte, event string) int {
 		}
 	}
 	return n
+}
+
+// TestRouter_CountersAllAggregatesAcrossBackends pins the unified
+// counter export contract: dashboards walking the rate-limit module
+// see a stable shape of {backend_id: {metric: value}} regardless of
+// which backends are wired. Backend swap (memory → natskv) does not
+// require a dashboard rewrite — the keys remain the same shape.
+func TestRouter_CountersAllAggregatesAcrossBackends(t *testing.T) {
+	mem := NewMemoryStore(time.Minute)
+	defer func() { _ = mem.Close() }()
+	stub := &stubStore{name: "nats-kv"}
+
+	r := NewRouter(FailPolicyOpen.Resolve(), zerolog.Nop())
+	require.NoError(t, r.EnsureBackend("memory", func() (Store, error) { return mem, nil }))
+	require.NoError(t, r.EnsureBackend("nats-kv", func() (Store, error) { return stub, nil }))
+
+	all := r.CountersAll()
+
+	require.Contains(t, all, "memory")
+	require.Contains(t, all, "nats-kv")
+	require.Contains(t, all, "router")
+
+	// Memory must surface the minimum schema even when no requests
+	// have flowed through it yet.
+	mem.entries.Range(func(_, _ any) bool { return false })
+	memCounters := all["memory"]
+	require.NotNil(t, memCounters)
+	assert.Contains(t, memCounters, "ratelimit_memory_decisions_allowed")
+	assert.Contains(t, memCounters, "ratelimit_memory_decisions_rejected")
+	assert.Contains(t, memCounters, "ratelimit_memory_backend_errors",
+		"every backend must expose backend_errors for dashboard parity")
+
+	routerCounters := all["router"]
+	assert.Contains(t, routerCounters, "ratelimit_store_fallback")
+}
+
+// TestMemoryStoreCountersIncludeMinimumSchema enforces the cross-
+// backend metric parity. backend_errors is always 0 on memory (no
+// remote dependencies can fail) but the key MUST be present so a
+// dashboard graphing it across backends does not go dark on the
+// memory pod.
+func TestMemoryStoreCountersIncludeMinimumSchema(t *testing.T) {
+	s := NewMemoryStore(time.Minute)
+	defer func() { _ = s.Close() }()
+
+	c := s.Counters()
+	assert.Contains(t, c, "ratelimit_memory_decisions_allowed")
+	assert.Contains(t, c, "ratelimit_memory_decisions_rejected")
+	assert.Contains(t, c, "ratelimit_memory_backend_errors")
+	assert.Equal(t, int64(0), c["ratelimit_memory_backend_errors"],
+		"memory has no remote dependencies so backend_errors stays 0")
 }
 
 func TestRouter_EnsureBackendAfterCloseRefuses(t *testing.T) {

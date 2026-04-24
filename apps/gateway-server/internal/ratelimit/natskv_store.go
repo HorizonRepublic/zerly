@@ -123,6 +123,7 @@ type NATSKVStore struct {
 	counters struct {
 		allowed             atomic.Int64
 		rejected            atomic.Int64
+		backendErrors       atomic.Int64
 		casRetries          atomic.Int64
 		budgetExhausted     atomic.Int64
 		casAttemptsExceeded atomic.Int64
@@ -259,6 +260,15 @@ func (s *NATSKVStore) Allow(ctx context.Context, key string, rps, burst int) (De
 			s.counters.circuitRejected.Add(1)
 			return Decision{}, ErrCircuitOpen
 		}
+
+		// Any other propagated error is a real backend fault — CAS
+		// budget exhaustion, attempt-cap exhaustion, or a KV
+		// network/server failure. Bump the unified backend_errors
+		// counter so dashboards can graph the total fault rate
+		// uniformly across backends; the more specific counters
+		// (budgetExhausted, casAttemptsExceeded, circuitRejected)
+		// remain available for triage.
+		s.counters.backendErrors.Add(1)
 
 		return Decision{}, fmt.Errorf("ratelimit breaker execute: %w", err)
 	}
@@ -464,16 +474,24 @@ func sleepCtx(ctx context.Context, d time.Duration) bool {
 // Counters returns a point-in-time snapshot of the store's internal
 // metrics. Each value is read atomically so concurrent Allow calls
 // cannot produce a torn read. Intended for OpenTelemetry plumbing.
+//
+// Schema obeys the Store.Counters minimum: decisions_allowed,
+// decisions_rejected, and backend_errors are always present. The
+// natskv-specific keys (cas_retries, budget_exhausted,
+// cas_attempts_exceeded, circuit_state, breaker_transitions,
+// circuit_rejected, corrupt_tat) are extra triage signals layered on
+// top — backend_errors aggregates them at the dashboard level.
 func (s *NATSKVStore) Counters() map[string]int64 {
 	return map[string]int64{
-		"ratelimit_natskv_decisions_allowed":      s.counters.allowed.Load(),
-		"ratelimit_natskv_decisions_rejected":     s.counters.rejected.Load(),
-		"ratelimit_natskv_cas_retries":            s.counters.casRetries.Load(),
-		"ratelimit_natskv_budget_exhausted":       s.counters.budgetExhausted.Load(),
-		"ratelimit_natskv_cas_attempts_exceeded":  s.counters.casAttemptsExceeded.Load(),
-		"ratelimit_natskv_circuit_state":          s.counters.circuitState.Load(),
-		"ratelimit_natskv_breaker_transitions":    s.counters.breakerTransitions.Load(),
-		"ratelimit_natskv_circuit_rejected":       s.counters.circuitRejected.Load(),
-		"ratelimit_natskv_corrupt_tat":            s.counters.corruptTAT.Load(),
+		"ratelimit_natskv_decisions_allowed":     s.counters.allowed.Load(),
+		"ratelimit_natskv_decisions_rejected":    s.counters.rejected.Load(),
+		"ratelimit_natskv_backend_errors":        s.counters.backendErrors.Load(),
+		"ratelimit_natskv_cas_retries":           s.counters.casRetries.Load(),
+		"ratelimit_natskv_budget_exhausted":      s.counters.budgetExhausted.Load(),
+		"ratelimit_natskv_cas_attempts_exceeded": s.counters.casAttemptsExceeded.Load(),
+		"ratelimit_natskv_circuit_state":         s.counters.circuitState.Load(),
+		"ratelimit_natskv_breaker_transitions":   s.counters.breakerTransitions.Load(),
+		"ratelimit_natskv_circuit_rejected":      s.counters.circuitRejected.Load(),
+		"ratelimit_natskv_corrupt_tat":           s.counters.corruptTAT.Load(),
 	}
 }

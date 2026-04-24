@@ -867,12 +867,24 @@ type rateLimitCall struct {
 func (f *fakeRateLimiter) Allow(_ context.Context, key string, rps, burst int) (ratelimit.Decision, error) {
 	f.calls = append(f.calls, rateLimitCall{key: key, rps: rps, burst: burst})
 
-	return ratelimit.Decision{Allowed: f.allowed}, nil
+	// Mirror the real GCRA contract: a populated Decision (allowed
+	// or rejected) carries a non-zero ResetAt so BuildHeaders emits
+	// the full X-RateLimit-* triplet. Only the fail-open / store-
+	// error branch produces Decision{}.IsZero().
+	return ratelimit.Decision{Allowed: f.allowed, ResetAt: time.Unix(1_700_000_000, 0)}, nil
 }
 
 func (f *fakeRateLimiter) FlushPrefix(_ context.Context, _ string) error { return nil }
 
 func (f *fakeRateLimiter) Close() error { return nil }
+
+func (f *fakeRateLimiter) Counters() map[string]int64 {
+	return map[string]int64{
+		"ratelimit_fake_decisions_allowed":  0,
+		"ratelimit_fake_decisions_rejected": 0,
+		"ratelimit_fake_backend_errors":     0,
+	}
+}
 
 // routerWithStore wraps an existing ratelimit.Store in a Router whose
 // "memory" backend returns that Store on EnsureBackend. Tests use this
@@ -1213,6 +1225,14 @@ func (o *oncePerKeyLimiter) Allow(_ context.Context, key string, rps, burst int)
 func (o *oncePerKeyLimiter) FlushPrefix(_ context.Context, _ string) error { return nil }
 
 func (o *oncePerKeyLimiter) Close() error { return nil }
+
+func (o *oncePerKeyLimiter) Counters() map[string]int64 {
+	return map[string]int64{
+		"ratelimit_once_decisions_allowed":  0,
+		"ratelimit_once_decisions_rejected": 0,
+		"ratelimit_once_backend_errors":     0,
+	}
+}
 
 // TestHandler_RateLimitKeyByRequestAttribute exercises the rate-limit
 // key resolver across the wire-level attribute strategies (header,

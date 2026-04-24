@@ -457,6 +457,21 @@ func TestNATSKVStore_CancelledCtxDoesNotTripBreaker(t *testing.T) {
 	}
 }
 
+// TestNATSKVStore_CountersIncludeMinimumSchema enforces metric
+// parity with the other Store backends: decisions_allowed,
+// decisions_rejected, and backend_errors must all be present in the
+// snapshot so a dashboard plotting them across backends does not go
+// dark when the gateway swaps backends.
+func TestNATSKVStore_CountersIncludeMinimumSchema(t *testing.T) {
+	kv := newFakeKV()
+	sut := testNATSKVStore(t, kv)
+
+	c := sut.Counters()
+	assert.Contains(t, c, "ratelimit_natskv_decisions_allowed")
+	assert.Contains(t, c, "ratelimit_natskv_decisions_rejected")
+	assert.Contains(t, c, "ratelimit_natskv_backend_errors")
+}
+
 func TestNATSKVStore_BreakerOpensAfterFailures(t *testing.T) {
 	kv := newFakeKV()
 	kv.setWriteError(errors.New("nats down"))
