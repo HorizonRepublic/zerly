@@ -359,6 +359,74 @@ func TestNATSKVStore_CASMaxAttemptsDistinctFromBudget(t *testing.T) {
 		"the counter must surface in the snapshot for OTel export")
 }
 
+// TestNATSKVStore_BudgetClampedToCtxDeadline pins the wall-clock
+// hierarchy: when the caller's context carries a tighter deadline
+// than the store's CAS budget, Allow MUST return within the smaller
+// of the two. Without the clamp a 10ms store budget could keep
+// retrying past a 2ms request budget and starve the caller's
+// downstream timeout chain.
+func TestNATSKVStore_BudgetClampedToCtxDeadline(t *testing.T) {
+	kv := newFakeKV()
+	kv.setInitial("k", encodeTAT(time.Now().Add(-time.Second)))
+	kv.setCASConflictCount(1_000_000)
+
+	// Store budget is generous — the caller's ctx is the actual cap.
+	sut := testNATSKVStore(t, kv, withCASBudget(5*time.Second))
+
+	deadline := 50 * time.Millisecond
+	ctx, cancel := context.WithTimeout(context.Background(), deadline)
+	defer cancel()
+
+	start := time.Now()
+	_, err := sut.Allow(ctx, "k", 100, 5)
+	elapsed := time.Since(start)
+
+	require.Error(t, err)
+	// Tolerance covers backoff jitter and CI scheduling slop. The
+	// invariant is "did not blow past the ctx deadline by an order of
+	// magnitude", not a tight upper bound.
+	assert.Less(t, elapsed, 5*deadline,
+		"Allow must return within the ctx deadline, not the store budget")
+}
+
+// blockingKV is a kvAPI fake that holds Get until the per-call ctx
+// is cancelled, then returns the ctx error. Used to prove that
+// allowInternal clamps each Get's effective deadline to the store
+// budget so a misbehaving backend cannot hold Allow open past it.
+type blockingKV struct{}
+
+func (blockingKV) Get(ctx context.Context, _ string) (kvEntry, error) {
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+func (blockingKV) Create(ctx context.Context, _ string, _ []byte) (uint64, error) {
+	<-ctx.Done()
+	return 0, ctx.Err()
+}
+func (blockingKV) Update(ctx context.Context, _ string, _ []byte, _ uint64) (uint64, error) {
+	<-ctx.Done()
+	return 0, ctx.Err()
+}
+
+// TestNATSKVStore_BudgetCapsBackendCallsWhenCtxHasNoDeadline pins
+// the per-attempt deadline derivation. When the caller passes a
+// context without a deadline (e.g., a long-running admin task) the
+// store MUST still bound each backend call to the remaining CAS
+// budget so a hung KV cannot stall Allow past s.budget.
+func TestNATSKVStore_BudgetCapsBackendCallsWhenCtxHasNoDeadline(t *testing.T) {
+	const budget = 30 * time.Millisecond
+	sut := testNATSKVStore(t, blockingKV{}, withCASBudget(budget))
+
+	start := time.Now()
+	_, err := sut.Allow(context.Background(), "k", 100, 5)
+	elapsed := time.Since(start)
+
+	require.Error(t, err)
+	// 10x slack absorbs CI jitter without admitting a runaway loop.
+	assert.Less(t, elapsed, 10*budget,
+		"Allow must enforce its own wall-clock bound when ctx has no deadline")
+}
+
 // TestNATSKVStore_CancelledCtxDoesNotTripBreaker pins the
 // fail-classification fix: a cancelled or deadline-exceeded request
 // context MUST NOT count as a backend failure for the circuit breaker.

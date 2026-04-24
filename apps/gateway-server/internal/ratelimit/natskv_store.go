@@ -241,6 +241,15 @@ func stateToInt(s gobreaker.State) int64 {
 // I/O. Errors from allowInternal (budget exhausted, max attempts,
 // propagated KV errors) propagate to the caller and are counted as
 // breaker failures.
+//
+// Wall-clock contract: Allow returns within
+// min(s.budget, time.Until(ctx.Deadline())) of entry. The store's
+// own CAS budget caps the total time spent retrying on conflict;
+// the caller's ctx deadline (if any) further tightens that cap so a
+// downstream timeout chain stays consistent. Each Get/Create/Update
+// call is invoked with a derived context bounded by the remaining
+// wall time, ensuring a hung backend cannot hold Allow past the
+// effective budget.
 func (s *NATSKVStore) Allow(ctx context.Context, key string, rps, burst int) (Decision, error) {
 	result, err := s.breaker.Execute(func() (any, error) {
 		return s.allowInternal(ctx, key, rps, burst)
@@ -270,8 +279,14 @@ func (s *NATSKVStore) Allow(ctx context.Context, key string, rps, burst int) (De
 // allow either Create (fresh key) or Update (existing revision). A
 // lost CAS increments casRetries and retries with backoff+jitter
 // until the wall-clock budget or attempt cap is hit.
+//
+// Wall-clock budget = min(s.budget, time.Until(ctx.Deadline()))
+// computed once at entry. The deadline gates loop iteration AND
+// every per-call backend ctx so a hung KV cannot hold Allow open
+// past the effective budget. When the caller's ctx has no deadline
+// the store budget alone is the bound.
 func (s *NATSKVStore) allowInternal(ctx context.Context, key string, rps, burst int) (Decision, error) {
-	deadline := time.Now().Add(s.budget)
+	deadline := s.computeDeadline(ctx)
 	for attempt := 0; attempt < maxCASAttempts; attempt++ {
 		if time.Now().After(deadline) {
 			s.counters.budgetExhausted.Add(1)
@@ -283,7 +298,8 @@ func (s *NATSKVStore) allowInternal(ctx context.Context, key string, rps, burst 
 			}
 		}
 
-		entry, err := s.kv.Get(ctx, key)
+		callCtx, cancel := context.WithDeadline(ctx, deadline)
+		entry, err := s.kv.Get(callCtx, key)
 		var currentTAT time.Time
 		var rev uint64
 		switch {
@@ -309,20 +325,23 @@ func (s *NATSKVStore) allowInternal(ctx context.Context, key string, rps, burst 
 		case errors.Is(err, errKVKeyNotFound):
 			// Fresh bucket; currentTAT stays zero, rev stays 0.
 		default:
+			cancel()
 			return Decision{}, fmt.Errorf("nats-kv get: %w", err)
 		}
 
 		decision, newTAT := Check(currentTAT, time.Now(), rps, burst)
 		if !decision.Allowed {
+			cancel()
 			return decision, nil
 		}
 
 		encoded := encodeTAT(newTAT)
 		if rev == 0 {
-			_, err = s.kv.Create(ctx, key, encoded)
+			_, err = s.kv.Create(callCtx, key, encoded)
 		} else {
-			_, err = s.kv.Update(ctx, key, encoded, rev)
+			_, err = s.kv.Update(callCtx, key, encoded, rev)
 		}
+		cancel()
 		if err == nil {
 			return decision, nil
 		}
@@ -334,6 +353,19 @@ func (s *NATSKVStore) allowInternal(ctx context.Context, key string, rps, burst 
 	}
 	s.counters.casAttemptsExceeded.Add(1)
 	return Decision{}, ErrCASMaxAttempts
+}
+
+// computeDeadline returns the effective wall-clock cap for a single
+// Allow invocation as min(now+s.budget, ctx.Deadline()). The store's
+// budget is the floor — even a context without a deadline gets the
+// store's own bound — and the ctx deadline only tightens it further.
+func (s *NATSKVStore) computeDeadline(ctx context.Context) time.Time {
+	storeDeadline := time.Now().Add(s.budget)
+	ctxDeadline, ok := ctx.Deadline()
+	if ok && ctxDeadline.Before(storeDeadline) {
+		return ctxDeadline
+	}
+	return storeDeadline
 }
 
 // FlushPrefix removes every key in the backing bucket whose name
