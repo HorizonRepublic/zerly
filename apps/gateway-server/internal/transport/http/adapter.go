@@ -178,6 +178,16 @@ func writeServeResult(ctx *app.RequestContext, result *proxy.ServeResult) {
 		}
 	}
 	ctx.Response.Header.SetContentType(consts.MIMEApplicationJSON)
+
+	// Gateway-owned error bodies (404/502/503/504/429/...) are
+	// transient infrastructure failures — stamp `Cache-Control:
+	// no-store` so intermediate caches never memoize them. Handler-
+	// thrown errors are untouched because their cache policy is part
+	// of the application contract, not the gateway's to override.
+	if result.GatewayOwnedBody {
+		ctx.Response.Header.Set("Cache-Control", "no-store")
+	}
+
 	ctx.SetStatusCode(result.Status)
 	ctx.Response.SetBody(result.Body)
 }

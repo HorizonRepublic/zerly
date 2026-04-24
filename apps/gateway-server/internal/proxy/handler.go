@@ -78,10 +78,21 @@ type ServeInput struct {
 // the critical shape for Set-Cookie, where two cookies set by the
 // same handler MUST land on the wire as two distinct Set-Cookie
 // lines instead of a single joined value.
+//
+// GatewayOwnedBody marks responses whose Body is a pre-encoded
+// `gerrors.*` payload produced by the gateway itself (404/502/503/
+// 504/...), as opposed to a handler-thrown error that the upstream
+// service serialized through its own exception filter. The HTTP
+// adapter uses this flag to stamp `Cache-Control: no-store` on
+// gateway-owned responses so intermediate caches never memoize a
+// transient infrastructure failure; handler-thrown errors are left
+// alone because cache policy for those is part of the application
+// contract.
 type ServeResult struct {
-	Status  int
-	Headers map[string][]string
-	Body    []byte
+	Status           int
+	Headers          map[string][]string
+	Body             []byte
+	GatewayOwnedBody bool
 }
 
 // Handle performs the full request lifecycle: route lookup, envelope
@@ -521,10 +532,16 @@ func jsonHeaders() map[string][]string {
 // HTTPError. The ServeResult allocates its own headers map because
 // the HTTPError is shared across goroutines and must never be
 // aliased by a caller-owned mutable map.
+//
+// GatewayOwnedBody is set to true because every gerrors.* value is
+// a gateway-produced failure shape (404/502/503/504/...) — the HTTP
+// adapter uses that to stamp `Cache-Control: no-store` so shared
+// caches never memoize a transient infrastructure failure.
 func toServeResult(e gerrors.HTTPError) *ServeResult {
 	return &ServeResult{
-		Status:  e.Status,
-		Headers: jsonHeaders(),
-		Body:    e.Body,
+		Status:           e.Status,
+		Headers:          jsonHeaders(),
+		Body:             e.Body,
+		GatewayOwnedBody: true,
 	}
 }

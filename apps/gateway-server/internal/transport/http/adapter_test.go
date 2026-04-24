@@ -291,3 +291,40 @@ func TestAdapter_Returns404WhenRouteNotFound(t *testing.T) {
 
 	assert.Equal(t, 404, ctx.Response.StatusCode())
 }
+
+func TestWriteServeResult_StampsCacheControlNoStoreOnGatewayOwnedBody(t *testing.T) {
+	// Gateway-produced error bodies (404/502/503/504/...) are transient
+	// infrastructure failures. Intermediate caches must not memoize
+	// them; `Cache-Control: no-store` is the only wire contract that
+	// guarantees every cache hop re-fetches the origin's answer.
+	ctx := ut.CreateUtRequestContext("GET", "https://gateway.test/x", nil)
+	result := &proxy.ServeResult{
+		Status:           504,
+		Headers:          map[string][]string{},
+		Body:             []byte(`{"error":"Gateway Timeout"}`),
+		GatewayOwnedBody: true,
+	}
+
+	writeServeResult(ctx, result)
+
+	assert.Equal(t, "no-store", string(ctx.Response.Header.Peek("Cache-Control")))
+}
+
+func TestWriteServeResult_LeavesHandlerThrownErrorsUntouched(t *testing.T) {
+	// When an upstream handler replied with a 500 (or any other error)
+	// through its own exception filter, the gateway must NOT override
+	// the application's cache policy — the handler-thrown body is
+	// part of the app contract.
+	ctx := ut.CreateUtRequestContext("GET", "https://gateway.test/x", nil)
+	result := &proxy.ServeResult{
+		Status:           500,
+		Headers:          map[string][]string{"cache-control": {"private, max-age=60"}},
+		Body:             []byte(`{"statusCode":500,"message":"handler went boom"}`),
+		GatewayOwnedBody: false,
+	}
+
+	writeServeResult(ctx, result)
+
+	// Handler-owned Cache-Control stays intact.
+	assert.Equal(t, "private, max-age=60", string(ctx.Response.Header.Peek("Cache-Control")))
+}
