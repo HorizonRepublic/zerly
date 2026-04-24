@@ -117,6 +117,13 @@ func (h *Handler) Handle(in *ServeInput) *ServeResult {
 
 	route, params, ok := table.Lookup(in.Method, in.Path)
 	if !ok {
+		if allow := table.Methods(in.Path); len(allow) > 0 {
+			result := toServeResult(gerrors.MethodNotAllowed)
+			result.Headers["Allow"] = []string{strings.Join(allow, ", ")}
+
+			return result
+		}
+
 		return toServeResult(gerrors.NotFound)
 	}
 

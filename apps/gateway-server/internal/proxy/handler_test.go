@@ -21,8 +21,14 @@ import (
 // fakeTable implements routing.Table for unit tests by keying on
 // "METHOD PATH". Kept intentionally minimal — extra behaviour would
 // only add indirection to what should be a hermetic test fixture.
+//
+// methodsByPath lets tests that exercise the 405 Method-Not-Allowed
+// surface pre-seed the per-path verb set without populating routes
+// for every verb under test. When nil (the common case) Methods
+// returns nil — the Lookup-miss path produces 404.
 type fakeTable struct {
-	routes map[string]routing.Route
+	routes        map[string]routing.Route
+	methodsByPath map[string][]string
 }
 
 func (f *fakeTable) Lookup(method, path string) (routing.Route, map[string]string, bool) {
@@ -34,7 +40,13 @@ func (f *fakeTable) Lookup(method, path string) (routing.Route, map[string]strin
 	return r, map[string]string{}, true
 }
 
-func (f *fakeTable) Methods(string) []string { return nil }
+func (f *fakeTable) Methods(path string) []string {
+	if f.methodsByPath == nil {
+		return nil
+	}
+
+	return f.methodsByPath[path]
+}
 
 // recordedCall captures a single NATS request issued by the handler
 // under test. Tests assert on .subject to verify call ordering, on
@@ -137,6 +149,45 @@ func TestHandler_Returns404WhenRouteNotFound(t *testing.T) {
 	h := buildHandler(table, nil, nil)
 
 	result := h.Handle(emptyServeInput("GET", "/unknown"))
+
+	assert.Equal(t, 404, result.Status)
+	assert.Equal(t, gerrors.NotFound.Body, result.Body)
+}
+
+func TestHandler_Returns405WithAllowHeaderWhenMethodMismatch(t *testing.T) {
+	// Path is registered under GET and POST but the incoming request is
+	// DELETE — RFC 9110 §15.5.6 requires a 405 with an Allow header
+	// listing the supported verbs.
+	table := &fakeTable{
+		routes: map[string]routing.Route{
+			"GET /users":  {Subject: "svc.cmd.users.list", PathTemplate: "/users", Method: "GET"},
+			"POST /users": {Subject: "svc.cmd.users.create", PathTemplate: "/users", Method: "POST"},
+		},
+		methodsByPath: map[string][]string{
+			"/users": {"GET", "POST"},
+		},
+	}
+	h := buildHandler(table, nil, nil)
+
+	result := h.Handle(emptyServeInput("DELETE", "/users"))
+
+	assert.Equal(t, 405, result.Status)
+	assert.Equal(t, gerrors.MethodNotAllowed.Body, result.Body)
+	assert.Equal(t, []string{"GET, POST"}, result.Headers["Allow"],
+		"RFC 9110 §15.5.6 requires Allow header enumerating supported verbs")
+}
+
+func TestHandler_Returns404WhenPathUnknownEvenOnMethodMismatch(t *testing.T) {
+	// Path has no registered verbs and no Methods entry — must 404,
+	// not 405 (405 would leak that some path exists under a verb the
+	// client did not try, giving a probing signal for nothing).
+	table := &fakeTable{
+		routes:        map[string]routing.Route{},
+		methodsByPath: map[string][]string{},
+	}
+	h := buildHandler(table, nil, nil)
+
+	result := h.Handle(emptyServeInput("DELETE", "/does-not-exist"))
 
 	assert.Equal(t, 404, result.Status)
 	assert.Equal(t, gerrors.NotFound.Body, result.Body)
