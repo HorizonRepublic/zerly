@@ -9,8 +9,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestLoad_AppliesDefaultsWhenOnlyRequiredSet(t *testing.T) {
+// setRequiredEnv populates the minimum env contract — both required
+// variables — so individual tests focus on the field under assertion
+// without each repeating the boilerplate.
+func setRequiredEnv(t *testing.T) {
+	t.Helper()
 	t.Setenv("NATS_URLS", "nats://localhost:4222")
+	t.Setenv("KV_BUCKET", "handler_registry")
+}
+
+func TestLoad_AppliesDefaultsWhenOnlyRequiredSet(t *testing.T) {
+	setRequiredEnv(t)
 
 	cfg, err := Load()
 	require.NoError(t, err)
@@ -43,6 +52,7 @@ func TestLoad_AppliesDefaultsWhenOnlyRequiredSet(t *testing.T) {
 }
 
 func TestLoad_ParsesMultipleNATSUrls(t *testing.T) {
+	t.Setenv("KV_BUCKET", "handler_registry")
 	t.Setenv("NATS_URLS", "nats://n1:4222,nats://n2:4222,nats://n3:4222")
 
 	cfg, err := Load()
@@ -56,6 +66,7 @@ func TestLoad_ParsesMultipleNATSUrls(t *testing.T) {
 }
 
 func TestLoad_FailsWithoutRequiredNATSUrls(t *testing.T) {
+	t.Setenv("KV_BUCKET", "handler_registry")
 	original, wasSet := os.LookupEnv("NATS_URLS")
 	require.NoError(t, os.Unsetenv("NATS_URLS"))
 	t.Cleanup(func() {
@@ -70,7 +81,7 @@ func TestLoad_FailsWithoutRequiredNATSUrls(t *testing.T) {
 }
 
 func TestIsProduction_FalseForNonProductionEnv(t *testing.T) {
-	t.Setenv("NATS_URLS", "nats://localhost:4222")
+	setRequiredEnv(t)
 	t.Setenv("ENVIRONMENT", "staging")
 
 	cfg, err := Load()
@@ -79,7 +90,7 @@ func TestIsProduction_FalseForNonProductionEnv(t *testing.T) {
 }
 
 func TestLoad_HonorsCustomHTTPAddr(t *testing.T) {
-	t.Setenv("NATS_URLS", "nats://localhost:4222")
+	setRequiredEnv(t)
 	t.Setenv("HTTP_ADDR", ":9000")
 
 	cfg, err := Load()
@@ -88,7 +99,7 @@ func TestLoad_HonorsCustomHTTPAddr(t *testing.T) {
 }
 
 func TestLoad_TrustedProxies_DefaultsToPrivateSentinel(t *testing.T) {
-	t.Setenv("NATS_URLS", "nats://localhost:4222")
+	setRequiredEnv(t)
 
 	cfg, err := Load()
 	require.NoError(t, err)
@@ -100,7 +111,7 @@ func TestLoad_TrustedProxies_DefaultsToPrivateSentinel(t *testing.T) {
 }
 
 func TestLoad_TrustedProxies_EmptyString_TrustsNothing(t *testing.T) {
-	t.Setenv("NATS_URLS", "nats://localhost:4222")
+	setRequiredEnv(t)
 	t.Setenv("TRUSTED_PROXIES", "")
 
 	cfg, err := Load()
@@ -111,7 +122,7 @@ func TestLoad_TrustedProxies_EmptyString_TrustsNothing(t *testing.T) {
 }
 
 func TestLoad_TrustedProxies_LiteralCIDRList(t *testing.T) {
-	t.Setenv("NATS_URLS", "nats://localhost:4222")
+	setRequiredEnv(t)
 	t.Setenv("TRUSTED_PROXIES", "10.0.0.0/8,192.168.0.0/16")
 
 	cfg, err := Load()
@@ -123,7 +134,7 @@ func TestLoad_TrustedProxies_LiteralCIDRList(t *testing.T) {
 }
 
 func TestLoad_TrustedProxies_InvalidCIDR_FailsStartupClosed(t *testing.T) {
-	t.Setenv("NATS_URLS", "nats://localhost:4222")
+	setRequiredEnv(t)
 	t.Setenv("TRUSTED_PROXIES", "garbage")
 
 	_, err := Load()
@@ -136,7 +147,7 @@ func TestLoad_TrustedProxies_InvalidCIDR_FailsStartupClosed(t *testing.T) {
 }
 
 func TestLoad_RateLimitDefaults(t *testing.T) {
-	t.Setenv("NATS_URLS", "nats://localhost:4222")
+	setRequiredEnv(t)
 
 	cfg, err := Load()
 	require.NoError(t, err)
@@ -146,7 +157,7 @@ func TestLoad_RateLimitDefaults(t *testing.T) {
 }
 
 func TestLoad_RateLimitValidFailPolicyClosed(t *testing.T) {
-	t.Setenv("NATS_URLS", "nats://localhost:4222")
+	setRequiredEnv(t)
 	t.Setenv("RATELIMIT_FAIL_POLICY", "closed")
 
 	cfg, err := Load()
@@ -156,7 +167,7 @@ func TestLoad_RateLimitValidFailPolicyClosed(t *testing.T) {
 }
 
 func TestLoad_RateLimitInvalidFailPolicy(t *testing.T) {
-	t.Setenv("NATS_URLS", "nats://localhost:4222")
+	setRequiredEnv(t)
 	t.Setenv("RATELIMIT_FAIL_POLICY", "garbage")
 
 	_, err := Load()
@@ -165,7 +176,7 @@ func TestLoad_RateLimitInvalidFailPolicy(t *testing.T) {
 }
 
 func TestLoad_RateLimitCustomKeyTTL(t *testing.T) {
-	t.Setenv("NATS_URLS", "nats://localhost:4222")
+	setRequiredEnv(t)
 	t.Setenv("RATELIMIT_KEY_TTL", "2m")
 
 	cfg, err := Load()
@@ -174,13 +185,47 @@ func TestLoad_RateLimitCustomKeyTTL(t *testing.T) {
 	assert.Equal(t, 2*time.Minute, cfg.RateLimitKeyTTL)
 }
 
+// TestLoad_KVBucketRequired guards the production-safety contract that
+// KV_BUCKET MUST be set explicitly. caarlos0/env treats explicit-empty
+// as unset and would silently apply a default — risking cross-env data
+// leakage if an operator clears the var in a deploy template.
+func TestLoad_KVBucketRequired(t *testing.T) {
+	t.Run("unset returns error", func(t *testing.T) {
+		t.Setenv("NATS_URLS", "nats://localhost:4222")
+		require.NoError(t, os.Unsetenv("KV_BUCKET"))
+
+		_, err := Load()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "KV_BUCKET",
+			"error must name the offending env var for operator diagnosis")
+	})
+
+	t.Run("empty string returns error", func(t *testing.T) {
+		t.Setenv("NATS_URLS", "nats://localhost:4222")
+		t.Setenv("KV_BUCKET", "")
+
+		_, err := Load()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "KV_BUCKET")
+	})
+
+	t.Run("explicit value loads successfully", func(t *testing.T) {
+		t.Setenv("NATS_URLS", "nats://localhost:4222")
+		t.Setenv("KV_BUCKET", "my_handler_registry")
+
+		cfg, err := Load()
+		require.NoError(t, err)
+		assert.Equal(t, "my_handler_registry", cfg.KVBucket)
+	})
+}
+
 // TestLoad_WriteTimeoutStrictlyExceedsRequestTimeout guards the
 // invariant documented on Config.WriteTimeout: the HTTP write deadline
 // must leave enough budget for the handler to emit a 504 after the
 // request deadline fires. Shipping defaults where the two are equal
 // would truncate the timeout response on the wire.
 func TestLoad_WriteTimeoutStrictlyExceedsRequestTimeout(t *testing.T) {
-	t.Setenv("NATS_URLS", "nats://localhost:4222")
+	setRequiredEnv(t)
 
 	cfg, err := Load()
 	require.NoError(t, err)

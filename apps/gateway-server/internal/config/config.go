@@ -113,7 +113,14 @@ type Config struct {
 
 	// KVBucket is the NATS KV bucket name the gateway watches for
 	// handler registry entries.
-	KVBucket string `env:"KV_BUCKET"       envDefault:"handler_registry"`
+	//
+	// REQUIRED: must be set explicitly. There is no compiled-in default
+	// because a typical NATS account is shared across environments
+	// (dev/staging/prod) and silently falling back to a generic name
+	// risks cross-env data leakage if an operator's deploy template
+	// clears the variable. Set the bucket name to a value that matches
+	// the NATS account isolation policy (e.g. `gateway_routes_prod`).
+	KVBucket string `env:"KV_BUCKET"`
 
 	// RequestTimeout is the per-request hard deadline applied to the
 	// full handler pipeline (RPC round-trip included).
@@ -192,6 +199,16 @@ func Load() (*Config, error) {
 		// ok
 	default:
 		return nil, fmt.Errorf("RATELIMIT_FAIL_POLICY must be \"open\" or \"closed\", got %q", cfg.RateLimitFailPolicy)
+	}
+
+	// caarlos0/env v11 collapses unset and empty into the same code
+	// path and would silently apply any envDefault. KV_BUCKET is
+	// deliberately defaulted-by-validation rather than by tag — the
+	// NATS account is typically shared across deploy stages, so a
+	// silent fallback to a generic bucket name risks reading or
+	// writing the wrong environment's routing metadata.
+	if cfg.KVBucket == "" {
+		return nil, fmt.Errorf("KV_BUCKET must be set explicitly (no default — value selects which NATS KV bucket holds the handler registry)")
 	}
 
 	return cfg, nil
