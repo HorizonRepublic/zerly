@@ -293,3 +293,49 @@ func TestCollectRoutes_PropagatesExtendedFields(t *testing.T) {
 	assert.Equal(t, "DENY", route.Headers["x-frame-options"])
 	assert.Equal(t, 5*time.Second, route.Timeout)
 }
+
+func TestCollectRoutes_DropsRateLimitWithNonPositiveRPS(t *testing.T) {
+	cases := []struct {
+		name string
+		rps  int
+	}{
+		{"zero", 0},
+		{"negative", -5},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			snapshot := &registry.Snapshot{
+				Entries: map[string]registry.HandlerEntry{
+					"svc.cmd.users.list": {
+						HTTP:      &registry.HTTPMeta{Method: "GET", Path: "/users"},
+						RateLimit: &registry.RateLimitMeta{RPS: tc.rps, Burst: 20},
+					},
+				},
+			}
+
+			routes := CollectRoutes(snapshot, emptyVerifiers(), silentLogger())
+
+			require.Len(t, routes, 1)
+			assert.Nil(t, routes[0].RateLimit,
+				"routing builder must drop a non-positive rps block so operators get a WARN instead of silent no-op")
+		})
+	}
+}
+
+func TestCollectRoutes_DropsRateLimitWithNegativeBurst(t *testing.T) {
+	snapshot := &registry.Snapshot{
+		Entries: map[string]registry.HandlerEntry{
+			"svc.cmd.users.list": {
+				HTTP:      &registry.HTTPMeta{Method: "GET", Path: "/users"},
+				RateLimit: &registry.RateLimitMeta{RPS: 10, Burst: -1},
+			},
+		},
+	}
+
+	routes := CollectRoutes(snapshot, emptyVerifiers(), silentLogger())
+
+	require.Len(t, routes, 1)
+	assert.Nil(t, routes[0].RateLimit,
+		"routing builder must drop a negative-burst block; GCRA.Check is undefined on negative burst")
+}

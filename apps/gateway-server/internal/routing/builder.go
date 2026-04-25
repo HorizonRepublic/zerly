@@ -61,7 +61,7 @@ func CollectRoutes(
 		}
 
 		route.CORS = sanitizeCORS(entry.CORS, key, logger)
-		route.RateLimit = entry.RateLimit
+		route.RateLimit = sanitizeRateLimit(entry.RateLimit, key, logger)
 		route.Headers = entry.Headers
 
 		if entry.Timeout != nil {
@@ -131,6 +131,47 @@ func sanitizeCORS(cors *registry.CORSMeta, key string, logger zerolog.Logger) *r
 		Msg("routing: dropping CORS block that combines origins:[*] with credentials:true (Fetch Living Standard violation)")
 
 	return nil
+}
+
+// sanitizeRateLimit enforces the invariant that a rate-limit block
+// only ships with a positive RPS. The SDK's typia validator should
+// reject rps <= 0 at module init, but that catches only legitimate
+// SDK consumers. This guard is defense-in-depth for operators who
+// hand-craft KV writes, run older SDK versions, or get bitten by
+// schema drift — the proxy handler already interprets RPS <= 0 as
+// "skip rate limiting" (fail-safe), but silently ignoring a
+// misconfigured block hides it from operators who expect their limit
+// to be active. Dropping the block to nil and logging WARN at build
+// time surfaces the mistake once per route per reload instead of
+// zero times.
+//
+// A negative Burst is similarly untrustworthy (GCRA.Check would
+// either deny-all or allow-all depending on currentTAT) and causes
+// the whole block to be dropped.
+func sanitizeRateLimit(rl *registry.RateLimitMeta, key string, logger zerolog.Logger) *registry.RateLimitMeta {
+	if rl == nil {
+		return nil
+	}
+
+	if rl.RPS <= 0 {
+		logger.Warn().
+			Str("key", key).
+			Int("rps", rl.RPS).
+			Msg("routing: dropping rate-limit block with non-positive rps (SDK validation bypassed)")
+
+		return nil
+	}
+
+	if rl.Burst < 0 {
+		logger.Warn().
+			Str("key", key).
+			Int("burst", rl.Burst).
+			Msg("routing: dropping rate-limit block with negative burst (SDK validation bypassed)")
+
+		return nil
+	}
+
+	return rl
 }
 
 // BuildTableFromRoutes constructs a Table from a pre-collected slice
