@@ -26,8 +26,9 @@ import (
 type TableProvider func() routing.Table
 
 // HandlerConfig bundles the dependencies of a Handler. Passed by value
-// at construction; all fields are required (except RateLimiter) and the
-// zero value of a HandlerConfig is NOT safe to use.
+// at construction; all fields are required (except RateLimiter and
+// RateLimitTimeout) and the zero value of a HandlerConfig is NOT safe
+// to use.
 type HandlerConfig struct {
 	Table   TableProvider
 	Nats    NatsRequester
@@ -39,6 +40,15 @@ type HandlerConfig struct {
 	// disabled globally for this handler. Backends are registered via
 	// Router.EnsureBackend by the gateway bootstrap.
 	RateLimiter *ratelimit.Router
+	// RateLimitTimeout bounds the wall-clock budget for the rate-limit
+	// gate on a single request. Separate from the route request timeout
+	// so a hot-key CAS storm cannot burn through the upstream deadline
+	// before the NATS round trip even starts. When zero, the gate falls
+	// back to the route Timeout (equivalent to pre-S.2 behaviour) — this
+	// keeps test harnesses that build HandlerConfig manually working,
+	// but production bootstrap MUST set a distinct, shorter budget
+	// (default 50ms per the cfg.RateLimitTimeout env knob).
+	RateLimitTimeout time.Duration
 }
 
 // Handler is the HTTP→NATS→HTTP orchestrator. It owns one request from
@@ -353,7 +363,19 @@ func (h *Handler) applyRateLimitGate(
 	fullKey := ratelimit.BuildBucketKey(route.Method, route.PathTemplate, rlKey)
 	store := h.cfg.RateLimiter.StoreFor(route)
 
-	rlCtx, cancel := context.WithTimeout(ctx, timeout)
+	// Clamp the gate's wall-clock budget to the smaller of the route
+	// timeout and the dedicated rate-limit budget. The latter is usually
+	// an order of magnitude shorter (50ms vs 10s) so a hot-key CAS storm
+	// cannot drain the upstream round-trip allowance. A zero
+	// RateLimitTimeout disables the clamp — legacy harnesses see the
+	// same per-route-timeout behaviour they had before the budget knob
+	// was introduced.
+	rlBudget := timeout
+	if h.cfg.RateLimitTimeout > 0 && h.cfg.RateLimitTimeout < rlBudget {
+		rlBudget = h.cfg.RateLimitTimeout
+	}
+
+	rlCtx, cancel := context.WithTimeout(ctx, rlBudget)
 	decision, rlErr := store.Allow(rlCtx, fullKey, route.RateLimit.RPS, burst)
 	cancel()
 

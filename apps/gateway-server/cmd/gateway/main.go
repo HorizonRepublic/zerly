@@ -317,12 +317,13 @@ func buildProxyHandler(
 		Table: func() routing.Table {
 			return currentTable.Load().(routing.Table)
 		},
-		Nats:        requester,
-		Encoder:     proxy.NewDefaultEncoder(),
-		Decoder:     proxy.NewDefaultDecoder(),
-		Timeout:     cfg.RequestTimeout,
-		Logger:      logger,
-		RateLimiter: rlRouter,
+		Nats:             requester,
+		Encoder:          proxy.NewDefaultEncoder(),
+		Decoder:          proxy.NewDefaultDecoder(),
+		Timeout:          cfg.RequestTimeout,
+		Logger:           logger,
+		RateLimiter:      rlRouter,
+		RateLimitTimeout: cfg.RateLimitTimeout,
 	})
 }
 

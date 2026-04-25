@@ -860,13 +860,18 @@ type fakeRateLimiter struct {
 }
 
 type rateLimitCall struct {
-	key   string
-	rps   int
-	burst int
+	key      string
+	rps      int
+	burst    int
+	deadline time.Time
 }
 
-func (f *fakeRateLimiter) Allow(_ context.Context, key string, rps, burst int) (ratelimit.Decision, error) {
-	f.calls = append(f.calls, rateLimitCall{key: key, rps: rps, burst: burst})
+func (f *fakeRateLimiter) Allow(ctx context.Context, key string, rps, burst int) (ratelimit.Decision, error) {
+	call := rateLimitCall{key: key, rps: rps, burst: burst}
+	if dl, ok := ctx.Deadline(); ok {
+		call.deadline = dl
+	}
+	f.calls = append(f.calls, call)
 
 	// Mirror the real GCRA contract: a populated Decision (allowed
 	// or rejected) carries a non-zero ResetAt so BuildHeaders emits
@@ -966,6 +971,82 @@ func TestHandler_RateLimitDefaultBurstIs2xRPS(t *testing.T) {
 
 	require.Len(t, rl.calls, 1)
 	assert.Equal(t, 10, rl.calls[0].burst, "default burst = 2 * RPS")
+}
+
+func TestHandler_RateLimitTimeoutClampsGateBudget(t *testing.T) {
+	// A short RateLimitTimeout must win over a long route Timeout so
+	// the rate-limit gate cannot burn through the upstream deadline.
+	routeTimeout := 30 * time.Second
+	rlTimeout := 50 * time.Millisecond
+
+	rl := &fakeRateLimiter{allowed: true}
+	table := &fakeTable{routes: map[string]routing.Route{
+		"GET /users": {
+			Subject: "svc.cmd.users.list", PathTemplate: "/users",
+			Method:    "GET",
+			RateLimit: &registry.RateLimitMeta{RPS: 10},
+		},
+	}}
+	nats := newFakeNats()
+	nats.reply = []byte(`{"status":200,"headers":{},"body":null}`)
+
+	h := NewHandler(HandlerConfig{
+		Table:            func() routing.Table { return table },
+		Nats:             nats,
+		Encoder:          NewDefaultEncoder(),
+		Decoder:          NewDefaultDecoder(),
+		Timeout:          routeTimeout,
+		Logger:           zerolog.Nop(),
+		RateLimiter:      routerWithStore(t, rl),
+		RateLimitTimeout: rlTimeout,
+	})
+
+	started := time.Now()
+	result := h.Handle(context.Background(), emptyServeInput("GET", "/users"))
+
+	require.Equal(t, 200, result.Status)
+	require.Len(t, rl.calls, 1)
+
+	budget := rl.calls[0].deadline.Sub(started)
+	assert.GreaterOrEqual(t, budget, rlTimeout/2,
+		"deadline should honour the rate-limit budget")
+	assert.Less(t, budget, 500*time.Millisecond,
+		"deadline must not inherit the longer route timeout")
+}
+
+func TestHandler_RateLimitTimeoutFallsBackToRouteTimeoutWhenZero(t *testing.T) {
+	routeTimeout := 500 * time.Millisecond
+
+	rl := &fakeRateLimiter{allowed: true}
+	table := &fakeTable{routes: map[string]routing.Route{
+		"GET /users": {
+			Subject: "svc.cmd.users.list", PathTemplate: "/users",
+			Method:    "GET",
+			RateLimit: &registry.RateLimitMeta{RPS: 10},
+		},
+	}}
+	nats := newFakeNats()
+	nats.reply = []byte(`{"status":200,"headers":{},"body":null}`)
+
+	h := NewHandler(HandlerConfig{
+		Table:       func() routing.Table { return table },
+		Nats:        nats,
+		Encoder:     NewDefaultEncoder(),
+		Decoder:     NewDefaultDecoder(),
+		Timeout:     routeTimeout,
+		Logger:      zerolog.Nop(),
+		RateLimiter: routerWithStore(t, rl),
+	})
+
+	started := time.Now()
+	result := h.Handle(context.Background(), emptyServeInput("GET", "/users"))
+
+	require.Equal(t, 200, result.Status)
+	require.Len(t, rl.calls, 1)
+
+	budget := rl.calls[0].deadline.Sub(started)
+	assert.Greater(t, budget, 100*time.Millisecond,
+		"zero RateLimitTimeout must fall back to the route timeout")
 }
 
 func TestHandler_RateLimitSkippedWhenNoStore(t *testing.T) {
