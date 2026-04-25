@@ -227,6 +227,40 @@ func TestHandler_Returns503OnNatsError(t *testing.T) {
 	assert.Equal(t, gerrors.ServiceUnavailable.Body, result.Body)
 }
 
+func TestHandler_LogsCarryRequestScope(t *testing.T) {
+	// Every error log line on the request path must carry request_id,
+	// traceparent, and route fields so cross-service postmortems can
+	// correlate the gateway's view with verifier and upstream logs
+	// without timestamp arithmetic.
+	table := &fakeTable{routes: map[string]routing.Route{
+		"GET /users": {Subject: "svc.cmd.users.list", PathTemplate: "/users", Method: "GET"},
+	}}
+	var buf bytes.Buffer
+	logger := zerolog.New(&buf)
+	h := NewHandler(HandlerConfig{
+		Table:   func() routing.Table { return table },
+		Nats:    &fakeRequester{err: errors.New("upstream gone")},
+		Encoder: NewDefaultEncoder(),
+		Decoder: NewDefaultDecoder(),
+		Timeout: 30 * time.Second,
+		Logger:  logger,
+	})
+
+	in := emptyServeInput("GET", "/users")
+	in.RequestID = "req-correlate-1"
+	in.Traceparent = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"
+
+	h.Handle(context.Background(), in)
+
+	output := buf.String()
+	assert.Contains(t, output, `"request_id":"req-correlate-1"`,
+		"every error log must carry request_id")
+	assert.Contains(t, output, `"traceparent":"00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"`,
+		"every error log must carry traceparent")
+	assert.Contains(t, output, `"route":"GET:/users"`,
+		"error logs after route lookup must carry route field")
+}
+
 func TestHandler_Returns502OnMalformedReply(t *testing.T) {
 	table := &fakeTable{routes: map[string]routing.Route{
 		"GET /users": {Subject: "svc.cmd.users.list", PathTemplate: "/users", Method: "GET"},
