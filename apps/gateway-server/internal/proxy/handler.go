@@ -485,11 +485,19 @@ func previewClaimsForLog(claims json.RawMessage) string {
 		return ""
 	}
 
+	// Slice the byte view before the string allocation so a 4 KiB
+	// claim payload does not allocate 4 KiB of string just to be
+	// truncated to 256 bytes. The previous (s := string(claims); s[:n])
+	// shape allocated proportional to the input size — wasted memory
+	// on the WARN log path, which fires once per misbehaving verifier
+	// per route after dedupe but during a startup error storm can
+	// still be hot.
 	const maxPreview = 256
-	preview := string(claims)
-	if len(preview) > maxPreview {
-		preview = preview[:maxPreview]
+	n := len(claims)
+	if n > maxPreview {
+		n = maxPreview
 	}
+	preview := string(claims[:n])
 
 	return claimsRedactPattern.ReplaceAllString(preview, `"$1":"***"`)
 }
