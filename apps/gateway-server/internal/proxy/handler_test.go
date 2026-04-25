@@ -1900,6 +1900,58 @@ func TestHandler_ClaimsUnmarshalFailsClosedReturns503(t *testing.T) {
 	assert.Equal(t, []string{"5"}, result.Headers["X-RateLimit-Limit"])
 }
 
+// TestHandler_ClaimsUnmarshalBumpsCounter pins the observability
+// contract: every unmarshal failure ticks
+// ratelimit_claims_unmarshal_errors on the router's Counters() map.
+// Operators surface multi-tenant NAT-collision risk through metrics
+// without grepping logs.
+func TestHandler_ClaimsUnmarshalBumpsCounter(t *testing.T) {
+	verifierSubject := "auth-svc__microservice.cmd.auth.verifier.jwt"
+	routeSubject := "users-svc__microservice.cmd.users.me"
+
+	nats := newFakeNats()
+	nats.program(
+		verifierSubject,
+		[]byte(`{"status":200,"headers":{},"body":"not-an-object"}`),
+		nil,
+	)
+
+	route := routing.Route{
+		Subject:      routeSubject,
+		Method:       "GET",
+		PathTemplate: "/users/me",
+		Auth:         &routing.RouteAuth{VerifierSubject: verifierSubject},
+		RateLimit: &registry.RateLimitMeta{
+			RPS: 5, Burst: 10,
+			KeyBy: []string{"user:id", "ip"},
+		},
+	}
+
+	rl := newOncePerKeyLimiter()
+	router := routerWithStoreAndPolicy(t, rl, ratelimit.FailPolicyOpen)
+
+	h := NewHandler(HandlerConfig{
+		Table:       func() routing.Table { return stubTable(route) },
+		Nats:        nats,
+		Encoder:     NewDefaultEncoder(),
+		Decoder:     NewDefaultDecoder(),
+		Timeout:     30 * time.Second,
+		Logger:      zerolog.Nop(),
+		RateLimiter: router,
+	})
+
+	for range 3 {
+		in := authServeInput("GET", "/users/me")
+		in.RemoteAddr = "10.0.0.1"
+		in.Headers["authorization"] = "Bearer tok"
+		h.Handle(context.Background(), in)
+	}
+
+	counters := router.Counters()
+	assert.Equal(t, int64(3), counters["ratelimit_claims_unmarshal_errors"],
+		"three unmarshal failures must tick the counter three times")
+}
+
 // TestPreviewClaimsForLog_RedactsCredentials pins the redaction
 // contract on the WARN log preview: substrings keyed by
 // password/token/secret/key are blanked to `***` so operators see

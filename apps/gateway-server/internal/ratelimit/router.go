@@ -49,7 +49,8 @@ type Router struct {
 	// request — only the log message is throttled.
 	fallbackLogged sync.Map
 	counters       struct {
-		fallback atomic.Int64
+		fallback         atomic.Int64
+		claimsUnmarshal  atomic.Int64
 	}
 }
 
@@ -236,6 +237,18 @@ func (r *Router) StoreFor(route routing.Route) Store {
 // backends served by this router.
 func (r *Router) FailPolicy() Policy { return r.failPolicy }
 
+// RecordClaimsUnmarshalError bumps the router's
+// ratelimit_claims_unmarshal_errors counter. The proxy handler calls
+// this when a verifier's claim payload fails to JSON-unmarshal; the
+// counter surfaces a multi-tenant NAT-collision risk (tenants sharing
+// one IP-fallback bucket because their claims were unparseable) through
+// metrics so operators do not need to grep logs to find the drift.
+//
+// Safe for concurrent use.
+func (r *Router) RecordClaimsUnmarshalError() {
+	r.counters.claimsUnmarshal.Add(1)
+}
+
 // Close closes every registered Store. The first error encountered
 // is returned; the remaining stores are still closed on a
 // best-effort basis so a failing backend does not leak the others.
@@ -283,8 +296,9 @@ func (r *Router) Close() error {
 // registered backend and the router in a single map.
 func (r *Router) Counters() map[string]int64 {
 	return map[string]int64{
-		"ratelimit_store_fallback":         r.counters.fallback.Load(),
-		"ratelimit_claim_nondeterministic": int64(ClaimNondeterministicCount()),
+		"ratelimit_store_fallback":           r.counters.fallback.Load(),
+		"ratelimit_claim_nondeterministic":   int64(ClaimNondeterministicCount()),
+		"ratelimit_claims_unmarshal_errors":  r.counters.claimsUnmarshal.Load(),
 	}
 }
 
@@ -308,8 +322,9 @@ func (r *Router) CountersAll() map[string]map[string]int64 {
 		out[id] = s.Counters()
 	}
 	out["router"] = map[string]int64{
-		"ratelimit_store_fallback":         r.counters.fallback.Load(),
-		"ratelimit_claim_nondeterministic": int64(ClaimNondeterministicCount()),
+		"ratelimit_store_fallback":           r.counters.fallback.Load(),
+		"ratelimit_claim_nondeterministic":   int64(ClaimNondeterministicCount()),
+		"ratelimit_claims_unmarshal_errors":  r.counters.claimsUnmarshal.Load(),
 	}
 
 	return out

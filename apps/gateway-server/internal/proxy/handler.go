@@ -330,6 +330,7 @@ func (h *Handler) applyRateLimitGate(
 		// outages so closed-on-error deployments reject (likely 503)
 		// while open-on-error deployments fall back to IP and emit
 		// the WARN line below for operator visibility.
+		h.cfg.RateLimiter.RecordClaimsUnmarshalError()
 		h.cfg.Logger.Warn().
 			Err(claimsErr).
 			Str("event", "ratelimit.claims.unmarshal_failed").
