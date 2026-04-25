@@ -2020,11 +2020,17 @@ func TestHandler_RateLimitFailOpenEmitsOnlyLimitHeader(t *testing.T) {
 	assert.False(t, hasRetry, "fail-open is allow, not reject")
 }
 
-// TestHandler_RateLimitFailClosedRejectsWith429 pins the symmetrical
-// closed branch: the same backend error under FailPolicyClosed
-// surfaces as a 429-class rejection. The static X-RateLimit-Limit
-// still rides along so clients see the configured budget.
-func TestHandler_RateLimitFailClosedRejectsWith429(t *testing.T) {
+// TestHandler_RateLimitFailClosedReturns503OnStoreError pins the
+// symmetrical closed branch: a backend ERROR (not a normal bucket
+// rejection) under FailPolicyClosed surfaces as 503 Service
+// Unavailable, NOT 429. The HTTP semantic distinction is operator-
+// visible — 429 instructs clients to back off, 503 invites a retry
+// once the gateway recovers. Conflating the two would make 429-rate
+// dashboards spike during a backend incident even though no client
+// is over its budget. The static X-RateLimit-Limit still rides along
+// so clients see the configured budget regardless of which side
+// degraded.
+func TestHandler_RateLimitFailClosedReturns503OnStoreError(t *testing.T) {
 	rl := &erroringRateLimiter{err: errors.New("backend offline")}
 	table := &fakeTable{routes: map[string]routing.Route{
 		"GET /users": {
@@ -2046,7 +2052,9 @@ func TestHandler_RateLimitFailClosedRejectsWith429(t *testing.T) {
 
 	result := h.Handle(context.Background(), emptyServeInput("GET", "/users"))
 
-	assert.Equal(t, 429, result.Status, "fail-closed rejects with 429")
+	assert.Equal(t, 503, result.Status,
+		"fail-closed on store error rejects with 503 Service Unavailable, not 429")
+	assert.Equal(t, gerrors.ServiceUnavailable.Body, result.Body)
 	assert.Equal(t, []string{"10"}, result.Headers["X-RateLimit-Limit"])
 	_, hasRemaining := result.Headers["X-RateLimit-Remaining"]
 	assert.False(t, hasRemaining,

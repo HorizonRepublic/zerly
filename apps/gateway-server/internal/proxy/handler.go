@@ -436,7 +436,26 @@ func (h *Handler) applyRateLimitGate(
 	rlHeaders := ratelimit.BuildHeaders(route.RateLimit, decision)
 
 	if !allowed {
-		result := toServeResult(gerrors.TooManyRequests)
+		// Distinguish "client over their budget" from "our store is down":
+		//   429 Too Many Requests — bucket truly empty under a healthy
+		//                            backend. The client SHOULD slow down.
+		//   503 Service Unavailable — the rate-limit store errored AND
+		//                              FailPolicy resolved to reject. The
+		//                              client did nothing wrong; the
+		//                              gateway is degraded.
+		// Conflating the two collapses operator alerting (a 429-rate
+		// spike during an incident is indistinguishable from organic
+		// traffic) and misleads clients (a 429 instructs them to back
+		// off, a 503 invites a retry once the gateway recovers). The
+		// claims-unmarshal branch above already returns 503 on the same
+		// fail-closed path; keeping the store-error branch on 429 here
+		// would leave the two paths inconsistent for no defensible
+		// reason.
+		errBody := gerrors.TooManyRequests
+		if rlErr != nil {
+			errBody = gerrors.ServiceUnavailable
+		}
+		result := toServeResult(errBody)
 		for k, v := range rlHeaders {
 			result.Headers[k] = []string{v}
 		}

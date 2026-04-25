@@ -13,7 +13,9 @@
 // rejection status is whatever the implementation surfaces for a
 // FailPolicy=closed store-error rejection — see
 // ratelimit_failpolicy_e2e_test.go for the matching contract pin
-// (today: 429 + the static X-RateLimit-Limit header).
+// (today: 503 Service Unavailable + the static X-RateLimit-Limit
+// header). The rejected-count tally accepts both 429 and 503 to
+// stay resilient against future per-failure-mode refinements.
 //
 // The harness reuses the synthetic-handler / KV-Put pattern from
 // reload_test.go and the secondary-gateway spawn pattern from
@@ -104,7 +106,8 @@ func startMemorySaturationGateway(t *testing.T, maxEntries int) func() {
 // Expected behaviour: keys 1..10 admit cleanly (bucket created,
 // fresh tokens). Keys 11..15 hit the cap; MemoryStore.Allow
 // returns ErrMemoryStoreSaturated; FailPolicy=closed surfaces
-// rejection (429 + X-RateLimit-Limit per the current contract).
+// rejection (503 Service Unavailable + X-RateLimit-Limit per the
+// current contract; tally accepts 429 too for forward-compat).
 //
 // Pinning intent: a regression that loosened the cap (e.g., via
 // LoadOrStore unconditionally allocating before the size check)
@@ -195,7 +198,7 @@ func TestE2E_MemoryStoreSaturationFailPolicy(t *testing.T) {
 	// At least 4 must be rejected (5 saturation + tolerance for
 	// pre-warm). The rejection status is whatever the
 	// implementation surfaces for closed-FailPolicy store-error
-	// rejection — today 429.
+	// rejection — today 503 Service Unavailable.
 	rejected := statuses[http.StatusTooManyRequests] + statuses[http.StatusServiceUnavailable]
 	assert.GreaterOrEqual(t, rejected, 4,
 		"with cap=10 and %d distinct keys, at least 4 must be rejected; statuses=%v",

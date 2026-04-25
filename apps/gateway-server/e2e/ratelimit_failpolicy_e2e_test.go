@@ -5,8 +5,8 @@
 // rate-limit store fails (network error, missing bucket, CAS budget
 // exhausted): the open profile favours availability and lets traffic
 // through with the static X-RateLimit-Limit header only, the closed
-// profile favours strictness and rejects with 429 + the same static
-// header.
+// profile favours strictness and rejects with 503 Service
+// Unavailable + the same static header.
 //
 // Both scenarios spawn a SECONDARY gateway on :8081 with a custom
 // fail-policy env var, then delete the rate-limit KV bucket
@@ -22,15 +22,15 @@
 //     time.Time{}) under fail-open, telling clients the bucket was
 //     exhausted in year 1. The empty-Decision guard is a security
 //     contract, not just a UX nicety.
-//   - On the closed path, the actual gateway returns 429 (Too Many
-//     Requests) for store-error rejections — the same status used
-//     for normal bucket-empty rejections. A 503 (Service
-//     Unavailable) might feel more semantically appropriate for a
-//     backend outage, but the implementation in
-//     internal/proxy/handler.go:439 unifies both paths under
-//     gerrors.TooManyRequests. These tests pin the actual
-//     contract; if the policy changes to surface 503 here, the
-//     test must be updated alongside the source change.
+//   - On the closed path, the gateway distinguishes between a
+//     normal bucket-empty rejection (429 Too Many Requests — the
+//     client is over their budget) and a store-error rejection
+//     (503 Service Unavailable — the gateway itself is degraded).
+//     Conflating the two would spike 429-rate dashboards during a
+//     backend incident and instruct clients to back off when the
+//     correct signal is "retry once we recover". The rejected-count
+//     assertion below tallies BOTH statuses so the test stays
+//     resilient if the contract evolves further.
 package e2e
 
 import (
@@ -199,18 +199,21 @@ func TestE2E_RateLimit_FailOpenContinuesUnderStoreOutage(t *testing.T) {
 // TestE2E_RateLimit_FailClosedRejectsUnderStoreOutage pins the
 // fail-closed strictness contract: with RATELIMIT_FAIL_POLICY=closed
 // and the rate-limit bucket missing, requests against the
-// nats-kv-backed route are rejected.
+// nats-kv-backed route are rejected with 503 Service Unavailable +
+// the static X-RateLimit-Limit header.
 //
-// The current implementation in internal/proxy/handler.go:439
-// surfaces store-error rejections as 429 Too Many Requests — the
-// same code as a bucket-empty rejection — accompanied by the
-// static X-RateLimit-Limit header. This unifies the rejection
-// path semantically (every "did not pass the gate" outcome is a
-// 429) at the cost of conflating "rate-limit policy says no" with
-// "rate-limit infrastructure is down". A future contract change
-// to surface 503 here for store-outage rejections would be a
-// breaking change for clients that distinguish the two; this test
-// pins today's actual behaviour so any such change is observed.
+// 503 is the correct status for a store-error rejection because the
+// client is not over their budget — the gateway itself is degraded.
+// 429 stays reserved for the bucket-empty path, where the client
+// truly is sending too many requests. Conflating the two would spike
+// 429-rate dashboards during a backend incident and mislead clients
+// (a 429 instructs clients to slow down; a 503 invites a retry once
+// the service recovers).
+//
+// The rejected-count tally counts BOTH 429 and 503 so the assertion
+// stays resilient against future evolution (e.g., a per-failure-mode
+// status code refinement) — only the documentation comment above
+// commits to today's specific 503 contract.
 func TestE2E_RateLimit_FailClosedRejectsUnderStoreOutage(t *testing.T) {
 	cleanup := startFailPolicyGateway(t, "closed")
 	defer cleanup()
