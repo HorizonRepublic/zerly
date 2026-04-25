@@ -491,15 +491,15 @@ func sleepCtx(ctx context.Context, d time.Duration) bool {
 // top — backend_errors aggregates them at the dashboard level.
 func (s *NATSKVStore) Counters() map[string]int64 {
 	return map[string]int64{
-		"ratelimit_natskv_decisions_allowed":     s.counters.allowed.Load(),
-		"ratelimit_natskv_decisions_rejected":    s.counters.rejected.Load(),
-		"ratelimit_natskv_backend_errors":        s.counters.backendErrors.Load(),
-		"ratelimit_natskv_cas_retries":           s.counters.casRetries.Load(),
-		"ratelimit_natskv_budget_exhausted":      s.counters.budgetExhausted.Load(),
-		"ratelimit_natskv_cas_attempts_exceeded": s.counters.casAttemptsExceeded.Load(),
+		"ratelimit_natskv_decisions_allowed_total":     s.counters.allowed.Load(),
+		"ratelimit_natskv_decisions_rejected_total":    s.counters.rejected.Load(),
+		"ratelimit_natskv_backend_errors_total":        s.counters.backendErrors.Load(),
+		"ratelimit_natskv_cas_retries_total":           s.counters.casRetries.Load(),
+		"ratelimit_natskv_budget_exhausted_total":      s.counters.budgetExhausted.Load(),
+		"ratelimit_natskv_cas_attempts_exceeded_total": s.counters.casAttemptsExceeded.Load(),
 		"ratelimit_natskv_circuit_state":         s.counters.circuitState.Load(),
-		"ratelimit_natskv_breaker_transitions":   s.counters.breakerTransitions.Load(),
-		"ratelimit_natskv_circuit_rejected":      s.counters.circuitRejected.Load(),
-		"ratelimit_natskv_corrupt_tat":           s.counters.corruptTAT.Load(),
+		"ratelimit_natskv_breaker_transitions_total":   s.counters.breakerTransitions.Load(),
+		"ratelimit_natskv_circuit_rejected_total":      s.counters.circuitRejected.Load(),
+		"ratelimit_natskv_corrupt_tat_total":           s.counters.corruptTAT.Load(),
 	}
 }

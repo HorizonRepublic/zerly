@@ -87,7 +87,7 @@ func TestRouter_UnknownStoreFallsBackToMemory(t *testing.T) {
 
 	got := r.StoreFor(routing.Route{RateLimit: &registry.RateLimitMeta{Store: "redis"}})
 	assert.Same(t, mem, got)
-	assert.Equal(t, int64(1), r.Counters()["ratelimit_store_fallback"],
+	assert.Equal(t, int64(1), r.Counters()["ratelimit_store_fallback_total"],
 		"each fallback to memory bumps the observability counter")
 }
 
@@ -171,7 +171,7 @@ func TestRouter_StoreForReturnsClosedSentinelWhenMemoryMissing(t *testing.T) {
 	// The fallback counter must have bumped so operators can surface
 	// the misconfiguration through metrics — otherwise a missing
 	// backend hides forever behind the nil-safe FailPolicy decision.
-	assert.GreaterOrEqual(t, r.Counters()["ratelimit_store_fallback"], int64(1),
+	assert.GreaterOrEqual(t, r.Counters()["ratelimit_store_fallback_total"], int64(1),
 		"missing memory backend must bump the fallback counter")
 }
 
@@ -224,7 +224,7 @@ func TestRouter_UnknownStoreFallbackLogDeduped(t *testing.T) {
 
 	count := countWarnRecords(t, buf.Bytes(), "ratelimit.store.fallback")
 	assert.Equal(t, 1, count, "fallback WARN must be emitted once per (route, declared) tuple")
-	assert.Equal(t, int64(calls), r.Counters()["ratelimit_store_fallback"],
+	assert.Equal(t, int64(calls), r.Counters()["ratelimit_store_fallback_total"],
 		"counter ticks per request even when log is deduped")
 
 	// A different declared backend on a different route must produce a
@@ -320,13 +320,13 @@ func TestRouter_CountersAllAggregatesAcrossBackends(t *testing.T) {
 	mem.entries.Range(func(_, _ any) bool { return false })
 	memCounters := all["memory"]
 	require.NotNil(t, memCounters)
-	assert.Contains(t, memCounters, "ratelimit_memory_decisions_allowed")
-	assert.Contains(t, memCounters, "ratelimit_memory_decisions_rejected")
-	assert.Contains(t, memCounters, "ratelimit_memory_backend_errors",
+	assert.Contains(t, memCounters, "ratelimit_memory_decisions_allowed_total")
+	assert.Contains(t, memCounters, "ratelimit_memory_decisions_rejected_total")
+	assert.Contains(t, memCounters, "ratelimit_memory_backend_errors_total",
 		"every backend must expose backend_errors for dashboard parity")
 
 	routerCounters := all["router"]
-	assert.Contains(t, routerCounters, "ratelimit_store_fallback")
+	assert.Contains(t, routerCounters, "ratelimit_store_fallback_total")
 }
 
 // TestMemoryStoreCountersIncludeMinimumSchema enforces the cross-
@@ -339,10 +339,10 @@ func TestMemoryStoreCountersIncludeMinimumSchema(t *testing.T) {
 	defer func() { _ = s.Close() }()
 
 	c := s.Counters()
-	assert.Contains(t, c, "ratelimit_memory_decisions_allowed")
-	assert.Contains(t, c, "ratelimit_memory_decisions_rejected")
-	assert.Contains(t, c, "ratelimit_memory_backend_errors")
-	assert.Equal(t, int64(0), c["ratelimit_memory_backend_errors"],
+	assert.Contains(t, c, "ratelimit_memory_decisions_allowed_total")
+	assert.Contains(t, c, "ratelimit_memory_decisions_rejected_total")
+	assert.Contains(t, c, "ratelimit_memory_backend_errors_total")
+	assert.Equal(t, int64(0), c["ratelimit_memory_backend_errors_total"],
 		"memory has no remote dependencies so backend_errors stays 0")
 }
 

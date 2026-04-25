@@ -83,9 +83,9 @@ func (closedStore) Close() error { return nil }
 // shutdown happens.
 func (closedStore) Counters() map[string]int64 {
 	return map[string]int64{
-		"ratelimit_closed_decisions_allowed":  0,
-		"ratelimit_closed_decisions_rejected": 0,
-		"ratelimit_closed_backend_errors":     0,
+		"ratelimit_closed_decisions_allowed_total":  0,
+		"ratelimit_closed_decisions_rejected_total": 0,
+		"ratelimit_closed_backend_errors_total":     0,
 	}
 }
 
@@ -296,9 +296,9 @@ func (r *Router) Close() error {
 // registered backend and the router in a single map.
 func (r *Router) Counters() map[string]int64 {
 	return map[string]int64{
-		"ratelimit_store_fallback":           r.counters.fallback.Load(),
-		"ratelimit_claim_nondeterministic":   int64(ClaimNondeterministicCount()),
-		"ratelimit_claims_unmarshal_errors":  r.counters.claimsUnmarshal.Load(),
+		"ratelimit_store_fallback_total":           r.counters.fallback.Load(),
+		"ratelimit_claim_nondeterministic_total":   int64(ClaimNondeterministicCount()),
+		"ratelimit_claims_unmarshal_errors_total":  r.counters.claimsUnmarshal.Load(),
 	}
 }
 
@@ -322,9 +322,9 @@ func (r *Router) CountersAll() map[string]map[string]int64 {
 		out[id] = s.Counters()
 	}
 	out["router"] = map[string]int64{
-		"ratelimit_store_fallback":           r.counters.fallback.Load(),
-		"ratelimit_claim_nondeterministic":   int64(ClaimNondeterministicCount()),
-		"ratelimit_claims_unmarshal_errors":  r.counters.claimsUnmarshal.Load(),
+		"ratelimit_store_fallback_total":           r.counters.fallback.Load(),
+		"ratelimit_claim_nondeterministic_total":   int64(ClaimNondeterministicCount()),
+		"ratelimit_claims_unmarshal_errors_total":  r.counters.claimsUnmarshal.Load(),
 	}
 
 	return out

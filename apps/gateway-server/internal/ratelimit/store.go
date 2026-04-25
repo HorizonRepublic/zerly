@@ -37,20 +37,28 @@ type Store interface {
 	Close() error
 
 	// Counters returns a point-in-time snapshot of internal metric
-	// counters for OpenTelemetry export. Keys are stable metric
-	// names — dashboards rely on the schema staying constant across
-	// gateway restarts and across backend swaps.
+	// counters for OpenTelemetry / Prometheus export. Keys are stable
+	// metric names — dashboards rely on the schema staying constant
+	// across gateway restarts and across backend swaps.
+	//
+	// Naming convention: monotonic counter keys MUST end in the
+	// `_total` suffix (Prometheus / OpenMetrics / OTel semantic
+	// convention). Gauge keys end in a unit suffix (`_seconds`,
+	// `_bytes`) or a state name (e.g. `_state`). Counters that ship
+	// without `_total` now would force a breaking rename once the
+	// OTel exporter lands, invalidating every dashboard and alert
+	// built on top of them.
 	//
 	// Implementations MUST include at minimum:
-	//   - ratelimit_<backend>_decisions_allowed
-	//   - ratelimit_<backend>_decisions_rejected
-	//   - ratelimit_<backend>_backend_errors
+	//   - ratelimit_<backend>_decisions_allowed_total
+	//   - ratelimit_<backend>_decisions_rejected_total
+	//   - ratelimit_<backend>_backend_errors_total
 	// where <backend> is the registered backend id (memory, natskv,
 	// ...). Backends with no concept of remote failure (e.g. memory)
-	// MUST still surface backend_errors with value 0 so a dashboard
-	// graphing the metric across backends does not go dark on a
-	// memory-only deployment. Additional, backend-specific keys are
-	// allowed and use the same prefixed shape.
+	// MUST still surface backend_errors_total with value 0 so a
+	// dashboard graphing the metric across backends does not go dark
+	// on a memory-only deployment. Additional, backend-specific keys
+	// are allowed and use the same prefixed shape.
 	//
 	// Returned maps are safe to mutate; each call allocates a fresh
 	// snapshot.

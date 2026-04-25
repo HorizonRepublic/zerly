@@ -886,9 +886,9 @@ func (f *fakeRateLimiter) Close() error { return nil }
 
 func (f *fakeRateLimiter) Counters() map[string]int64 {
 	return map[string]int64{
-		"ratelimit_fake_decisions_allowed":  0,
-		"ratelimit_fake_decisions_rejected": 0,
-		"ratelimit_fake_backend_errors":     0,
+		"ratelimit_fake_decisions_allowed_total":  0,
+		"ratelimit_fake_decisions_rejected_total": 0,
+		"ratelimit_fake_backend_errors_total":     0,
 	}
 }
 
@@ -1948,7 +1948,7 @@ func TestHandler_ClaimsUnmarshalBumpsCounter(t *testing.T) {
 	}
 
 	counters := router.Counters()
-	assert.Equal(t, int64(3), counters["ratelimit_claims_unmarshal_errors"],
+	assert.Equal(t, int64(3), counters["ratelimit_claims_unmarshal_errors_total"],
 		"three unmarshal failures must tick the counter three times")
 }
 

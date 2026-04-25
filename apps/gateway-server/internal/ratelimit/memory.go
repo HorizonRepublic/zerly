@@ -138,9 +138,9 @@ func (s *MemoryStore) Close() error {
 // memory-only pod.
 func (s *MemoryStore) Counters() map[string]int64 {
 	return map[string]int64{
-		"ratelimit_memory_decisions_allowed":  s.counters.allowed.Load(),
-		"ratelimit_memory_decisions_rejected": s.counters.rejected.Load(),
-		"ratelimit_memory_backend_errors":     0,
+		"ratelimit_memory_decisions_allowed_total":  s.counters.allowed.Load(),
+		"ratelimit_memory_decisions_rejected_total": s.counters.rejected.Load(),
+		"ratelimit_memory_backend_errors_total":     0,
 	}
 }
 

@@ -266,7 +266,7 @@ func TestNATSKVStore_CorruptTATRecoversAndLogs(t *testing.T) {
 	assert.True(t, d.Allowed, "fresh bucket allows the first request")
 	assert.Equal(t, int64(1), sut.counters.corruptTAT.Load(),
 		"corrupt-TAT counter must tick so operators see the recovery")
-	assert.Contains(t, sut.Counters(), "ratelimit_natskv_corrupt_tat",
+	assert.Contains(t, sut.Counters(), "ratelimit_natskv_corrupt_tat_total",
 		"corrupt-TAT counter must appear in the Counters snapshot for OTel export")
 
 	// Walk the JSON-structured log lines and assert the warn record
@@ -355,7 +355,7 @@ func TestNATSKVStore_CASMaxAttemptsDistinctFromBudget(t *testing.T) {
 		"hitting the attempt cap must bump the dedicated counter, not budgetExhausted")
 	assert.Equal(t, int64(0), sut.counters.budgetExhausted.Load(),
 		"attempt-cap exhaustion must not pollute the time-budget counter")
-	assert.Contains(t, sut.Counters(), "ratelimit_natskv_cas_attempts_exceeded",
+	assert.Contains(t, sut.Counters(), "ratelimit_natskv_cas_attempts_exceeded_total",
 		"the counter must surface in the snapshot for OTel export")
 }
 
@@ -467,9 +467,9 @@ func TestNATSKVStore_CountersIncludeMinimumSchema(t *testing.T) {
 	sut := testNATSKVStore(t, kv)
 
 	c := sut.Counters()
-	assert.Contains(t, c, "ratelimit_natskv_decisions_allowed")
-	assert.Contains(t, c, "ratelimit_natskv_decisions_rejected")
-	assert.Contains(t, c, "ratelimit_natskv_backend_errors")
+	assert.Contains(t, c, "ratelimit_natskv_decisions_allowed_total")
+	assert.Contains(t, c, "ratelimit_natskv_decisions_rejected_total")
+	assert.Contains(t, c, "ratelimit_natskv_backend_errors_total")
 }
 
 func TestNATSKVStore_BreakerOpensAfterFailures(t *testing.T) {
