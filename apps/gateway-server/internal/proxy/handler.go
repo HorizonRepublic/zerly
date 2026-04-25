@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -56,6 +57,15 @@ type HandlerConfig struct {
 // HandlerConfig, so Handle is trivially unit-testable with fakes.
 type Handler struct {
 	cfg HandlerConfig
+	// claimsUnmarshalLogged dedupes the per-route
+	// "ratelimit.claims.unmarshal_failed" WARN. Keys are
+	// `<method>:<pathTemplate>`; LoadOrStore decides whether the
+	// current goroutine emits the log line for that route. The
+	// underlying counter (Router.RecordClaimsUnmarshalError) still
+	// bumps per-request — only the log message is throttled so a
+	// misbehaving verifier under sustained load cannot DoS the log
+	// pipeline.
+	claimsUnmarshalLogged sync.Map
 }
 
 // NewHandler constructs a Handler from the supplied configuration.
@@ -331,13 +341,22 @@ func (h *Handler) applyRateLimitGate(
 		// while open-on-error deployments fall back to IP and emit
 		// the WARN line below for operator visibility.
 		h.cfg.RateLimiter.RecordClaimsUnmarshalError()
-		h.cfg.Logger.Warn().
-			Err(claimsErr).
-			Str("event", "ratelimit.claims.unmarshal_failed").
-			Str("route", route.Method+":"+route.PathTemplate).
-			Strs("key_by", route.RateLimit.KeyBy).
-			Str("claims_preview", previewClaimsForLog(claims)).
-			Msg("ratelimit: verifier claims failed to unmarshal; routing through FailPolicy")
+		// Per-route WARN dedupe: first goroutine to observe the
+		// failure on this route emits the log line; subsequent
+		// requests on the same route only tick the counter. A
+		// misbehaving verifier at 10k RPS would otherwise emit 10k
+		// identical WARN lines per second — swamping the log pipeline
+		// while conveying exactly one piece of actionable information.
+		routeKey := route.Method + ":" + route.PathTemplate
+		if _, alreadyLogged := h.claimsUnmarshalLogged.LoadOrStore(routeKey, struct{}{}); !alreadyLogged {
+			h.cfg.Logger.Warn().
+				Err(claimsErr).
+				Str("event", "ratelimit.claims.unmarshal_failed").
+				Str("route", routeKey).
+				Strs("key_by", route.RateLimit.KeyBy).
+				Str("claims_preview", previewClaimsForLog(claims)).
+				Msg("ratelimit: verifier claims failed to unmarshal; routing through FailPolicy")
+		}
 
 		allowed := h.cfg.RateLimiter.FailPolicy().Apply(claimsErr, route, rlKey, h.cfg.Logger)
 

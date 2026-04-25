@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -1898,6 +1899,64 @@ func TestHandler_ClaimsUnmarshalFailsClosedReturns503(t *testing.T) {
 	assert.Equal(t, 503, result.Status,
 		"closed FailPolicy must reject when claims fail to unmarshal")
 	assert.Equal(t, []string{"5"}, result.Headers["X-RateLimit-Limit"])
+}
+
+// TestHandler_ClaimsUnmarshalDedupesPerRoute pins that a misbehaving
+// verifier under sustained load produces ONE WARN line per route, not
+// one per request. The counter still ticks per request so operators
+// see the magnitude — the dedupe only throttles the log spam.
+func TestHandler_ClaimsUnmarshalDedupesPerRoute(t *testing.T) {
+	verifierSubject := "auth-svc__microservice.cmd.auth.verifier.jwt"
+	routeSubject := "users-svc__microservice.cmd.users.me"
+
+	nats := newFakeNats()
+	nats.program(
+		verifierSubject,
+		[]byte(`{"status":200,"headers":{},"body":"not-an-object"}`),
+		nil,
+	)
+
+	route := routing.Route{
+		Subject:      routeSubject,
+		Method:       "GET",
+		PathTemplate: "/users/me",
+		Auth:         &routing.RouteAuth{VerifierSubject: verifierSubject},
+		RateLimit: &registry.RateLimitMeta{
+			RPS: 5, Burst: 10,
+			KeyBy: []string{"user:id", "ip"},
+		},
+	}
+
+	rl := newOncePerKeyLimiter()
+	router := routerWithStoreAndPolicy(t, rl, ratelimit.FailPolicyOpen)
+
+	var buf bytes.Buffer
+	logger := zerolog.New(&buf)
+
+	h := NewHandler(HandlerConfig{
+		Table:       func() routing.Table { return stubTable(route) },
+		Nats:        nats,
+		Encoder:     NewDefaultEncoder(),
+		Decoder:     NewDefaultDecoder(),
+		Timeout:     30 * time.Second,
+		Logger:      logger,
+		RateLimiter: router,
+	})
+
+	for range 5 {
+		in := authServeInput("GET", "/users/me")
+		in.RemoteAddr = "10.0.0.1"
+		in.Headers["authorization"] = "Bearer tok"
+		h.Handle(context.Background(), in)
+	}
+
+	logged := strings.Count(buf.String(), "ratelimit.claims.unmarshal_failed")
+	assert.Equal(t, 1, logged,
+		"five identical unmarshal failures must emit exactly one WARN per route")
+
+	counters := router.Counters()
+	assert.Equal(t, int64(5), counters["ratelimit_claims_unmarshal_errors_total"],
+		"counter must still tick on every failure regardless of log dedupe")
 }
 
 // TestHandler_ClaimsUnmarshalBumpsCounter pins the observability
