@@ -82,6 +82,14 @@ func main() {
 		logger,
 	)
 
+	// readyFlag flips to true once the first watcher snapshot lands.
+	// /readyz returns 503 until then so K8s does not route production
+	// traffic to a process whose routing table is still empty —
+	// every request would otherwise resolve to the catch-all 404,
+	// which the load balancer cannot distinguish from "all routes
+	// genuinely unmatched".
+	var readyFlag atomic.Bool
+
 	// Register the rate-limit ensure callback BEFORE Start so the
 	// initial-snapshot path inside Start fires the callback together
 	// with the routing rebuild — not after, which would leave a
@@ -89,6 +97,7 @@ func main() {
 	// Router has not yet registered.
 	watcher.OnChange(func() {
 		ensureRateLimitBackends(retryCtx, rlRouter, store, cfg, js, logger)
+		readyFlag.Store(true)
 	})
 
 	if err := watcher.Start(retryCtx); err != nil {
@@ -107,7 +116,12 @@ func main() {
 
 	requester := buildRequesterOrDie(nc, logger)
 	handler := buildProxyHandler(cfg, currentTable, requester, rlRouter, logger)
-	httpServer, err := httptransport.NewServer(cfg, handler, logger)
+	httpServer, err := httptransport.NewServer(
+		cfg,
+		handler,
+		httptransport.ReadinessFunc(readyFlag.Load),
+		logger,
+	)
 	if err != nil {
 		logger.Fatal().Err(err).Msg("http server construction failed")
 	}

@@ -50,7 +50,7 @@ func TestServer_MaxHeaderBytes_RejectsOversizedHeaderWith431(t *testing.T) {
 	require.NoError(t, ln.Close())
 
 	handler := noopProxyHandler(t)
-	h, err := NewServer(cfg, handler, zerolog.Nop())
+	h, err := NewServer(cfg, handler, nil, zerolog.Nop())
 	require.NoError(t, err)
 
 	var serverErr atomic.Value
