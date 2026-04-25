@@ -331,3 +331,143 @@ func TestNATSKVStore_Integration_ConcurrentCASConflict(t *testing.T) {
 	assert.LessOrEqual(t, allowed, goroutines,
 		"admitted count cannot exceed the number of contenders")
 }
+
+// TestNATSKVStore_Integration_FlushPrefixDeletesMatchingKeys exercises
+// the prefix-sweep used by the registry hot-reload path: when a route's
+// rate-limit config changes, the gateway flushes every bucket whose key
+// shares the route's prefix so a tightened limit cannot keep honouring
+// burst tokens accumulated under the previous config. Keys outside the
+// prefix MUST be left intact — the sweep is per-route, not bucket-wide.
+func TestNATSKVStore_Integration_FlushPrefixDeletesMatchingKeys(t *testing.T) {
+	t.Parallel()
+
+	js := setupJetStream(t)
+	ctx := context.Background()
+
+	sut, err := NewNATSKVStore(ctx, NATSKVStoreConfig{
+		JS:            js,
+		HandlerBucket: "handler_registry",
+		BucketSuffix:  "_ratelimit",
+		KeyTTL:        1 * time.Minute,
+		Logger:        zerolog.Nop(),
+	})
+	require.NoError(t, err)
+
+	kv, err := js.KeyValue(ctx, "handler_registry_ratelimit")
+	require.NoError(t, err)
+
+	// Pre-load the bucket through the raw KV API so the seed bytes
+	// don't need to satisfy the GCRA TAT format — FlushPrefix is a
+	// dispatch-layer operation that operates on key names, not values.
+	// NATS KV restricts the key alphabet (no ':'), so the seed names
+	// use the period-separated schema BuildBucketKey already produces.
+	_, err = kv.Put(ctx, "prefix.a", []byte("seed-a"))
+	require.NoError(t, err)
+	_, err = kv.Put(ctx, "prefix.b", []byte("seed-b"))
+	require.NoError(t, err)
+	_, err = kv.Put(ctx, "other.c", []byte("seed-c"))
+	require.NoError(t, err)
+
+	require.NoError(t, sut.FlushPrefix(ctx, "prefix."))
+
+	_, err = kv.Get(ctx, "prefix.a")
+	assert.ErrorIs(t, err, jetstream.ErrKeyNotFound,
+		"prefix.a must be deleted after FlushPrefix")
+	_, err = kv.Get(ctx, "prefix.b")
+	assert.ErrorIs(t, err, jetstream.ErrKeyNotFound,
+		"prefix.b must be deleted after FlushPrefix")
+
+	survivor, err := kv.Get(ctx, "other.c")
+	require.NoError(t, err, "keys outside the prefix must survive the sweep")
+	assert.Equal(t, []byte("seed-c"), survivor.Value())
+}
+
+// TestOpenOrCreateRatelimitBucket_Integration_LazyCreateThenReuse pins
+// the idempotent-startup contract: the first call against a fresh JS
+// account creates the bucket and reports created=true; the second call
+// against the now-populated account returns the same bucket and reports
+// created=false. This is the boot path every gateway replica walks
+// through, and a regression that always re-creates would either fail
+// the second replica with ErrBucketExists or wipe TAT state on every
+// pod restart.
+func TestOpenOrCreateRatelimitBucket_Integration_LazyCreateThenReuse(t *testing.T) {
+	t.Parallel()
+
+	js := setupJetStream(t)
+	ctx := context.Background()
+
+	const (
+		bucket   = "custom_handler_bucket_ratelimit"
+		replicas = 1
+		ttl      = 30 * time.Second
+	)
+
+	first, created, err := openOrCreateRatelimitBucket(ctx, js, bucket, replicas, ttl)
+	require.NoError(t, err)
+	require.NotNil(t, first)
+	assert.True(t, created, "first call must report a fresh creation")
+
+	// Confirm the bucket actually materialised with the requested
+	// configuration before the reuse path is exercised. This makes a
+	// regression that returns the wrong handle obvious here rather
+	// than at a downstream Get/Put.
+	status, err := first.Status(ctx)
+	require.NoError(t, err)
+
+	bucketStatus, ok := status.(*jetstream.KeyValueBucketStatus)
+	require.True(t, ok)
+
+	info := bucketStatus.StreamInfo()
+	require.NotNil(t, info)
+	assert.Equal(t, replicas, info.Config.Replicas,
+		"created bucket must inherit the requested replica count")
+	assert.Equal(t, ttl, info.Config.MaxAge,
+		"created bucket MaxAge must mirror the configured KeyTTL")
+
+	second, created, err := openOrCreateRatelimitBucket(ctx, js, bucket, replicas, ttl)
+	require.NoError(t, err)
+	require.NotNil(t, second)
+	assert.False(t, created, "second call must reuse the existing bucket, not recreate")
+}
+
+// TestNewNATSKVStore_Integration_CustomBucketSuffix wires the full
+// constructor with a non-default suffix and asserts the bucket name
+// derivation (HandlerBucket + BucketSuffix) materialises the expected
+// downstream bucket. A regression in the suffix derivation would
+// silently land all rate-limit state in the handler bucket itself,
+// which corrupts the registry payload.
+func TestNewNATSKVStore_Integration_CustomBucketSuffix(t *testing.T) {
+	t.Parallel()
+
+	js := setupJetStream(t)
+	ctx := context.Background()
+
+	const suffix = "_rl_v2"
+
+	sut, err := NewNATSKVStore(ctx, NATSKVStoreConfig{
+		JS:            js,
+		HandlerBucket: "handler_registry",
+		BucketSuffix:  suffix,
+		KeyTTL:        30 * time.Second,
+		Logger:        zerolog.Nop(),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, sut)
+
+	// The constructor must have created the suffixed bucket; opening
+	// it directly proves the name derivation is correct.
+	_, err = js.KeyValue(ctx, "handler_registry"+suffix)
+	require.NoError(t, err, "constructor must materialise the suffixed bucket")
+
+	// A second call with the same config exercises the existing-bucket
+	// branch in openOrCreateRatelimitBucket.
+	again, err := NewNATSKVStore(ctx, NATSKVStoreConfig{
+		JS:            js,
+		HandlerBucket: "handler_registry",
+		BucketSuffix:  suffix,
+		KeyTTL:        30 * time.Second,
+		Logger:        zerolog.Nop(),
+	})
+	require.NoError(t, err, "reopening an existing bucket must succeed")
+	require.NotNil(t, again)
+}
