@@ -12,6 +12,7 @@ import (
 
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/rs/zerolog"
+	"github.com/sony/gobreaker"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -470,6 +471,92 @@ func TestNATSKVStore_CountersIncludeMinimumSchema(t *testing.T) {
 	assert.Contains(t, c, "ratelimit_natskv_decisions_allowed_total")
 	assert.Contains(t, c, "ratelimit_natskv_decisions_rejected_total")
 	assert.Contains(t, c, "ratelimit_natskv_backend_errors_total")
+}
+
+// TestStateToInt pins the gobreaker.State → int mapping that backs
+// the circuit_state gauge. The dashboard reads the gauge to render
+// breaker status; a swapped mapping (open=0 instead of open=2) would
+// silently invert the alert. Defensive default is closed: an unknown
+// state value MUST NOT surface as "open" and falsely page on a
+// healthy backend.
+func TestStateToInt(t *testing.T) {
+	cases := []struct {
+		name  string
+		state gobreaker.State
+		want  int64
+	}{
+		{"closed maps to 0", gobreaker.StateClosed, breakerStateClosed},
+		{"half-open maps to 1", gobreaker.StateHalfOpen, breakerStateHalfOpen},
+		{"open maps to 2", gobreaker.StateOpen, breakerStateOpen},
+		{
+			"unknown state defaults to closed",
+			gobreaker.State(99),
+			breakerStateClosed,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, stateToInt(tc.state))
+		})
+	}
+}
+
+// TestIsJSRevisionConflict pins the error-discrimination contract on
+// jsKVAdapter Create/Update. A revision conflict (KeyExists, KeyDeleted,
+// raw APIError carrying JSErrCodeStreamWrongLastSequence) MUST translate
+// to errCASConflict so the CAS retry loop gets a chance to read-modify-
+// write again. Any other error MUST surface as a real backend fault so
+// the breaker accounts for it.
+func TestIsJSRevisionConflict(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"nil is never a conflict", nil, false},
+		{"ErrKeyExists sentinel", jetstream.ErrKeyExists, true},
+		{"ErrKeyDeleted sentinel", jetstream.ErrKeyDeleted, true},
+		{
+			"ErrKeyExists wrapped via fmt.Errorf",
+			fmt.Errorf("kv create %q: %w", "k", jetstream.ErrKeyExists),
+			true,
+		},
+		{
+			"ErrKeyDeleted wrapped via fmt.Errorf",
+			fmt.Errorf("kv update %q: %w", "k", jetstream.ErrKeyDeleted),
+			true,
+		},
+		{
+			"raw APIError with JSErrCodeStreamWrongLastSequence",
+			&jetstream.APIError{ErrorCode: jetstream.JSErrCodeStreamWrongLastSequence},
+			true,
+		},
+		{
+			"APIError with unrelated code is not a conflict",
+			&jetstream.APIError{ErrorCode: jetstream.JSErrCodeStreamNotFound},
+			false,
+		},
+		{"plain unrelated error", errors.New("network down"), false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, isJSRevisionConflict(tc.err))
+		})
+	}
+}
+
+// TestNATSKVStore_CloseIsIdempotentNoOp pins the documented Close
+// contract: the production NATSKVStore Close is a no-op (the JS handle
+// is owned by the caller, not the store) and MUST be safely callable
+// multiple times so deferred shutdown chains do not surface a spurious
+// error on the second invocation.
+func TestNATSKVStore_CloseIsIdempotentNoOp(t *testing.T) {
+	sut := testNATSKVStore(t, newFakeKV())
+
+	require.NoError(t, sut.Close(), "first Close must succeed")
+	require.NoError(t, sut.Close(), "second Close must remain a no-op")
 }
 
 func TestNATSKVStore_BreakerOpensAfterFailures(t *testing.T) {

@@ -367,6 +367,65 @@ func TestRouter_ClosedSentinelReturnsDefensibleDecision(t *testing.T) {
 		"closed sentinel ResetAt must be a real Unix-epoch timestamp")
 }
 
+// TestClosedStore_CountersExposesMinimumSchemaWithZeros pins the
+// dashboard parity contract for the post-Close sentinel: even though
+// the closed sentinel never serves real traffic, its Counters call
+// MUST emit the same minimum-schema keys every other backend exports
+// so a metric pipeline aggregating `Counters` across the router's
+// lifetime does not see keys disappear after shutdown. All values are
+// zero because the sentinel has nothing to count.
+func TestClosedStore_CountersExposesMinimumSchemaWithZeros(t *testing.T) {
+	c := closedStore{}.Counters()
+
+	require.Len(t, c, 3, "closed sentinel exposes exactly the minimum-schema keys")
+	for _, key := range []string{
+		"ratelimit_closed_decisions_allowed_total",
+		"ratelimit_closed_decisions_rejected_total",
+		"ratelimit_closed_backend_errors_total",
+	} {
+		require.Contains(t, c, key, "minimum schema must include %q", key)
+		assert.Equal(t, int64(0), c[key],
+			"closed sentinel never serves traffic so %q stays zero", key)
+	}
+}
+
+// TestRouter_FailPolicyAccessorRoundTrips pins the read-back contract
+// for the resolved Policy. A handler that needs to apply the configured
+// fail-policy after a Store.Allow error MUST be able to read the same
+// Policy NewRouter was constructed with — a closed-policy router MUST
+// NOT silently revert to the open-policy default through the accessor.
+func TestRouter_FailPolicyAccessorRoundTrips(t *testing.T) {
+	policy := FailPolicyClosed.Resolve()
+
+	r := NewRouter(policy, zerolog.Nop())
+	defer func() { _ = r.Close() }()
+
+	got := r.FailPolicy()
+	assert.IsType(t, closedPolicy{}, got,
+		"FailPolicy must round-trip the closed-policy resolution; receiving openPolicy would silently flip availability mode")
+	assert.Equal(t, policy, got,
+		"FailPolicy must return the same Policy value the router was constructed with")
+}
+
+// TestRouter_RecordClaimsUnmarshalErrorBumpsCounter exercises the
+// observability hook the proxy handler calls when a verifier claim
+// payload fails JSON unmarshal. Two calls must produce a delta of
+// exactly two on the dedicated counter so operators graphing the
+// metric see one tick per drop.
+func TestRouter_RecordClaimsUnmarshalErrorBumpsCounter(t *testing.T) {
+	r := NewRouter(FailPolicyOpen.Resolve(), zerolog.Nop())
+	defer func() { _ = r.Close() }()
+
+	before := r.Counters()["ratelimit_claims_unmarshal_errors_total"]
+
+	r.RecordClaimsUnmarshalError()
+	r.RecordClaimsUnmarshalError()
+
+	after := r.Counters()["ratelimit_claims_unmarshal_errors_total"]
+	assert.Equal(t, before+2, after,
+		"two RecordClaimsUnmarshalError calls must bump the counter by exactly 2")
+}
+
 func TestRouter_EnsureBackendAfterCloseRefuses(t *testing.T) {
 	r := NewRouter(FailPolicyOpen.Resolve(), zerolog.Nop())
 	require.NoError(t, r.Close())
