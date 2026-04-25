@@ -90,6 +90,24 @@ type Config struct {
 	// bytes, summed across all headers.
 	MaxHeaderBytes int `env:"HTTP_MAX_HEADER_BYTES" envDefault:"16384"`
 
+	// HTTPMaxConcurrentRequests caps the number of HTTP requests
+	// the gateway processes simultaneously. When the cap is reached
+	// the concurrency-limit middleware short-circuits new requests
+	// with 503 Service Unavailable + Retry-After: 1 — they never
+	// reach the trusted-proxy chain, the rate-limit gate, or the
+	// proxy handler.
+	//
+	// Defends against slowloris-style attacks that hold connections
+	// open without sending bytes (rate-limit cannot fire because no
+	// request body has been parsed yet) and against thundering-herd
+	// retries during upstream incidents (each in-flight request
+	// holds a goroutine + ~8 KB stack).
+	//
+	// Recommended production default: 10000. Zero disables the
+	// middleware (legacy unbounded behaviour). Negative values are
+	// rejected at Load().
+	HTTPMaxConcurrentRequests int `env:"HTTP_MAX_CONCURRENT_REQUESTS" envDefault:"10000"`
+
 	// TrustedProxiesRaw is the operator-facing `TRUSTED_PROXIES` env
 	// value kept verbatim for diagnostics (log dumps). Parsed into
 	// TrustedProxies by Load(). Supported forms: "" (trust nothing),
@@ -304,6 +322,10 @@ func Load() (*Config, error) {
 
 	if cfg.RateLimitMemoryMaxEntries < 0 {
 		return nil, fmt.Errorf("RATELIMIT_MEMORY_MAX_ENTRIES must be ≥ 0 (0 disables the cap), got %d", cfg.RateLimitMemoryMaxEntries)
+	}
+
+	if cfg.HTTPMaxConcurrentRequests < 0 {
+		return nil, fmt.Errorf("HTTP_MAX_CONCURRENT_REQUESTS must be ≥ 0 (0 disables the cap), got %d", cfg.HTTPMaxConcurrentRequests)
 	}
 
 	return cfg, nil

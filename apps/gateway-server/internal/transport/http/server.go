@@ -148,6 +148,15 @@ func NewServer(
 	h.GET("/healthz", liveHandler())
 	h.GET("/readyz", readyHandler(readiness))
 
+	// Concurrency limit runs FIRST in the middleware chain so a
+	// saturated semaphore short-circuits before the trusted-proxy
+	// middleware allocates header parsing or the rate-limit gate
+	// touches the store. Probe traffic above is registered
+	// upstream of Use() so health checks bypass the cap — a
+	// saturated gateway must still report ready/live so K8s does not
+	// restart it during the very incident the cap is defending against.
+	limiter := newConcurrencyLimitMiddleware(cfg.HTTPMaxConcurrentRequests)
+	h.Use(limiter.handler)
 	h.Use(newTrustedProxyMiddleware(cfg.TrustedProxies, cfg.TrustedProxyHeader))
 	h.Any("/*path", NewHertzAdapter(handler))
 

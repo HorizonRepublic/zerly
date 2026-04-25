@@ -141,6 +141,7 @@ All settings are environment variables, grouped by concern. The struct definitio
 | `HTTP_IDLE_TIMEOUT` | duration | `120s` | Keep-alive idle deadline before the server closes the connection. See `Config.IdleTimeout`. |
 | `HTTP_MAX_BODY_BYTES` | int64 | `1048576` | Max request body size in bytes; oversized requests get 413. See `Config.MaxBodyBytes`. |
 | `HTTP_MAX_HEADER_BYTES` | int | `16384` | Max header block size in bytes (sum across all headers). See `Config.MaxHeaderBytes`. |
+| `HTTP_MAX_CONCURRENT_REQUESTS` | int | `10000` | Max in-flight HTTP requests. When saturated the next request short-circuits with 503 + `Retry-After: 1` before reaching the trusted-proxy chain or rate-limit gate. Defends against slowloris and thundering-herd retries. Zero disables the cap. See `Config.HTTPMaxConcurrentRequests`. |
 
 ### Security / trusted proxy
 
