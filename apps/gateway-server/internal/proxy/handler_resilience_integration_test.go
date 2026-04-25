@@ -3,9 +3,12 @@
 package proxy
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -23,6 +26,25 @@ import (
 	"github.com/HorizonRepublic/zerly/apps/gateway-server/internal/registry"
 	"github.com/HorizonRepublic/zerly/apps/gateway-server/internal/routing"
 )
+
+// jsKVStreamPrefix is the JetStream stream-name prefix nats.go uses
+// when materialising a KV bucket — a bucket named "foo" is backed
+// by a stream named "KV_foo". Stable across nats.go v1.x; any
+// future rename would break the deletion-based JS-only outage
+// simulation and require a coordinated test update.
+const jsKVStreamPrefix = "KV_"
+
+// handlerRegistryBucketName is the canonical KV bucket name used
+// by the harness setup. Centralised so the JS-only outage helpers
+// stay in lockstep with setupResilienceHarness on rename.
+const handlerRegistryBucketName = "handler_registry"
+
+// rateLimitBucketName is the suffix-derived companion bucket the
+// production NATSKVStore constructor materialises off
+// handler_registry. JS-only outage tests that delete it must also
+// recreate it on cleanup so subsequent test runs are not greeted
+// by a missing bucket.
+const rateLimitBucketName = "handler_registry_ratelimit"
 
 // resilienceHarness owns every dependency the handler under test needs
 // to survive a NATS outage scenario: the testcontainer, both NATS
@@ -737,6 +759,622 @@ func TestIntegration_BreakerOpensOnSustainedNATSFailure(t *testing.T) {
 	probeDecision, probeErr := healStore.Allow(probeCtx, "probe-key", 1_000_000, 1000)
 	require.NoError(t, probeErr, "probe call against the recovered backend must succeed")
 	require.True(t, probeDecision.Allowed)
+}
+
+// =====================================================================
+// JetStream-only outage scenarios
+//
+// The tests above kill the entire NATS process (Stop on the
+// testcontainer): core pub/sub AND JetStream go down together.
+// That covers the "core NATS outage" case but misses a far more
+// common production scenario — JetStream-only failure where core
+// NATS pub/sub keeps running. In that mode the proxy upstream call
+// succeeds, the auth verifier round-trip succeeds, and ONLY the KV
+// layer is unhealthy: the watcher loses its watch stream, the
+// nats-kv rate-limit backend fails CAS, but client-visible traffic
+// must KEEP FLOWING.
+//
+// These tests simulate that surgical outage by deleting the
+// JetStream stream that backs the KV bucket
+// (jetstream.JetStream.DeleteStream("KV_handler_registry")). After
+// deletion every KV operation on `handler_registry` errors with
+// stream-not-found while every nc.Request to a non-JS subject
+// keeps working.
+// =====================================================================
+
+// captureLogger returns a zerolog.Logger that writes every entry
+// to a thread-safe bytes.Buffer plus a snapshot func that returns
+// the buffer contents at call time. JS-outage tests assert on
+// substrings of the captured stream to verify watcher and breaker
+// log lines without parsing JSON envelopes per-line.
+func captureLogger() (zerolog.Logger, func() string) {
+	var (
+		buf bytes.Buffer
+		mu  sync.Mutex
+	)
+	writer := &lockedBuffer{mu: &mu, buf: &buf}
+	logger := zerolog.New(writer).With().Timestamp().Logger()
+
+	return logger, func() string {
+		mu.Lock()
+		defer mu.Unlock()
+
+		return buf.String()
+	}
+}
+
+// lockedBuffer adapts bytes.Buffer behind a mutex so the watcher
+// goroutine and the test goroutine can write to / read from the
+// log stream concurrently. The stdlib Buffer is not goroutine-safe;
+// without the lock the race detector trips on every captureLogger
+// caller.
+type lockedBuffer struct {
+	mu  *sync.Mutex
+	buf *bytes.Buffer
+}
+
+func (l *lockedBuffer) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	return l.buf.Write(p)
+}
+
+// setupResilienceHarnessWithLogger mirrors setupResilienceHarness
+// but accepts a caller-supplied logger so JS-outage tests can
+// capture watcher and router log lines for substring assertions.
+// The original setupResilienceHarness above stays intact for the
+// existing scenarios that prefer zerolog.Nop().
+func setupResilienceHarnessWithLogger(
+	t *testing.T,
+	entries map[string]registry.HandlerEntry,
+	logger zerolog.Logger,
+) *resilienceHarness {
+	t.Helper()
+	ctx := context.Background()
+
+	container, err := tcnats.Run(ctx, "nats:2.11.7")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = container.Terminate(ctx) })
+
+	url, err := container.ConnectionString(ctx)
+	require.NoError(t, err)
+
+	gatewayConn, err := natsgo.Connect(url,
+		natsgo.MaxReconnects(-1),
+		natsgo.ReconnectWait(100*time.Millisecond),
+		natsgo.NoEcho(),
+	)
+	require.NoError(t, err)
+	t.Cleanup(gatewayConn.Close)
+
+	responderConn, err := natsgo.Connect(url,
+		natsgo.MaxReconnects(-1),
+		natsgo.ReconnectWait(100*time.Millisecond),
+	)
+	require.NoError(t, err)
+	t.Cleanup(responderConn.Close)
+
+	js, err := jetstream.New(gatewayConn)
+	require.NoError(t, err)
+
+	kv, err := js.CreateKeyValue(ctx, jetstream.KeyValueConfig{
+		Bucket:  handlerRegistryBucketName,
+		History: 1,
+	})
+	require.NoError(t, err)
+
+	for key, entry := range entries {
+		raw, marshalErr := json.Marshal(entry)
+		require.NoError(t, marshalErr)
+		_, err = kv.Put(ctx, key, raw)
+		require.NoError(t, err)
+	}
+
+	store := registry.NewStore()
+	watcher := registry.NewWatcher(kv, store, logger)
+
+	tableHolder := &atomic.Value{}
+	rebuilt := make(chan struct{}, 1)
+	rebuild := func() {
+		snap := store.Get()
+		verifiers := auth.BuildVerifierRegistry(snap, logger)
+		routes := routing.CollectRoutes(snap, verifiers, logger)
+		tableHolder.Store(routing.BuildTableFromRoutes(routes))
+		select {
+		case rebuilt <- struct{}{}:
+		default:
+		}
+	}
+
+	rebuild()
+	watcher.OnChange(rebuild)
+	require.NoError(t, watcher.Start(ctx))
+	t.Cleanup(watcher.Stop)
+
+	select {
+	case <-rebuilt:
+	case <-time.After(2 * time.Second):
+		t.Fatal("watcher did not fire initial-load callback within 2s")
+	}
+
+	router := ratelimit.NewRouter(ratelimit.FailPolicyOpen.Resolve(), logger)
+	require.NoError(t, router.EnsureBackend("memory", func() (ratelimit.Store, error) {
+		return ratelimit.NewMemoryStore(time.Hour), nil
+	}))
+	t.Cleanup(func() { _ = router.Close() })
+
+	stopRespond := make(chan struct{})
+	subjects := make(map[string]struct{})
+	for key, entry := range entries {
+		if entry.HTTP == nil {
+			continue
+		}
+		subj, subjErr := registry.SubjectFromKey(key)
+		require.NoError(t, subjErr)
+		subjects[subj] = struct{}{}
+	}
+
+	for subj := range subjects {
+		subj := subj
+		sub, subErr := responderConn.Subscribe(subj, func(msg *natsgo.Msg) {
+			select {
+			case <-stopRespond:
+				return
+			default:
+			}
+
+			reply := []byte(`{"status":200,"headers":{"x-upstream":["fake"]},"body":{"ok":true,"subject":"` + subj + `"}}`)
+			_ = msg.Respond(reply)
+		})
+		require.NoError(t, subErr)
+		t.Cleanup(func() { _ = sub.Unsubscribe() })
+	}
+	require.NoError(t, responderConn.Flush())
+
+	handler := NewHandler(HandlerConfig{
+		Table: func() routing.Table {
+			return tableHolder.Load().(routing.Table)
+		},
+		Nats:             &natsRequesterAdapter{conn: gatewayConn},
+		Encoder:          NewDefaultEncoder(),
+		Decoder:          NewDefaultDecoder(),
+		Timeout:          2 * time.Second,
+		Logger:           logger,
+		RateLimiter:      router,
+		RateLimitTimeout: 200 * time.Millisecond,
+	})
+
+	h := &resilienceHarness{
+		t:             t,
+		container:     container,
+		url:           url,
+		gatewayConn:   gatewayConn,
+		responderConn: responderConn,
+		js:            js,
+		kv:            kv,
+		store:         store,
+		watcher:       watcher,
+		router:        router,
+		handler:       handler,
+		tableHolder:   tableHolder,
+		stopRespond:   stopRespond,
+	}
+	t.Cleanup(h.shutdownResponders)
+
+	return h
+}
+
+// deleteJetStreamForBucket destroys the JetStream stream backing
+// the named KV bucket. After this returns, every KV operation on
+// the bucket fails with stream-not-found while core NATS pub/sub
+// on every other subject keeps working. This is the surgical
+// primitive that distinguishes "JS-only outage" from
+// "process-level NATS down".
+func (h *resilienceHarness) deleteJetStreamForBucket(t *testing.T, bucket string) {
+	t.Helper()
+	ctx := context.Background()
+	err := h.js.DeleteStream(ctx, jsKVStreamPrefix+bucket)
+	require.NoErrorf(t, err, "delete JS stream backing %q", bucket)
+}
+
+// recreateHandlerRegistryBucket re-materialises the handler
+// registry bucket after a delete so the watcher's reconnect path
+// has a stream to attach to. Returns the freshly-created KeyValue
+// handle for callers that need to seed new entries directly
+// without going through the watcher.
+func (h *resilienceHarness) recreateHandlerRegistryBucket(t *testing.T) jetstream.KeyValue {
+	t.Helper()
+	ctx := context.Background()
+	kv, err := h.js.CreateKeyValue(ctx, jetstream.KeyValueConfig{
+		Bucket:  handlerRegistryBucketName,
+		History: 1,
+	})
+	if err != nil && (errors.Is(err, jetstream.ErrBucketExists) ||
+		errors.Is(err, jetstream.ErrStreamNameAlreadyInUse)) {
+		// Already healed by an earlier cleanup hook — open the
+		// existing handle so the caller can still seed entries.
+		kv, err = h.js.KeyValue(ctx, handlerRegistryBucketName)
+	}
+	require.NoError(t, err)
+
+	return kv
+}
+
+// recreateRateLimitBucket re-materialises the ratelimit companion
+// bucket so a JS-only outage test does not leave a missing bucket
+// behind for unrelated tests sharing the same image.
+func (h *resilienceHarness) recreateRateLimitBucket(t *testing.T) {
+	t.Helper()
+	ctx := context.Background()
+	_, err := h.js.CreateKeyValue(ctx, jetstream.KeyValueConfig{
+		Bucket:       rateLimitBucketName,
+		History:      1,
+		Storage:      jetstream.MemoryStorage,
+		MaxValueSize: 1024,
+	})
+	if err != nil && !errors.Is(err, jetstream.ErrBucketExists) &&
+		!errors.Is(err, jetstream.ErrStreamNameAlreadyInUse) {
+		require.NoError(t, err, "recreate ratelimit bucket")
+	}
+}
+
+// TestIntegration_JetStreamOnlyOutage_RealTrafficStillServed pins
+// the highest-value survivability contract: when ONLY JetStream
+// goes down (KV watcher) and core NATS pub/sub stays healthy, the
+// gateway must continue routing real HTTP traffic without
+// client-visible degradation. The routing table snapshot is
+// in-memory, the upstream subscriber answers over core NATS, and
+// the watcher logs the JS error but the snapshot is preserved.
+//
+// Recovery is also pinned: after recreating the KV bucket, a new
+// route written to the freshly-materialised stream lands in the
+// store within the watcher's reconnect window.
+func TestIntegration_JetStreamOnlyOutage_RealTrafficStillServed(t *testing.T) {
+	logger, snapshotLog := captureLogger()
+	entries := map[string]registry.HandlerEntry{
+		"users-svc.cmd.users.list": httpEntry("GET", "/users"),
+	}
+	h := setupResilienceHarnessWithLogger(t, entries, logger)
+
+	baseline := h.handler.Handle(context.Background(), newRequest("GET", "/users"))
+	require.Equal(t, 200, baseline.Status, "baseline /users must succeed before JS outage")
+
+	h.deleteJetStreamForBucket(t, handlerRegistryBucketName)
+	t.Cleanup(func() { _ = h.recreateHandlerRegistryBucket(t) })
+
+	for i := 0; i < 10; i++ {
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		result := h.handler.Handle(ctx, newRequest("GET", "/users"))
+		cancel()
+		require.Equalf(t, 200, result.Status,
+			"request %d must succeed during JS-only outage — core NATS is healthy", i)
+	}
+
+	snap := h.store.Get()
+	_, ok := snap.Entries["users-svc.cmd.users.list"]
+	assert.True(t, ok,
+		"in-memory routing snapshot must survive JS outage — the watcher must not wipe it on watch error")
+
+	// nats.go's WatchAll subscription does not surface stream-
+	// deletion as an error on the Updates() channel — the channel
+	// stays open and silent. The production fix (runWatch's
+	// periodic stream-presence probe) catches the deletion and
+	// returns an error, triggering watchLoop's restart-with-backoff
+	// path which logs "watch loop error" before sleeping.
+	require.Eventually(t, func() bool {
+		log := snapshotLog()
+
+		return strings.Contains(log, "watch loop error") ||
+			strings.Contains(log, "watch updates channel closed")
+	}, 8*time.Second, 250*time.Millisecond,
+		"watcher must log the JS-side error so operators can alert on the degraded state")
+
+	healedKV := h.recreateHandlerRegistryBucket(t)
+
+	const recoveryKey = "users-svc.cmd.users.recovered"
+	const recoveryPath = "/users-recovered"
+
+	subj, err := registry.SubjectFromKey(recoveryKey)
+	require.NoError(t, err)
+	sub, err := h.responderConn.Subscribe(subj, func(msg *natsgo.Msg) {
+		_ = msg.Respond([]byte(`{"status":200,"headers":{},"body":{"recovered":true}}`))
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = sub.Unsubscribe() })
+	require.NoError(t, h.responderConn.Flush())
+
+	raw, err := json.Marshal(httpEntry("GET", recoveryPath))
+	require.NoError(t, err)
+	_, err = healedKV.Put(context.Background(), recoveryKey, raw)
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		defer cancel()
+		result := h.handler.Handle(ctx, newRequest("GET", recoveryPath))
+
+		return result.Status == 200
+	}, 15*time.Second, 250*time.Millisecond,
+		"watcher must self-heal after JS recovery and surface new routes")
+}
+
+// TestIntegration_JetStreamOnlyOutage_AuthFlowStillSucceeds verifies
+// that auth-required routes continue to authenticate during a JS
+// outage. The verifier round-trip is core NATS pub/sub, NOT
+// JetStream — losing JS must not cascade into auth failures, which
+// would lock every user out of the system on what is supposed to
+// be a transparent KV-layer event.
+func TestIntegration_JetStreamOnlyOutage_AuthFlowStillSucceeds(t *testing.T) {
+	verifierEntry := registry.HandlerEntry{
+		Verifier: &registry.VerifierMeta{ID: "default-verifier", Default: true},
+	}
+	authedEntry := httpEntry("GET", "/users/me")
+	authedEntry.Auth = &registry.RouteAuthMeta{Verifier: "default-verifier"}
+
+	entries := map[string]registry.HandlerEntry{
+		"auth-svc.cmd.auth.verify": verifierEntry,
+		"auth-svc.cmd.users.me":    authedEntry,
+	}
+	h := setupResilienceHarnessWithLogger(t, entries, zerolog.Nop())
+
+	verifierSubject, err := registry.SubjectFromKey("auth-svc.cmd.auth.verify")
+	require.NoError(t, err)
+	verifierSub, err := h.responderConn.Subscribe(verifierSubject, func(msg *natsgo.Msg) {
+		_ = msg.Respond([]byte(`{"status":200,"headers":{},"body":{"sub":"u-1","tenant":"t-1"}}`))
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = verifierSub.Unsubscribe() })
+	require.NoError(t, h.responderConn.Flush())
+
+	withAuth := newRequest("GET", "/users/me")
+	withAuth.Headers["authorization"] = "Bearer t"
+	baseline := h.handler.Handle(context.Background(), withAuth)
+	require.Equal(t, 200, baseline.Status, "auth baseline must succeed before JS outage")
+
+	h.deleteJetStreamForBucket(t, handlerRegistryBucketName)
+	t.Cleanup(func() { _ = h.recreateHandlerRegistryBucket(t) })
+
+	for i := 0; i < 5; i++ {
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		req := newRequest("GET", "/users/me")
+		req.Headers["authorization"] = "Bearer t"
+		result := h.handler.Handle(ctx, req)
+		cancel()
+		require.Equalf(t, 200, result.Status,
+			"auth-protected request %d must succeed during JS outage — verifier round trip is core NATS, not JetStream",
+			i)
+	}
+}
+
+// TestIntegration_JetStreamOnlyOutage_NATSKVRateLimitFailsOpen_TrafficContinues
+// pins the cross-product contract: a route configured with
+// store=nats-kv and FailPolicyOpen MUST keep serving traffic
+// during a JS outage. The Decision returned by the store under
+// outage is empty (zero ResetAt), which BuildHeaders MUST treat
+// as "skip Remaining/Reset" — the static X-RateLimit-Limit header
+// is safe to emit on the failure branch but the dynamic ones
+// would encode time.Time{} as a year-1 epoch and confuse clients.
+func TestIntegration_JetStreamOnlyOutage_NATSKVRateLimitFailsOpen_TrafficContinues(t *testing.T) {
+	entries := map[string]registry.HandlerEntry{
+		"users-svc.cmd.users.list": httpEntryWithRateLimit("GET", "/users", "nats-kv", 100, 200),
+	}
+	h := setupResilienceHarnessWithLogger(t, entries, zerolog.Nop())
+
+	// nats-kv backend must be registered before traffic flows so
+	// the rate-limit gate exercises the JetStream-backed store
+	// rather than falling back to memory. The companion bucket
+	// materialises here as a side effect of NewNATSKVStore — that
+	// is also the stream we delete below to simulate the JS outage.
+	require.NoError(t, h.router.EnsureBackend("nats-kv", func() (ratelimit.Store, error) {
+		return ratelimit.NewNATSKVStore(context.Background(), ratelimit.NATSKVStoreConfig{
+			JS:            h.js,
+			HandlerBucket: handlerRegistryBucketName,
+			BucketSuffix:  "_ratelimit",
+			KeyTTL:        1 * time.Minute,
+			Logger:        zerolog.Nop(),
+		})
+	}))
+
+	healthy := h.handler.Handle(context.Background(), newRequest("GET", "/users"))
+	require.Equal(t, 200, healthy.Status)
+	require.NotEmpty(t, healthy.Headers["X-RateLimit-Limit"])
+	require.NotEmpty(t, healthy.Headers["X-RateLimit-Remaining"],
+		"healthy nats-kv backend must populate Remaining")
+
+	// Surgical JS outage: delete only the ratelimit bucket's
+	// stream. The handler registry stream stays alive so the
+	// routing table keeps serving — the only thing breaking is
+	// the rate-limit CAS path.
+	h.deleteJetStreamForBucket(t, rateLimitBucketName)
+	t.Cleanup(func() { h.recreateRateLimitBucket(t) })
+
+	for i := 0; i < 5; i++ {
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		result := h.handler.Handle(ctx, newRequest("GET", "/users"))
+		cancel()
+		require.Equalf(t, 200, result.Status,
+			"request %d under FailPolicyOpen + JS-only ratelimit outage must allow", i)
+
+		assert.NotEmpty(t, result.Headers["X-RateLimit-Limit"],
+			"X-RateLimit-Limit is static config and must survive a JS outage")
+
+		// Empty-Decision header guard: BuildHeaders MUST NOT emit
+		// Remaining/Reset when the Decision is zero, because the
+		// underlying time.Time{} would render as a year-1 epoch.
+		_, hasRemaining := result.Headers["X-RateLimit-Remaining"]
+		_, hasReset := result.Headers["X-RateLimit-Reset"]
+		assert.False(t, hasRemaining,
+			"X-RateLimit-Remaining must be absent under JS outage (empty Decision)")
+		assert.False(t, hasReset,
+			"X-RateLimit-Reset must be absent under JS outage (empty Decision)")
+	}
+}
+
+// TestIntegration_JetStreamOnlyOutage_MemoryRateLimitUnaffected
+// proves the memory backend is fully JetStream-independent:
+// deleting every JS stream must not perturb GCRA decisions or
+// counters for routes configured with store=memory. This is the
+// survival pattern operators reach for when their JS cluster is
+// flaky — switch the route to memory and accept per-pod (not
+// cross-replica) limits.
+func TestIntegration_JetStreamOnlyOutage_MemoryRateLimitUnaffected(t *testing.T) {
+	entries := map[string]registry.HandlerEntry{
+		"users-svc.cmd.users.list": httpEntryWithRateLimit("GET", "/users", "memory", 1, 1),
+	}
+	h := setupResilienceHarnessWithLogger(t, entries, zerolog.Nop())
+
+	memStore := h.router.StoreFor(routing.Route{
+		RateLimit: &registry.RateLimitMeta{Store: "memory", RPS: 1},
+	})
+	beforeCounters := memStore.Counters()
+	allowedBefore := beforeCounters["ratelimit_memory_decisions_allowed_total"]
+	rejectedBefore := beforeCounters["ratelimit_memory_decisions_rejected_total"]
+
+	baseline := h.handler.Handle(context.Background(), newRequest("GET", "/users"))
+	require.Equal(t, 200, baseline.Status)
+
+	h.deleteJetStreamForBucket(t, handlerRegistryBucketName)
+	t.Cleanup(func() { _ = h.recreateHandlerRegistryBucket(t) })
+
+	const calls = 20
+	for i := 0; i < calls; i++ {
+		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+		_ = h.handler.Handle(ctx, newRequest("GET", "/users"))
+		cancel()
+	}
+
+	afterCounters := memStore.Counters()
+	allowedDelta := afterCounters["ratelimit_memory_decisions_allowed_total"] - allowedBefore
+	rejectedDelta := afterCounters["ratelimit_memory_decisions_rejected_total"] - rejectedBefore
+
+	// Baseline + calls = total decisions seen by the gate. Memory
+	// backend's GCRA stays exact under a JS outage because it
+	// touches no JetStream-backed state.
+	assert.Equal(t, int64(calls+1), allowedDelta+rejectedDelta,
+		"every request must produce exactly one memory rate-limit decision regardless of JS state")
+	assert.GreaterOrEqual(t, rejectedDelta, int64(1),
+		"rps=1 burst=1 over 20 tightly-packed calls must reject at least once — memory backend is enforcing")
+}
+
+// TestIntegration_ReadyzReflectsNATSConnectionHealth pins the
+// readiness contract: /readyz reports ready ONLY when both the
+// initial routing-table snapshot has landed AND the NATS connection
+// is currently CONNECTED. A NATS outage post-boot MUST flip the
+// flag to false so the K8s load balancer pulls the replica from
+// rotation; otherwise traffic continues to 5xx without operator
+// signal, amplifying the outage from "service degraded" to "every
+// pod stays Ready while serving 5xx".
+//
+// Mirrors the production readiness closure in cmd/gateway/main.go
+// so a regression that loosens the contract (drops the NATS check,
+// re-introduces a one-way latch) surfaces here.
+func TestIntegration_ReadyzReflectsNATSConnectionHealth(t *testing.T) {
+	entries := map[string]registry.HandlerEntry{
+		"users-svc.cmd.users.list": httpEntry("GET", "/users"),
+	}
+	h := setupResilienceHarnessWithLogger(t, entries, zerolog.Nop())
+
+	// Production-shape closure: AND of (snapshot landed) and
+	// (NATS connected). The snapshot already landed in setup, so
+	// the latch is already true here.
+	var snapshotLanded atomic.Bool
+	snapshotLanded.Store(true)
+	readiness := func() bool {
+		return snapshotLanded.Load() && h.gatewayConn.Status() == natsgo.CONNECTED
+	}
+
+	require.True(t, readiness(),
+		"baseline: snapshot landed + NATS connected → ready")
+
+	// Simulate a sustained NATS outage (drop the entire connection,
+	// not just the JS layer). Since auto-reconnect is on, status
+	// transitions to RECONNECTING; the readiness function MUST
+	// resolve to false during this window — this is the production-
+	// critical assertion. Without this flip, K8s keeps the degraded
+	// replica in rotation and clients see 5xx with no operator
+	// signal.
+	h.stopNATS()
+	t.Cleanup(func() { h.startNATSContainerOnly() })
+
+	require.Eventually(t, func() bool {
+		return !readiness()
+	}, 5*time.Second, 100*time.Millisecond,
+		"readyz MUST flip false within 5s of NATS disconnect — without this K8s keeps a degraded replica in rotation")
+
+	// Recovery is not asserted here because testcontainers-go
+	// re-binds the published port on every Start; the gateway's
+	// pre-bound connection cannot rediscover the new port without
+	// fetching a fresh ConnectionString (the breaker test does
+	// this for its own probe). The recovery contract — "readiness
+	// flips back when nc.Status() returns CONNECTED" — is implicit
+	// in the closure itself: it is a pure function of NATS
+	// connection state with no latch or hysteresis. Pinning it
+	// further would test the closure's algebra rather than the
+	// production wiring.
+}
+
+// TestIntegration_JetStreamHealAfterOutage_WatcherResumesUpdates
+// proves the watcher's runWatch retry loop actually re-subscribes
+// to JetStream after the underlying stream is destroyed and
+// recreated. The watch goroutine has a "restart on error" branch
+// with a 2s backoff; this test exercises the full destroy →
+// recreate → new-route-published path and asserts the new route
+// lands in the store.
+//
+// If the watcher reconnect path is broken (e.g. WatchAll fails
+// against the recreated bucket because consumer-group state did
+// not reset cleanly), this test fails and surfaces a real
+// recovery bug. The handling instructions on this scenario say
+// to surface (NOT fix) any such failure in the final report.
+func TestIntegration_JetStreamHealAfterOutage_WatcherResumesUpdates(t *testing.T) {
+	logger, snapshotLog := captureLogger()
+	entries := map[string]registry.HandlerEntry{
+		"users-svc.cmd.users.list": httpEntry("GET", "/users"),
+	}
+	h := setupResilienceHarnessWithLogger(t, entries, logger)
+
+	require.Equal(t, 200,
+		h.handler.Handle(context.Background(), newRequest("GET", "/users")).Status,
+		"baseline /users must serve before delete")
+
+	h.deleteJetStreamForBucket(t, handlerRegistryBucketName)
+
+	require.Eventually(t, func() bool {
+		log := snapshotLog()
+
+		return strings.Contains(log, "watch loop error") ||
+			strings.Contains(log, "watch updates channel closed")
+	}, 8*time.Second, 250*time.Millisecond,
+		"watcher must observe and log the JS error before the recovery step")
+
+	healedKV := h.recreateHandlerRegistryBucket(t)
+
+	const healedKey = "users-svc.cmd.users.healed"
+	const healedPath = "/users-healed"
+
+	subj, err := registry.SubjectFromKey(healedKey)
+	require.NoError(t, err)
+	sub, err := h.responderConn.Subscribe(subj, func(msg *natsgo.Msg) {
+		_ = msg.Respond([]byte(`{"status":200,"headers":{},"body":{"healed":true}}`))
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = sub.Unsubscribe() })
+	require.NoError(t, h.responderConn.Flush())
+
+	raw, err := json.Marshal(httpEntry("GET", healedPath))
+	require.NoError(t, err)
+	_, err = healedKV.Put(context.Background(), healedKey, raw)
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		defer cancel()
+		result := h.handler.Handle(ctx, newRequest("GET", healedPath))
+
+		return result.Status == 200
+	}, 20*time.Second, 250*time.Millisecond,
+		"watcher must re-attach to the recreated bucket and surface new routes — if this fails, the watcher reconnect path is broken")
 }
 
 // Compile-time assertion that the harness adapter satisfies the

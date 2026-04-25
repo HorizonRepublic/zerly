@@ -34,6 +34,28 @@ var ErrWatcherStopped = errors.New("registry: watcher stopped")
 // MaxAge, which at 15s + 30s caps operator-visible lag at 45s.
 const reconcileInterval = 15 * time.Second
 
+// streamProbeInterval is how often the watcher pings the underlying
+// JetStream KV bucket via Status() to detect stream-level outages
+// that nats.go's WatchAll subscription does NOT surface as a closed
+// Updates() channel.
+//
+// Empirically observed failure mode: when the stream backing the KV
+// bucket is deleted (operator action, JetStream cluster failover, or
+// retention reset), the WatchAll subscription stays open and silent —
+// no error, no channel close, no notification. Without an explicit
+// probe the watch goroutine hangs indefinitely on <-Updates(), gateway
+// cannot pick up new routes, and the only operator-visible signal is
+// "/readyz still returns 200 but no traffic flows".
+//
+// Status() is a lightweight metadata call against the KV stream and
+// returns ErrStreamNotFound (or similar) when the stream is gone.
+// We probe at a 3-second cadence so a stream-deletion event is
+// detected within at most 3s, triggering watchLoop's restart-with-
+// backoff path. The probe runs on the same goroutine as the watch
+// loop's Updates consumer, so it is naturally serialised with delta
+// application — no lock coordination needed.
+const streamProbeInterval = 3 * time.Second
+
 // ChangeCallback is invoked after every successful snapshot replacement.
 // Downstream layers (notably the routing-table builder in `routing`)
 // register a callback via Watcher.OnChange to rebuild their derived state
@@ -314,6 +336,16 @@ func (w *Watcher) runWatch(ctx context.Context) error {
 	reconcileTicker := time.NewTicker(reconcileInterval)
 	defer reconcileTicker.Stop()
 
+	// Stream-presence probe: nats.go's WatchAll does not signal stream
+	// deletion on the Updates() channel. Without an explicit probe the
+	// watcher silently hangs when the JetStream stream backing the KV
+	// bucket disappears (deletion, cluster failover, retention reset).
+	// The probe returns an error when the stream is gone, breaking the
+	// inner loop so watchLoop's restart-with-backoff can re-acquire the
+	// subscription against the recreated stream.
+	streamProbeTicker := time.NewTicker(streamProbeInterval)
+	defer streamProbeTicker.Stop()
+
 	// nats.go's JetStream KV watcher sends a nil entry once the initial
 	// replay of existing entries completes. We do not discard the replay
 	// entries: initialLoad may have run at T0 while a concurrent writer
@@ -327,6 +359,10 @@ func (w *Watcher) runWatch(ctx context.Context) error {
 			return nil
 		case <-reconcileTicker.C:
 			w.reconcile(ctx)
+		case <-streamProbeTicker.C:
+			if err := w.probeStream(ctx); err != nil {
+				return err
+			}
 		case kve, ok := <-watcher.Updates():
 			if !ok {
 				return fmt.Errorf("watch updates channel closed")
@@ -339,6 +375,42 @@ func (w *Watcher) runWatch(ctx context.Context) error {
 			w.applyDelta(kve)
 		}
 	}
+}
+
+// probeStream calls KV Status to verify the underlying JetStream
+// stream still exists. nats.go's WatchAll subscription does not
+// surface stream-level outages — the channel stays open and silent
+// even after the stream is deleted — so an explicit probe is the
+// only reliable signal.
+//
+// Returns nil when the stream is healthy (or when the probe itself
+// timed out, since a transient network blip is not a stream-deletion
+// event and forcing a restart on every blip would amplify churn).
+// Returns a wrapped error only when Status reports a genuine
+// stream-not-found condition; the caller (runWatch) MUST surface that
+// error to watchLoop so the restart-with-backoff path re-acquires
+// the subscription.
+func (w *Watcher) probeStream(ctx context.Context) error {
+	probeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+
+	if _, err := w.kv.Status(probeCtx); err != nil {
+		// Distinguish stream-not-found (genuine outage requiring a
+		// restart) from transient probe failures (timeouts, peer
+		// resets) where retrying the same subscription is correct.
+		if errors.Is(err, jetstream.ErrStreamNotFound) ||
+			errors.Is(err, jetstream.ErrBucketNotFound) {
+			return fmt.Errorf("watch loop probe: bucket gone: %w", err)
+		}
+		// Probe-context timeout means the JS server did not respond
+		// in 2s; that is a network condition, not a stream-deletion.
+		// Don't trigger a restart — the next probe tick will retry,
+		// and the existing watch subscription will continue receiving
+		// updates if the network blip resolves.
+		w.logger.Debug().Err(err).Msg("watch loop probe: transient KV Status error; not restarting")
+	}
+
+	return nil
 }
 
 // reconcile performs a full-bucket key scan and drops any store

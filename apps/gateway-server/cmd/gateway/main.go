@@ -82,13 +82,13 @@ func main() {
 		logger,
 	)
 
-	// readyFlag flips to true once the first watcher snapshot lands.
-	// /readyz returns 503 until then so K8s does not route production
-	// traffic to a process whose routing table is still empty —
-	// every request would otherwise resolve to the catch-all 404,
-	// which the load balancer cannot distinguish from "all routes
-	// genuinely unmatched".
-	var readyFlag atomic.Bool
+	// snapshotLanded latches true the moment the first watcher
+	// snapshot lands and stays true forever — operators rely on
+	// "process completed bootstrap" being a one-way transition (a
+	// brief NATS blip mid-snapshot must not re-arm the bootstrap
+	// gate). NATS-side health is layered ON TOP of this latch via
+	// the readiness function below.
+	var snapshotLanded atomic.Bool
 
 	// Register the rate-limit ensure callback BEFORE Start so the
 	// initial-snapshot path inside Start fires the callback together
@@ -97,12 +97,34 @@ func main() {
 	// Router has not yet registered.
 	watcher.OnChange(func() {
 		ensureRateLimitBackends(retryCtx, rlRouter, store, cfg, js, logger)
-		readyFlag.Store(true)
+		snapshotLanded.Store(true)
 	})
 
 	if err := watcher.Start(retryCtx); err != nil {
 		logger.Fatal().Err(err).Msg("registry watcher start failed")
 	}
+
+	// readinessSignal reports the gateway as ready ONLY when both
+	// (a) the initial routing-table snapshot has landed AND
+	// (b) the NATS connection is currently CONNECTED.
+	//
+	// (a) prevents serving traffic against an empty routing table
+	// at cold boot — every request would otherwise hit the catch-
+	// all 404. (b) prevents staying "ready" while NATS is down,
+	// which in turn would mislead the K8s load balancer into
+	// pinning traffic to a replica that 5xx's every request
+	// because no upstream call can complete. Without (b), a NATS
+	// outage post-boot is amplified into a per-replica outage:
+	// every pod stays "Ready", clients hit 5xx until the operator
+	// notices.
+	//
+	// `nc.Status() == nats.CONNECTED` flips false on disconnect
+	// and true on successful reconnect, driven by the nats.go
+	// reconnect loop — no manual subscription to disconnect/
+	// reconnect handlers is needed.
+	readinessSignal := httptransport.ReadinessFunc(func() bool {
+		return snapshotLanded.Load() && nc.Status() == natsgo.CONNECTED
+	})
 
 	// Background retry goroutine: re-runs ensureRateLimitBackends on
 	// a fixed cadence so a backend that failed to initialise at boot
@@ -119,7 +141,7 @@ func main() {
 	httpServer, err := httptransport.NewServer(
 		cfg,
 		handler,
-		httptransport.ReadinessFunc(readyFlag.Load),
+		readinessSignal,
 		logger,
 	)
 	if err != nil {
