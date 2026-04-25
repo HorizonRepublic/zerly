@@ -27,29 +27,105 @@ const SAME_SITE_LABELS = {
 const sameSiteNoneInsecureWarned = new Set<string>();
 
 /**
- * Emit a one-time warning when a `Set-Cookie` serialization pairs
- * `SameSite=None` with `Secure !== true`. Modern browsers reject
- * the combination outright (the cookie never reaches the client
- * jar), so this is almost always a developer bug caught at
- * local-dev time before it ships.
+ * Internal sentinel returned by `applySameSiteNoneSecurePolicy` to
+ * communicate whether the caller's options were silently auto-
+ * promoted (warn lightly), or contained an explicit `secure: false`
+ * override (warn loudly — this is a strict anti-footgun signal).
  */
-const warnIfSameSiteNoneWithoutSecure = (name: string, merged: ICookieOptions): void => {
+type SameSiteNoneOutcome = 'auto-promoted' | 'explicit-insecure-override' | 'no-action';
+
+/**
+ * Apply the production-default policy for cookies that opt into
+ * cross-site delivery via `SameSite=None`:
+ *
+ * 1. When `sameSite === 'none'` AND `secure` is `undefined`, the
+ *    serializer auto-promotes `secure: true` so the cookie reaches
+ *    the client jar in every modern browser. Operators who pick
+ *    `SameSite=None` are signalling cross-site intent — silently
+ *    failing because they forgot the second flag is the wrong
+ *    default for a production library.
+ * 2. When `sameSite === 'none'` AND `secure === false` is explicitly
+ *    provided, the serializer respects the override BUT emits a loud
+ *    warning. The override exists for local-dev or test contexts
+ *    where HTTPS is unavailable; in production it is almost always
+ *    a footgun.
+ * 3. When `secure === true` already, no action and no warning.
+ *
+ * The policy is documented in TSDoc on `serializeCookie`.
+ * @param merged - The post-defaults-merge cookie options.
+ * @returns A new options object with the policy applied (a fresh
+ *          copy when auto-promotion fires, the same reference
+ *          otherwise) and the outcome shape so the caller can decide
+ *          whether to emit a warning and at which severity.
+ */
+const applySameSiteNoneSecurePolicy = (
+  merged: ICookieOptions,
+): { effective: ICookieOptions; outcome: SameSiteNoneOutcome } => {
   if (merged.sameSite !== 'none') {
-    return;
+    return { effective: merged, outcome: 'no-action' };
   }
 
   if (merged.secure === true) {
+    return { effective: merged, outcome: 'no-action' };
+  }
+
+  if (merged.secure === false) {
+    return { effective: merged, outcome: 'explicit-insecure-override' };
+  }
+
+  // sameSite === 'none' AND secure === undefined → auto-promote.
+  // The serializer's contract is that production defaults must
+  // produce a cookie the client jar accepts; doing nothing here
+  // would emit `SameSite=None` without `Secure` and the cookie
+  // would silently never reach the browser. ICookieOptions is
+  // declared `readonly`, so a fresh object is produced rather than
+  // mutating the caller's input.
+  return {
+    effective: { ...merged, secure: true },
+    outcome: 'auto-promoted',
+  };
+};
+
+/**
+ * Emit a one-time warning per cookie name when a serialization
+ * exercises one of the `SameSite=None` policy branches.
+ *
+ * The dedupe is per cookie name AND per outcome shape so an operator
+ * who first saw the auto-promote nudge during dev and later
+ * explicitly overrode `secure: false` for a local test still sees
+ * the second (loud) warning instead of having it silenced by the
+ * dedupe set.
+ */
+const warnSameSiteNonePolicy = (name: string, outcome: SameSiteNoneOutcome): void => {
+  if (outcome === 'no-action') {
     return;
   }
 
-  if (sameSiteNoneInsecureWarned.has(name)) {
+  const dedupeKey = `${name}::${outcome}`;
+
+  if (sameSiteNoneInsecureWarned.has(dedupeKey)) {
     return;
   }
 
-  sameSiteNoneInsecureWarned.add(name);
+  sameSiteNoneInsecureWarned.add(dedupeKey);
+
+  if (outcome === 'auto-promoted') {
+    console.warn(
+      `gateway: cookie ${name} with SameSite=None auto-promoted to Secure ` +
+        `(production-default policy — modern browsers reject SameSite=None without Secure).`,
+    );
+
+    return;
+  }
+
+  // explicit-insecure-override: this is the strict anti-footgun
+  // path. The cookie WILL be silently dropped by the browser jar;
+  // the loud warning is the only signal an operator gets that
+  // their override defeated the contract.
   console.warn(
-    `gateway: Set-Cookie with SameSite=None MUST be Secure; ` +
-      `modern browsers will reject it. Cookie name: ${name}.`,
+    `gateway: cookie ${name} ships with SameSite=None and explicit Secure=false — ` +
+      `modern browsers WILL reject this cookie. Override is honoured for local-dev ` +
+      `compatibility, but the cookie will not reach a real browser.`,
   );
 };
 
@@ -67,10 +143,32 @@ const warnIfSameSiteNoneWithoutSecure = (name: string, merged: ICookieOptions): 
  *                   `defaults` on a key-by-key basis.
  * @returns The serialized header value, ready to be stored in a
  *          reply envelope under `set-cookie`.
+ * @remarks
+ * `SameSite=None` requires `Secure` per the Cookies Living Standard.
+ * The serializer enforces this with a production-default policy:
+ *
+ * - When `sameSite: 'none'` is paired with no `secure` value, the
+ *   serializer auto-promotes `secure: true` so the cookie reaches
+ *   the client jar in every modern browser. A one-time WARN is
+ *   emitted per cookie name to surface the implicit promotion.
+ * - When `sameSite: 'none'` is paired with `secure: false`, the
+ *   override is honoured (local-dev / HTTP-only test fixtures need
+ *   it) but a loud WARN is emitted because the cookie will not
+ *   reach a real browser. This is intentional anti-footgun: the
+ *   silent override path was a documented production incident
+ *   vector.
+ * - `sameSite: 'strict'` and `sameSite: 'lax'` impose no Secure
+ *   requirement and trigger no policy.
  * @example
  * ```ts
  * serializeCookie('sid', 'abc', { httpOnly: true, secure: true, maxAge: 3600 });
  * // → 'sid=abc; Max-Age=3600; HttpOnly; Secure'
+ * ```
+ * @example
+ * ```ts
+ * // Auto-promote: secure becomes true, WARN emitted once per name.
+ * serializeCookie('sid', 'abc', { sameSite: 'none' });
+ * // → 'sid=abc; Secure; SameSite=None'
  * ```
  */
 export const serializeCookie = (
@@ -79,9 +177,10 @@ export const serializeCookie = (
   options: ICookieOptions = {},
   defaults: Partial<ICookieOptions> = {},
 ): string => {
-  const merged: ICookieOptions = { ...defaults, ...options };
+  const initial: ICookieOptions = { ...defaults, ...options };
+  const { effective: merged, outcome } = applySameSiteNoneSecurePolicy(initial);
 
-  warnIfSameSiteNoneWithoutSecure(name, merged);
+  warnSameSiteNonePolicy(name, outcome);
 
   const encodedName = TOKEN_SAFE.test(name) ? name : encodeURIComponent(name);
   const encodedValue = TOKEN_SAFE.test(value) ? value : encodeURIComponent(value);

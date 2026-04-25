@@ -48,10 +48,19 @@ describe('serializeCookie', () => {
     expect(withoutFlag).toBe('sid=abc');
   });
 
-  it('capitalizes SameSite for each variant', () => {
+  it('capitalizes SameSite for Strict and Lax (no policy interaction)', () => {
     expect(serializeCookie('sid', 'abc', { sameSite: 'strict' })).toBe('sid=abc; SameSite=Strict');
     expect(serializeCookie('sid', 'abc', { sameSite: 'lax' })).toBe('sid=abc; SameSite=Lax');
-    expect(serializeCookie('sid', 'abc', { sameSite: 'none' })).toBe('sid=abc; SameSite=None');
+  });
+
+  it('auto-promotes Secure when SameSite=None has no secure option', () => {
+    // Production-default policy: SameSite=None without Secure is
+    // silently rejected by every modern browser. The serializer
+    // auto-promotes Secure so a developer who forgot the second
+    // flag still ships a cookie the browser accepts.
+    const sut = serializeCookie('sid-promote', 'abc', { sameSite: 'none' });
+
+    expect(sut).toBe('sid-promote=abc; Secure; SameSite=None');
   });
 
   it('emits Partitioned only when explicitly true', () => {
@@ -127,26 +136,45 @@ describe('serializeCookie', () => {
     expect(sut).toBe('sid=; Max-Age=0');
   });
 
-  describe('SameSite=None without Secure guard', () => {
-    it('warns when SameSite=None is paired with no Secure flag', () => {
-      serializeCookie('warn-none-1', 'abc', { sameSite: 'none' });
+  describe('SameSite=None secure policy', () => {
+    it('auto-promotes Secure and warns once when SameSite=None lacks a secure flag', () => {
+      const out = serializeCookie('promote-1', 'abc', { sameSite: 'none' });
 
+      expect(out).toContain('Secure');
+      expect(out).toContain('SameSite=None');
       expect(warnSpy).toHaveBeenCalledTimes(1);
       expect(warnSpy.mock.calls[0]?.[0]).toEqual(
-        expect.stringContaining('SameSite=None MUST be Secure'),
+        expect.stringContaining('auto-promoted to Secure'),
       );
-      expect(warnSpy.mock.calls[0]?.[0]).toEqual(expect.stringContaining('warn-none-1'));
+      expect(warnSpy.mock.calls[0]?.[0]).toEqual(expect.stringContaining('promote-1'));
     });
 
-    it('warns when SameSite=None is paired with Secure: false', () => {
-      serializeCookie('warn-none-2', 'abc', { sameSite: 'none', secure: false });
+    it('honours an explicit Secure: false override but warns LOUDLY', () => {
+      const out = serializeCookie('explicit-insecure', 'abc', {
+        sameSite: 'none',
+        secure: false,
+      });
+
+      // Explicit override is honoured (local-dev / HTTP test fixtures
+      // need it) — the cookie omits Secure on the wire.
+      expect(out).not.toContain('Secure');
+      expect(out).toContain('SameSite=None');
 
       expect(warnSpy).toHaveBeenCalledTimes(1);
+      const warning = warnSpy.mock.calls[0]?.[0];
+
+      expect(warning).toEqual(expect.stringContaining('modern browsers WILL reject this cookie'));
+      expect(warning).toEqual(expect.stringContaining('explicit-insecure'));
     });
 
     it('does not warn when SameSite=None is paired with Secure: true', () => {
-      serializeCookie('ok-none-secure', 'abc', { sameSite: 'none', secure: true });
+      const out = serializeCookie('ok-none-secure', 'abc', {
+        sameSite: 'none',
+        secure: true,
+      });
 
+      expect(out).toContain('Secure');
+      expect(out).toContain('SameSite=None');
       expect(warnSpy).not.toHaveBeenCalled();
     });
 
@@ -157,12 +185,28 @@ describe('serializeCookie', () => {
       expect(warnSpy).not.toHaveBeenCalled();
     });
 
-    it('deduplicates the warning by cookie name', () => {
-      serializeCookie('dedupe-me', 'abc', { sameSite: 'none' });
-      serializeCookie('dedupe-me', 'def', { sameSite: 'none' });
-      serializeCookie('dedupe-me', 'ghi', { sameSite: 'none' });
+    it('deduplicates the auto-promote warning by cookie name', () => {
+      serializeCookie('dedupe-promote', 'abc', { sameSite: 'none' });
+      serializeCookie('dedupe-promote', 'def', { sameSite: 'none' });
+      serializeCookie('dedupe-promote', 'ghi', { sameSite: 'none' });
 
       expect(warnSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('emits both warnings if a cookie name escalates from auto-promote to explicit-insecure', () => {
+      // First call: secure undefined → auto-promoted, warn fires.
+      serializeCookie('escalate', 'abc', { sameSite: 'none' });
+      // Second call: secure: false → explicit override, distinct warning
+      // shape MUST fire even though the cookie name was already seen.
+      serializeCookie('escalate', 'def', { sameSite: 'none', secure: false });
+
+      expect(warnSpy).toHaveBeenCalledTimes(2);
+      expect(warnSpy.mock.calls[0]?.[0]).toEqual(
+        expect.stringContaining('auto-promoted to Secure'),
+      );
+      expect(warnSpy.mock.calls[1]?.[0]).toEqual(
+        expect.stringContaining('modern browsers WILL reject this cookie'),
+      );
     });
   });
 
