@@ -225,22 +225,22 @@ func (h *Handler) Handle(ctx context.Context, in *ServeInput) *ServeResult {
 	})
 	if err != nil {
 		reqLog.Error().Err(err).Msg("proxy encode failed")
-		return toServeResult(gerrors.InternalError)
+		return mergeRateLimitHeaders(toServeResult(gerrors.InternalError), rlHeaders)
 	}
 
 	replyBytes, err := h.cfg.Nats.Request(ctx, route.Subject, *payload, timeout)
 	if err != nil {
 		if isTimeoutErr(err) {
-			return toServeResult(gerrors.GatewayTimeout)
+			return mergeRateLimitHeaders(toServeResult(gerrors.GatewayTimeout), rlHeaders)
 		}
 		reqLog.Error().Err(err).Str("subject", route.Subject).Msg("nats request failed")
-		return toServeResult(gerrors.ServiceUnavailable)
+		return mergeRateLimitHeaders(toServeResult(gerrors.ServiceUnavailable), rlHeaders)
 	}
 
 	reply, err := h.cfg.Decoder.Decode(replyBytes)
 	if err != nil {
 		reqLog.Error().Err(err).Msg("reply decode failed")
-		return toServeResult(gerrors.BadGateway)
+		return mergeRateLimitHeaders(toServeResult(gerrors.BadGateway), rlHeaders)
 	}
 
 	mergedHeaders := mergeHeaders(reply.Headers, in.RequestID)
@@ -896,4 +896,36 @@ func toServeResult(e gerrors.HTTPError) *ServeResult {
 		Body:             e.Body,
 		GatewayOwnedBody: true,
 	}
+}
+
+// mergeRateLimitHeaders stamps every X-RateLimit-* header from the
+// rate-limit gate's pre-computed map onto a gateway-owned error
+// response. Non-destructive: existing keys win, mirroring the
+// happy-path merge below at line 249.
+//
+// Why error responses MUST carry rate-limit headers: a client whose
+// upstream call 5xx'd has STILL consumed a token from their rate-
+// limit budget (the gate fired before the upstream attempt). If the
+// 5xx response strips X-RateLimit-Remaining / Reset, the client has
+// no signal to size its retry-with-backoff against the actual
+// budget — it can either retry too aggressively (and trip 429 next)
+// or back off too conservatively (under-utilising its allowance).
+// Same applies to 504 timeouts and 502 decode failures: the gate
+// ran, the budget was charged, the headers belong on the wire.
+//
+// Nil-safe so callers in the encode-fail / decode-fail branches do
+// not need to thread an extra nil check; rlHeaders is nil when the
+// route has no rate-limit block configured, in which case there is
+// nothing to merge.
+func mergeRateLimitHeaders(result *ServeResult, rlHeaders map[string]string) *ServeResult {
+	if result == nil || len(rlHeaders) == 0 {
+		return result
+	}
+	for k, v := range rlHeaders {
+		if _, exists := result.Headers[k]; !exists {
+			result.Headers[k] = []string{v}
+		}
+	}
+
+	return result
 }
