@@ -237,7 +237,7 @@ type Config struct {
 	// attacker rotates source IP every request — without a cap the
 	// store would hold all of them in RAM until the sweeper's TTL
 	// pass dropped them. At 64-byte keys + 64-byte memoryEntry,
-	// 1_000_000 entries is roughly 128 MiB.
+	// 1_000_000 entries is roughly 122 MiB (128 MB decimal).
 	//
 	// Zero disables the cap (legacy unbounded behaviour). Negative
 	// values are rejected at Load().

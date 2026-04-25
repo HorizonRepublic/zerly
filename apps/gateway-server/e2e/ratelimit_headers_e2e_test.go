@@ -14,6 +14,7 @@ package e2e
 
 import (
 	"net/http"
+	"sort"
 	"testing"
 	"time"
 
@@ -118,6 +119,7 @@ func headerKeys(h http.Header) []string {
 	for k := range h {
 		keys = append(keys, k)
 	}
+	sort.Strings(keys)
 
 	return keys
 }

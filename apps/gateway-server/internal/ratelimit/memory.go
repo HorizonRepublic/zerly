@@ -97,7 +97,7 @@ func NewMemoryStore(ttl time.Duration) *MemoryStore {
 // the cap on production deployments to bound RAM under cardinality-
 // spike attacks (an attacker rotating source IP every request) — the
 // observed worst case at 64-byte keys + 64-byte memoryEntry is
-// roughly 128 MiB per million entries, so a 1M cap fits comfortably
+// roughly 122 MiB per million entries (128 MB decimal), fits comfortably
 // inside a typical pod budget.
 func NewMemoryStoreWithCap(ttl time.Duration, maxEntries int64) *MemoryStore {
 	s := &MemoryStore{ttl: ttl, maxEntries: maxEntries, stop: make(chan struct{})}
@@ -194,11 +194,15 @@ func (s *MemoryStore) Close() error {
 // plumbing. Each value is read atomically so callers see a consistent
 // point-in-time view.
 //
-// MemoryStore has no remote dependencies, so backend_errors is
-// hard-wired to 0. The key still ships in the snapshot so the
-// minimum schema declared on Store.Counters is satisfied — dashboards
-// graphing backend_errors across the deployment do not go dark on a
-// memory-only pod.
+// MemoryStore has no remote dependencies, so backend_errors_total
+// counts saturation events (ErrMemoryStoreSaturated rejections) — the
+// only "backend failure" mode the in-process store can produce.
+// Operators monitoring the unified backend_errors_total metric across
+// memory + nats-kv pods see saturation spikes alongside NATS-KV
+// connection failures. saturated_total is exposed under the
+// memory-specific key as well so a dashboard that wants the
+// memory-only signal can read it without wildcard-matching the
+// uniform key.
 func (s *MemoryStore) Counters() map[string]int64 {
 	return map[string]int64{
 		"ratelimit_memory_decisions_allowed_total":  s.counters.allowed.Load(),

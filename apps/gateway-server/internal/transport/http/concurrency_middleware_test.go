@@ -107,3 +107,28 @@ func TestConcurrencyLimit_ZeroDisablesCheck(t *testing.T) {
 	}
 	assert.Equal(t, int64(0), limiter.Rejected())
 }
+
+// TestConcurrencyLimit_ZeroPropagatesToDownstream pins the
+// no-short-circuit contract from the Hertz-middleware-chain side.
+// Hertz's RequestContext.Next is a loop that advances ctx.index on
+// every iteration: when the limit-disabled handler returns without
+// calling ctx.Next(c) explicitly, the outer Next loop's `index++`
+// step advances to the downstream handler regardless. Verifying the
+// invariant in a test eliminates ambiguity around middleware
+// semantics — a regression that mistakenly added an `Abort()` call
+// or returned early in some refactor would surface here loudly.
+func TestConcurrencyLimit_ZeroPropagatesToDownstream(t *testing.T) {
+	limiter := newConcurrencyLimitMiddleware(0)
+
+	var downstreamRan atomic.Bool
+	downstream := func(_ context.Context, _ *app.RequestContext) {
+		downstreamRan.Store(true)
+	}
+
+	ctx := app.NewContext(0)
+	ctx.SetHandlers([]app.HandlerFunc{limiter.handler, downstream})
+	ctx.Next(context.Background())
+
+	assert.True(t, downstreamRan.Load(),
+		"limit<=0 must NOT short-circuit; downstream handler must execute via Hertz's Next loop")
+}

@@ -158,29 +158,44 @@ func TestE2E_Health_ProbesBypassRateLimit(t *testing.T) {
 		wg          sync.WaitGroup
 		mu          sync.Mutex
 		liveStatus  int
+		liveErr     error
 		readyStatus int
+		readyErr    error
 	)
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
 		r, err := http.Get(gatewayURL + "/healthz")
-		require.NoError(t, err)
-		_ = r.Body.Close()
 		mu.Lock()
 		defer mu.Unlock()
+		if err != nil {
+			liveErr = err
+			return
+		}
+		_ = r.Body.Close()
 		liveStatus = r.StatusCode
 	}()
 	go func() {
 		defer wg.Done()
 		r, err := http.Get(gatewayURL + "/readyz")
-		require.NoError(t, err)
-		_ = r.Body.Close()
 		mu.Lock()
 		defer mu.Unlock()
+		if err != nil {
+			readyErr = err
+			return
+		}
+		_ = r.Body.Close()
 		readyStatus = r.StatusCode
 	}()
 	wg.Wait()
 
+	// Asserting back on the test goroutine (after wg.Wait) instead of
+	// inside the spawned goroutines: t.FailNow / require.NoError exit
+	// only the calling goroutine, leaving the parent goroutine to
+	// race-assert against partially-populated state. Capture into
+	// shared variables, then assert.
+	require.NoError(t, liveErr, "/healthz request must not error")
+	require.NoError(t, readyErr, "/readyz request must not error")
 	assert.Equal(t, http.StatusOK, liveStatus,
 		"/healthz must bypass per-IP rate-limit even when peer's contract-route bucket is exhausted")
 	assert.Equal(t, http.StatusOK, readyStatus,

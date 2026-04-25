@@ -164,19 +164,34 @@ func TestE2E_HTTPSmuggling_DuplicateContentLengthRejected(t *testing.T) {
 }
 
 // isNetReadError reports whether err is a network-level read failure
-// (e.g. connection reset by peer) consistent with the gateway dropping
-// the conn rather than emitting a status line. The test treats those
-// as equivalent to a clean EOF for the purpose of the rejection
-// contract — what we are pinning is "smuggled bytes did not reach the
-// proxy layer", not the specific RFC-permitted termination shape.
+// (e.g. connection reset by peer, EOF, use-of-closed-network-conn)
+// consistent with the gateway dropping the conn rather than emitting
+// a status line. The test treats those as equivalent to a clean EOF
+// for the purpose of the rejection contract — what we are pinning is
+// "smuggled bytes did not reach the proxy layer", not the specific
+// RFC-permitted termination shape.
+//
+// We deliberately classify only network-level failures here; an
+// arbitrary parser-side error (malformed HTTP, decode failure on a
+// status line that DID arrive) would indicate the gateway responded
+// and so MUST NOT be mistaken for "conn dropped". The previous
+// "treat any non-nil err as drop" shape would mask such regressions.
 func isNetReadError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return true
+	}
 	var netErr net.Error
 	if errors.As(err, &netErr) {
 		return true
 	}
-	// Some platforms surface read-after-close as a plain string
-	// "use of closed network connection" — we accept any error from
-	// the read path that is not nil and not an HTTP-layer parse
-	// success, since both indicate the conn closed before responding.
-	return err != nil
+	// Some platforms surface read-after-close via a string match only;
+	// the canonical Go message is "use of closed network connection".
+	if strings.Contains(err.Error(), "use of closed network connection") {
+		return true
+	}
+
+	return false
 }

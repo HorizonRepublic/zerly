@@ -3,7 +3,7 @@ package ratelimit
 import (
 	"context"
 	"errors"
-	"strings"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -233,7 +233,10 @@ func TestMemoryStore_SaturationCapZeroDisablesCheck(t *testing.T) {
 
 	ctx := context.Background()
 	for i := 0; i < 1000; i++ {
-		key := "key-" + strings.Repeat("a", i%20)
+		// strconv.Itoa(i) yields 1000 distinct keys; the previous
+		// strings.Repeat("a", i%20) cycled and only generated 20
+		// distinct keys, weakening the cardinality-spike assertion.
+		key := "key-" + strconv.Itoa(i)
 		_, err := s.Allow(ctx, key, 100, 10)
 		require.NoError(t, err, "uncapped store must never refuse new keys")
 	}
