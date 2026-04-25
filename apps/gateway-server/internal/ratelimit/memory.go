@@ -120,6 +120,15 @@ func NewMemoryStoreWithCap(ttl time.Duration, maxEntries int64) *MemoryStore {
 // keeps Memory and NATS-KV aligned for callers wiring shared upstream
 // timeout chains.
 func (s *MemoryStore) Allow(ctx context.Context, key string, rps, burst int) (Decision, error) {
+	// Honour ctx cancellation BEFORE any side-effect — a cancelled
+	// caller MUST NOT cause a fresh entry to land in the map (and tick
+	// entriesSize / waste a saturation slot). The CAS retry loop
+	// re-checks ctx on every iteration; this entry-point check covers
+	// the no-iteration case where the caller cancelled before Allow ran.
+	if err := ctx.Err(); err != nil {
+		return Decision{}, fmt.Errorf("ratelimit memory: %w", err)
+	}
+
 	now := time.Now()
 
 	// Cardinality-cap fast path: if this is a brand-new key AND the

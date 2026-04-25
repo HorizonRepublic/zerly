@@ -54,8 +54,16 @@ func newConcurrencyLimitMiddleware(limit int) *concurrencyLimiter {
 	rejected := &atomic.Int64{}
 
 	if limit <= 0 {
+		// Explicit ctx.Next(c) instead of a bare no-op return — both
+		// shapes propagate the chain correctly under Hertz semantics
+		// (RequestContext.Next is an outer loop that auto-advances
+		// ctx.index after each handler returns), but the explicit
+		// shape is friendlier to static analysis tools that flag
+		// no-op middleware as a chain-break risk. The behavioural
+		// equivalence is pinned by
+		// TestConcurrencyLimit_ZeroPropagatesToDownstream.
 		return &concurrencyLimiter{
-			handler:  func(_ context.Context, _ *app.RequestContext) {},
+			handler:  func(c context.Context, ctx *app.RequestContext) { ctx.Next(c) },
 			rejected: rejected,
 		}
 	}

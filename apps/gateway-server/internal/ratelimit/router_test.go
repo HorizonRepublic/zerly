@@ -317,7 +317,6 @@ func TestRouter_CountersAllAggregatesAcrossBackends(t *testing.T) {
 
 	// Memory must surface the minimum schema even when no requests
 	// have flowed through it yet.
-	mem.entries.Range(func(_, _ any) bool { return false })
 	memCounters := all["memory"]
 	require.NotNil(t, memCounters)
 	assert.Contains(t, memCounters, "ratelimit_memory_decisions_allowed_total")

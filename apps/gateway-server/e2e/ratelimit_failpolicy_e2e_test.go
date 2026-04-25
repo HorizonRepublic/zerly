@@ -186,13 +186,16 @@ func TestE2E_RateLimit_FailOpenContinuesUnderStoreOutage(t *testing.T) {
 	if lastHeaders != nil {
 		// Static config header (rps from the route config) MUST
 		// always reach the wire — it does not depend on a
-		// successful Decision.
-		if lastHeaders.Get("X-RateLimit-Limit") != "" {
-			assert.Empty(t, lastHeaders.Get("X-RateLimit-Remaining"),
-				"fail-open MUST suppress X-RateLimit-Remaining when Decision is empty")
-			assert.Empty(t, lastHeaders.Get("X-RateLimit-Reset"),
-				"fail-open MUST suppress X-RateLimit-Reset when Decision is empty")
-		}
+		// successful Decision. NotEmpty asserts the contract
+		// directly so a regression that drops the Limit header
+		// fails the test rather than silently bypassing the
+		// Remaining/Reset checks below.
+		assert.NotEmpty(t, lastHeaders.Get("X-RateLimit-Limit"),
+			"fail-open MUST carry the static X-RateLimit-Limit header")
+		assert.Empty(t, lastHeaders.Get("X-RateLimit-Remaining"),
+			"fail-open MUST suppress X-RateLimit-Remaining when Decision is empty")
+		assert.Empty(t, lastHeaders.Get("X-RateLimit-Reset"),
+			"fail-open MUST suppress X-RateLimit-Reset when Decision is empty")
 	}
 }
 

@@ -119,10 +119,11 @@ func TestE2E_AuthStrip_VerifiedRouteHidesAuthorizationFromUpstream(t *testing.T)
 	// Capture channels. Both subscribers push the inbound
 	// envelope onto the channel before responding so the test
 	// goroutine can pop it after the HTTP round-trip completes.
-	// Capacity 1 because each subscriber receives exactly one
-	// request in this test; a buffered channel decouples the
-	// subscriber goroutine from the test goroutine without
-	// requiring a select.
+	// Capacity 4 provides headroom for probe-phase envelopes that
+	// may land on the subject before the load-phase request — the
+	// test drains any pre-envelopes before assertions. A buffered
+	// channel decouples the subscriber goroutine from the test
+	// goroutine without requiring a select on every send.
 	verifierEnvelopes := make(chan capturedEnvelope, 4)
 	routeEnvelopes := make(chan capturedEnvelope, 4)
 
@@ -251,7 +252,7 @@ func TestE2E_AuthStrip_VerifiedRouteHidesAuthorizationFromUpstream(t *testing.T)
 	// envelope. A regression that disabled the strip would
 	// surface here as a non-empty value on the route side.
 	_, hasAuth := routeEnv.Headers["authorization"]
-	assert.False(t, hasAuth,
+	assert.Falsef(t, hasAuth,
 		"route envelope MUST NOT carry Authorization header after verifier success; got %q",
 		routeEnv.Headers["authorization"])
 

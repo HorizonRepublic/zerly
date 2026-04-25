@@ -131,6 +131,14 @@ func TestMarshalZerologArray_FullPolicyRouteEmitsEveryField(t *testing.T) {
 	// Then: every conditional field is present in the marshalled
 	// output. The rateLimit and timeout fields use string formatting
 	// so the assertions match their human-readable shape.
+	//
+	// route.Headers is intentionally NOT in the marshalled shape —
+	// the godoc on MarshalZerologArray scopes "extended policy fields"
+	// to auth/cors/rateLimit/timeout. Adding headers would expose the
+	// full route-Header map (potentially containing operator-set
+	// secrets) in every routing-rebuild log line. The omission is a
+	// security choice, not an oversight; pin the absence so a future
+	// refactor that expands the marshaller surfaces this test failure.
 	assert.Equal(t, "POST", got["method"])
 	assert.Equal(t, "/everything/:id", got["path"])
 	assert.Equal(t, "svc.cmd.everything", got["subject"])
@@ -138,6 +146,11 @@ func TestMarshalZerologArray_FullPolicyRouteEmitsEveryField(t *testing.T) {
 	assert.Equal(t, true, got["cors"], "cors flag follows route.CORS presence")
 	assert.Equal(t, "30 rps", got["rateLimit"])
 	assert.Equal(t, "2.5s", got["timeout"])
+	_, hasHeaders := got["headers"]
+	assert.False(t, hasHeaders,
+		"headers must be omitted from the routing log to avoid leaking "+
+			"operator-set static-header values (potentially carrying secrets) "+
+			"on every routing-table rebuild")
 }
 
 // TestDiffRouteConfig_SubjectChangeIsNotReportedAsModified pins the

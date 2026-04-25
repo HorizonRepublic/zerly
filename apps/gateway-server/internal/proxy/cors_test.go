@@ -62,9 +62,9 @@ func TestBuildPreflightHeaders_FullConfig(t *testing.T) {
 // contract: even for wildcard CORS, Vary: Origin must reach the wire.
 // In a mixed deployment where one route serves "*" and another serves
 // an allowlist on the same path under different conditions, an
-// intermediate CDN that does not see Vary keys on (URL, Method)
-// alone and serves the wrong preflight to the wrong origin. Always-
-// emit removes the entire class of CDN-cache-confusion bugs.
+// intermediate CDN that does not see Vary will key on (URL, Method)
+// alone and may serve the wrong preflight to the wrong origin.
+// Always-emit removes the entire class of CDN-cache-confusion bugs.
 func TestBuildPreflightHeaders_WildcardEmitsVary(t *testing.T) {
 	cors := &registry.CORSMeta{Origins: []string{"*"}}
 
