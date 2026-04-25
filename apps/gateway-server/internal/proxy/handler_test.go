@@ -681,6 +681,158 @@ func TestHandler_VerifierOnlyHeaderPassesThrough(t *testing.T) {
 	assert.Equal(t, []string{"rtrace-xyz"}, result.Headers["x-route-trace"])
 }
 
+// TestHandler_StripsAuthorizationHeaderAfterVerifierSuccess pins the
+// credential-isolation contract for protected routes: once the
+// verifier sub-request has decoded the bearer token into structured
+// claims, the raw token MUST NOT be forwarded to the route handler.
+//
+// The verifier's JSON claims are the tenant-shaped contract upstream
+// services consume; raw Authorization: Bearer <jwt> on the same
+// envelope makes it trivial for a route handler to bypass the claims
+// flow and re-decode the token, which defeats verifier rotation,
+// blacklists, and revocation. The token is also a tier-up secret
+// (long-lived for refresh tokens, often re-usable across endpoints)
+// while the claims are scoped to the verifier's contract.
+func TestHandler_StripsAuthorizationHeaderAfterVerifierSuccess(t *testing.T) {
+	routeSubject := "users-svc__microservice.cmd.users.me"
+	verifierSubject := "users-svc__microservice.cmd.auth.verifier.jwt"
+
+	route := routing.Route{
+		Subject:      routeSubject,
+		Method:       "GET",
+		PathTemplate: "/users/me",
+		Auth:         &routing.RouteAuth{VerifierSubject: verifierSubject},
+	}
+
+	nats := newFakeNats()
+	nats.program(
+		verifierSubject,
+		[]byte(`{"status":200,"headers":{},"body":{"userId":"u1"}}`),
+		nil,
+	)
+	nats.program(
+		routeSubject,
+		[]byte(`{"status":200,"headers":{},"body":{"ok":true}}`),
+		nil,
+	)
+
+	sut := newAuthHandler(stubTable(route), nats)
+
+	in := authServeInput("GET", "/users/me")
+	in.Headers = map[string]string{
+		"authorization":       "Bearer secret-jwt",
+		"proxy-authorization": "Basic xyz",
+		"x-tenant-id":         "tenant-42",
+	}
+
+	result := sut.Handle(context.Background(), in)
+
+	require.Equal(t, 200, result.Status)
+	require.Len(t, nats.requests, 2, "verifier + route")
+
+	// Inspect the route envelope (second NATS request). The verifier
+	// envelope is the first; we do not assert on its headers because
+	// the verifier MUST see the raw Authorization header (that is the
+	// whole point of the verifier — it consumes the token).
+	var routeEnvelope map[string]any
+	require.NoError(t, json.Unmarshal(nats.requests[1].payload, &routeEnvelope))
+
+	headers, ok := routeEnvelope["headers"].(map[string]any)
+	require.True(t, ok, "envelope must carry a headers map")
+
+	_, hasAuth := headers["authorization"]
+	assert.False(t, hasAuth,
+		"authorization header MUST be stripped from the route envelope after verifier success — raw token never reaches the route handler")
+
+	_, hasProxyAuth := headers["proxy-authorization"]
+	assert.False(t, hasProxyAuth,
+		"proxy-authorization is also a credential and must be stripped on protected routes")
+
+	assert.Equal(t, "tenant-42", headers["x-tenant-id"],
+		"non-credential headers must thread through unchanged")
+}
+
+// TestHandler_StripsAuthorizationHeaderForVerifierToo pins that the
+// verifier MUST see the raw Authorization header (it cannot decode a
+// token it never saw), even though the route does not. This is the
+// asymmetry that justifies the strip: the verifier owns the token,
+// the route owns the claims.
+func TestHandler_VerifierStillReceivesAuthorizationHeader(t *testing.T) {
+	routeSubject := "users-svc__microservice.cmd.users.me"
+	verifierSubject := "users-svc__microservice.cmd.auth.verifier.jwt"
+
+	route := routing.Route{
+		Subject:      routeSubject,
+		Method:       "GET",
+		PathTemplate: "/users/me",
+		Auth:         &routing.RouteAuth{VerifierSubject: verifierSubject},
+	}
+
+	nats := newFakeNats()
+	nats.program(
+		verifierSubject,
+		[]byte(`{"status":200,"headers":{},"body":{"userId":"u1"}}`),
+		nil,
+	)
+	nats.program(
+		routeSubject,
+		[]byte(`{"status":200,"headers":{},"body":{"ok":true}}`),
+		nil,
+	)
+
+	sut := newAuthHandler(stubTable(route), nats)
+
+	in := authServeInput("GET", "/users/me")
+	in.Headers = map[string]string{"authorization": "Bearer secret-jwt"}
+
+	_ = sut.Handle(context.Background(), in)
+
+	require.Len(t, nats.requests, 2)
+	var verifierEnvelope map[string]any
+	require.NoError(t, json.Unmarshal(nats.requests[0].payload, &verifierEnvelope))
+	headers, ok := verifierEnvelope["headers"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "Bearer secret-jwt", headers["authorization"],
+		"verifier MUST see the raw token — it is the entity that decodes it")
+}
+
+// TestHandler_PublicRouteForwardsAuthorizationHeader pins backwards
+// compatibility for routes without an Auth block: a public route
+// continues to forward the Authorization header verbatim. The strip
+// is scoped to verified-auth paths because public routes have no
+// claim-shaped alternative the upstream service could consume.
+func TestHandler_PublicRouteForwardsAuthorizationHeader(t *testing.T) {
+	routeSubject := "svc.cmd.public"
+	route := routing.Route{
+		Subject:      routeSubject,
+		Method:       "GET",
+		PathTemplate: "/public",
+	}
+
+	nats := newFakeNats()
+	nats.program(
+		routeSubject,
+		[]byte(`{"status":200,"headers":{},"body":{"ok":true}}`),
+		nil,
+	)
+
+	sut := newAuthHandler(stubTable(route), nats)
+
+	in := authServeInput("GET", "/public")
+	in.Headers = map[string]string{"authorization": "Bearer raw-token"}
+
+	result := sut.Handle(context.Background(), in)
+	require.Equal(t, 200, result.Status)
+	require.Len(t, nats.requests, 1, "public route → no verifier sub-request")
+
+	var envelope map[string]any
+	require.NoError(t, json.Unmarshal(nats.requests[0].payload, &envelope))
+	headers, ok := envelope["headers"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "Bearer raw-token", headers["authorization"],
+		"public routes preserve the Authorization header verbatim — no claim-shaped alternative is available")
+}
+
 func TestHandler_OptionalAuth401DoesNotMergeVerifierHeaders(t *testing.T) {
 	routeSubject := "users-svc__microservice.cmd.articles.get"
 	verifierSubject := "users-svc__microservice.cmd.auth.verifier.jwt"

@@ -147,6 +147,15 @@ func (h *Handler) Handle(ctx context.Context, in *ServeInput) *ServeResult {
 		return h.handlePreflight(table, in)
 	}
 
+	// Bind a request-scoped logger before route lookup so even the
+	// 404/405 short-circuits carry the request_id + traceparent
+	// fields that operators rely on for cross-service correlation
+	// during postmortems. The route field is appended after lookup.
+	reqLog := h.cfg.Logger.With().
+		Str("request_id", in.RequestID).
+		Str("traceparent", in.Traceparent).
+		Logger()
+
 	route, params, ok := table.Lookup(in.Method, in.Path)
 	if !ok {
 		if allow := table.Methods(in.Path); len(allow) > 0 {
@@ -159,6 +168,10 @@ func (h *Handler) Handle(ctx context.Context, in *ServeInput) *ServeResult {
 		return toServeResult(gerrors.NotFound)
 	}
 
+	reqLog = reqLog.With().
+		Str("route", route.Method+":"+route.PathTemplate).
+		Logger()
+
 	var claims json.RawMessage
 	var authHeaders map[string][]string
 
@@ -167,17 +180,27 @@ func (h *Handler) Handle(ctx context.Context, in *ServeInput) *ServeResult {
 		timeout = route.Timeout
 	}
 
+	routeHeaders := in.Headers
 	if route.Auth != nil {
-		authOutcome := h.runAuthFlow(ctx, in, route, params, timeout)
+		authOutcome := h.runAuthFlow(ctx, in, route, params, timeout, reqLog)
 		if !authOutcome.Proceed {
 			return authOutcome.ShortCircuit
 		}
 
 		claims = authOutcome.Claims
 		authHeaders = authOutcome.AuthHeaders
+		// Once the verifier has decoded the bearer token into
+		// structured claims, the raw credentials MUST NOT travel onto
+		// the route envelope. The claims are the contract the route
+		// handler consumes; forwarding the token alongside them lets
+		// any downstream service bypass the verifier (re-decode,
+		// store, replay) and silently breaks rotation, blacklists,
+		// and revocation. Cookie-auth is left untouched because
+		// cookie-auth is not yet wired through the verifier path.
+		routeHeaders = stripAuthHeaders(in.Headers)
 	}
 
-	rlHeaders, rlShortCircuit := h.applyRateLimitGate(ctx, route, in, claims, timeout)
+	rlHeaders, rlShortCircuit := h.applyRateLimitGate(ctx, route, in, claims, timeout, reqLog)
 	if rlShortCircuit != nil {
 		return rlShortCircuit
 	}
@@ -190,7 +213,7 @@ func (h *Handler) Handle(ctx context.Context, in *ServeInput) *ServeResult {
 		Path:        in.Path,
 		Body:        in.Body,
 		Query:       in.Query,
-		Headers:     in.Headers,
+		Headers:     routeHeaders,
 		Route:       route,
 		PathParams:  params,
 		RequestID:   in.RequestID,
@@ -201,7 +224,7 @@ func (h *Handler) Handle(ctx context.Context, in *ServeInput) *ServeResult {
 		Auth:        claims,
 	})
 	if err != nil {
-		h.cfg.Logger.Error().Err(err).Msg("proxy encode failed")
+		reqLog.Error().Err(err).Msg("proxy encode failed")
 		return toServeResult(gerrors.InternalError)
 	}
 
@@ -210,13 +233,13 @@ func (h *Handler) Handle(ctx context.Context, in *ServeInput) *ServeResult {
 		if isTimeoutErr(err) {
 			return toServeResult(gerrors.GatewayTimeout)
 		}
-		h.cfg.Logger.Error().Err(err).Str("subject", route.Subject).Msg("nats request failed")
+		reqLog.Error().Err(err).Str("subject", route.Subject).Msg("nats request failed")
 		return toServeResult(gerrors.ServiceUnavailable)
 	}
 
 	reply, err := h.cfg.Decoder.Decode(replyBytes)
 	if err != nil {
-		h.cfg.Logger.Error().Err(err).Msg("reply decode failed")
+		reqLog.Error().Err(err).Msg("reply decode failed")
 		return toServeResult(gerrors.BadGateway)
 	}
 
@@ -326,6 +349,7 @@ func (h *Handler) applyRateLimitGate(
 	in *ServeInput,
 	claims json.RawMessage,
 	timeout time.Duration,
+	reqLog zerolog.Logger,
 ) (map[string]string, *ServeResult) {
 	if route.RateLimit == nil || route.RateLimit.RPS <= 0 || h.cfg.RateLimiter == nil {
 		return nil, nil
@@ -349,16 +373,15 @@ func (h *Handler) applyRateLimitGate(
 		// while conveying exactly one piece of actionable information.
 		routeKey := route.Method + ":" + route.PathTemplate
 		if _, alreadyLogged := h.claimsUnmarshalLogged.LoadOrStore(routeKey, struct{}{}); !alreadyLogged {
-			h.cfg.Logger.Warn().
+			reqLog.Warn().
 				Err(claimsErr).
 				Str("event", "ratelimit.claims.unmarshal_failed").
-				Str("route", routeKey).
 				Strs("key_by", route.RateLimit.KeyBy).
 				Str("claims_preview", previewClaimsForLog(claims)).
 				Msg("ratelimit: verifier claims failed to unmarshal; routing through FailPolicy")
 		}
 
-		allowed := h.cfg.RateLimiter.FailPolicy().Apply(claimsErr, route, rlKey, h.cfg.Logger)
+		allowed := h.cfg.RateLimiter.FailPolicy().Apply(claimsErr, route, rlKey, reqLog)
 
 		rlHeaders := ratelimit.BuildHeaders(route.RateLimit, ratelimit.Decision{})
 		if !allowed {
@@ -407,7 +430,7 @@ func (h *Handler) applyRateLimitGate(
 		// the unpopulated Decision verbatim) leaked Remaining: 0 /
 		// Reset: -62135596800 to clients on the fail-open branch.
 		decision = ratelimit.Decision{}
-		allowed = h.cfg.RateLimiter.FailPolicy().Apply(rlErr, route, fullKey, h.cfg.Logger)
+		allowed = h.cfg.RateLimiter.FailPolicy().Apply(rlErr, route, fullKey, reqLog)
 	}
 
 	rlHeaders := ratelimit.BuildHeaders(route.RateLimit, decision)
@@ -502,6 +525,54 @@ func previewClaimsForLog(claims json.RawMessage) string {
 	return claimsRedactPattern.ReplaceAllString(preview, `"$1":"***"`)
 }
 
+// strippedAuthHeaders enumerates the request-side credential headers
+// that MUST NOT travel onto the route envelope after the verifier has
+// successfully decoded the bearer token into structured claims.
+//
+// Keys are lowercase because the HTTP adapter folds inbound header
+// names to lowercase before they reach the proxy layer. Adding a new
+// credential header to the list is a single-line change; the lookup
+// is O(1) per check.
+//
+// Cookie is intentionally NOT in this list today: cookie-auth is not
+// yet wired through the verifier path, so stripping the Cookie header
+// would break unrelated session cookies forwarded to the route. Once
+// cookie-auth lands, the cookie-name actually consumed by the verifier
+// will be excised — but this requires a more surgical edit on the
+// Cookie header value, not a wholesale strip.
+var strippedAuthHeaders = map[string]struct{}{
+	"authorization":       {},
+	"proxy-authorization": {},
+}
+
+// stripAuthHeaders returns a copy of in with the credential headers
+// (Authorization, Proxy-Authorization) removed. The input map is not
+// mutated — the proxy layer caches in.Headers in several places and
+// expects them to stay stable; the small per-request allocation is
+// the right tradeoff for that immutability invariant.
+//
+// Returns nil when the input is nil or empty so the encoder treats
+// "no headers" identically to "no auth-stripped headers". The empty-
+// input fast path keeps the public-route surface clean — a route
+// without an Auth block does not allocate here at all because the
+// caller never invokes stripAuthHeaders on the public path.
+func stripAuthHeaders(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return in
+	}
+
+	out := make(map[string]string, len(in))
+	for name, value := range in {
+		if _, strip := strippedAuthHeaders[name]; strip {
+			continue
+		}
+
+		out[name] = value
+	}
+
+	return out
+}
+
 // extractCookie parses a single named cookie from the Cookie header.
 // Avoids allocating a full cookie map per request — most rate-limit
 // keyBy chains resolve before reaching the cookie strategy.
@@ -590,6 +661,7 @@ func (h *Handler) runAuthFlow(
 	route routing.Route,
 	params map[string]string,
 	timeout time.Duration,
+	reqLog zerolog.Logger,
 ) *authFlowResult {
 	verifyPayload := acquirePayload()
 	defer releasePayload(verifyPayload)
@@ -614,7 +686,7 @@ func (h *Handler) runAuthFlow(
 		TimeoutMs:   timeout.Milliseconds(),
 	})
 	if err != nil {
-		h.cfg.Logger.Error().Err(err).Msg("auth: verify encode failed")
+		reqLog.Error().Err(err).Msg("auth: verify encode failed")
 		return &authFlowResult{Proceed: false, ShortCircuit: toServeResult(gerrors.InternalError)}
 	}
 
@@ -623,7 +695,7 @@ func (h *Handler) runAuthFlow(
 		if isTimeoutErr(err) {
 			return &authFlowResult{Proceed: false, ShortCircuit: toServeResult(gerrors.GatewayTimeout)}
 		}
-		h.cfg.Logger.Error().
+		reqLog.Error().
 			Err(err).
 			Str("subject", route.Auth.VerifierSubject).
 			Msg("auth: verifier nats request failed")
@@ -633,7 +705,7 @@ func (h *Handler) runAuthFlow(
 
 	reply, err := h.cfg.Decoder.Decode(replyBytes)
 	if err != nil {
-		h.cfg.Logger.Error().Err(err).Msg("auth: verifier reply decode failed")
+		reqLog.Error().Err(err).Msg("auth: verifier reply decode failed")
 		return &authFlowResult{Proceed: false, ShortCircuit: toServeResult(gerrors.BadGateway)}
 	}
 
