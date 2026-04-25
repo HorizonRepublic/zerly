@@ -29,6 +29,41 @@ func ClaimNondeterministicCount() uint64 {
 	return claimNondeterministicCount.Load()
 }
 
+// cookieCollisionCount tracks the number of times the cookie keyBy
+// strategy detected a duplicate cookie name in the inbound Cookie
+// header. RFC 6265 allows multiple cookies with the same name; the
+// rate-limit keyBy treats the situation as unresolvable rather than
+// quietly picking one of the values. Exported through
+// CookieCollisionCount so the router's Counters surface lifts it to
+// OpenTelemetry without the key.go file holding a router reference.
+var cookieCollisionCount atomic.Uint64
+
+// CookieCollisionCount returns the running total of rate-limit
+// resolutions that observed duplicate cookie names in a single
+// request's Cookie header.
+//
+// A duplicate cookie name is RFC-permitted but rare in honest
+// browser traffic — the standard cookie jar dedupes by (name, domain,
+// path) before sending. Non-zero readings usually signal one of:
+//
+//   - An attacker injecting a Cookie header (e.g. via response
+//     splitting or an upstream that forwards client-supplied raw
+//     cookies) to defeat per-session rate limiting by sandwiching
+//     the victim's session cookie next to the attacker's.
+//   - A misbehaving client that retries with stale-and-fresh cookie
+//     pairs without dedupe.
+//   - Multiple Cookie headers folded by an HTTP/1.1 stack into one
+//     comma-joined string (the gateway's adapter joins with "; " per
+//     RFC 6265 §5.4 to avoid this; deployments with non-RFC fronts
+//     may surface it).
+//
+// In every case the rate-limit keyBy treats the cookie strategy as
+// unresolvable and falls through to the next candidate (typically IP).
+// Tracking lets operators alert on surge.
+func CookieCollisionCount() uint64 {
+	return cookieCollisionCount.Load()
+}
+
 // base32Alphabet is the lowercase, unpadded, NATS-KV-safe base32
 // alphabet used by encodeBase32. Chosen over stdlib encoding/base32
 // because stdlib's alphabet mixes case and appends '=' padding, both
@@ -101,11 +136,22 @@ func BuildBucketKey(method, pathTemplate, resolvedKey string) string {
 // User claim suffixes are also passed through verbatim — JWT claim
 // names are case-sensitive (RFC 7519 §4) and a misspelling MUST fail
 // the lookup rather than silently match a sibling claim.
+//
+// cookieFn returns (value, collided). When collided is true the
+// inbound Cookie header carried two or more cookies with the requested
+// name — RFC 6265 permits this but it is a strong signal of a Cookie-
+// header injection attempt. The cookie strategy is treated as
+// unresolvable on collision: ResolveKey skips this entry, bumps
+// CookieCollisionCount for operator observability, and continues to
+// the next keyBy candidate. Falling back to a partial match would
+// either bucket two distinct identities under one quota (allowing
+// quota-share or overflow attacks) or randomly flip-flop between
+// them as cookie-parser implementations differ.
 func ResolveKey(
 	keyBy []string,
 	clientIP string,
 	headerFn func(name string) string,
-	cookieFn func(name string) string,
+	cookieFn func(name string) (string, bool),
 	claims map[string]any,
 ) string {
 	for _, key := range keyBy {
@@ -119,7 +165,12 @@ func ResolveKey(
 			}
 
 		case strings.HasPrefix(key, "cookie:"):
-			if v := cookieFn(key[7:]); v != "" {
+			v, collided := cookieFn(key[7:])
+			if collided {
+				cookieCollisionCount.Add(1)
+				continue
+			}
+			if v != "" {
 				return v
 			}
 

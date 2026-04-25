@@ -27,7 +27,7 @@ func TestBuildBucketKey_NATSKVSafe(t *testing.T) {
 }
 
 func noHeader(_ string) string { return "" }
-func noCookie(_ string) string { return "" }
+func noCookie(_ string) (string, bool) { return "", false }
 
 func TestResolveKey_IPAlwaysResolves(t *testing.T) {
 	key := ratelimit.ResolveKey([]string{"ip"}, "1.2.3.4", noHeader, noCookie, nil)
@@ -84,17 +84,65 @@ func TestResolveKey_HeaderResolvesWhenPresent(t *testing.T) {
 }
 
 func TestResolveKey_CookieResolvesWhenPresent(t *testing.T) {
-	cookieFn := func(name string) string {
+	cookieFn := func(name string) (string, bool) {
 		if name == "session" {
-			return "sess-abc"
+			return "sess-abc", false
 		}
 
-		return ""
+		return "", false
 	}
 
 	key := ratelimit.ResolveKey([]string{"cookie:session", "ip"}, "1.2.3.4", noHeader, cookieFn, nil)
 
 	assert.Equal(t, "sess-abc", key)
+}
+
+// TestResolveKey_CookieCollisionFallsThrough pins the cookie-collision
+// safety contract: RFC 6265 allows multiple cookies with the same
+// name. An attacker who can inject a Cookie header (XSS, plain HTTP
+// where the gateway sits behind a TLS terminator that does not strip
+// CL spoof) can ship `Cookie: session=victim_id; session=attacker_id`
+// to make the gateway either bucket two distinct identities under one
+// key (allowing a quota share/overflow) or flip-flop randomly between
+// them as Cookie-parser implementations differ.
+//
+// The fix: on collision, the cookie strategy is treated as
+// unresolvable and the resolver falls through to the next keyBy
+// candidate. A counter bump surfaces the event for operator
+// observability so an unusual rate of collision-detected requests
+// triggers investigation.
+func TestResolveKey_CookieCollisionFallsThrough(t *testing.T) {
+	before := ratelimit.CookieCollisionCount()
+
+	cookieFn := func(name string) (string, bool) {
+		if name == "session" {
+			return "victim_id", true
+		}
+
+		return "", false
+	}
+
+	key := ratelimit.ResolveKey([]string{"cookie:session", "ip"}, "1.2.3.4", noHeader, cookieFn, nil)
+
+	assert.Equal(t, "1.2.3.4", key,
+		"collision must skip the cookie strategy and fall through to the next keyBy entry")
+	assert.Equal(t, before+1, ratelimit.CookieCollisionCount(),
+		"each collision must bump the ratelimit_cookie_collision counter so the event reaches metrics")
+}
+
+// TestResolveKey_CookieCollisionWithoutFallback_StaysAtIPDefault pins
+// the behaviour when collision happens and no further keyBy candidate
+// can resolve. The function falls back to the clientIP default — same
+// as if every keyBy had been a miss.
+func TestResolveKey_CookieCollisionWithoutFallback_StaysAtIPDefault(t *testing.T) {
+	cookieFn := func(name string) (string, bool) {
+		return "victim_id", true
+	}
+
+	key := ratelimit.ResolveKey([]string{"cookie:session"}, "1.2.3.4", noHeader, cookieFn, nil)
+
+	assert.Equal(t, "1.2.3.4", key,
+		"a collision with no fallback keyBy still resolves to the clientIP default")
 }
 
 func TestResolveKey_UserFieldResolvesFromClaims(t *testing.T) {

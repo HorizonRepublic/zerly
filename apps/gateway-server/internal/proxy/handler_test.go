@@ -1784,8 +1784,9 @@ func TestExtractCookie_TrimsWhitespaceAndQuotes(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := extractCookie(map[string]string{"cookie": c.header}, "session")
+			got, collided := extractCookie(map[string]string{"cookie": c.header}, "session")
 			assert.Equal(t, c.want, got)
+			assert.False(t, collided, "single-occurrence cookies must not signal a collision")
 		})
 	}
 }
@@ -1793,8 +1794,28 @@ func TestExtractCookie_TrimsWhitespaceAndQuotes(t *testing.T) {
 // TestExtractCookie_MissingCookieReturnsEmpty verifies the no-cookie
 // fast paths: empty header, name absent from a populated header.
 func TestExtractCookie_MissingCookieReturnsEmpty(t *testing.T) {
-	assert.Equal(t, "", extractCookie(map[string]string{}, "session"))
-	assert.Equal(t, "", extractCookie(map[string]string{"cookie": "theme=dark"}, "session"))
+	got, collided := extractCookie(map[string]string{}, "session")
+	assert.Equal(t, "", got)
+	assert.False(t, collided)
+
+	got, collided = extractCookie(map[string]string{"cookie": "theme=dark"}, "session")
+	assert.Equal(t, "", got)
+	assert.False(t, collided)
+}
+
+// TestExtractCookie_DuplicateNameSignalsCollision pins the safety
+// contract introduced for the cookie-collision attack: an attacker
+// who can inject a Cookie header with two same-named entries (e.g.
+// `Cookie: session=victim_id; session=attacker_id`) must surface the
+// duplicate so ResolveKey can fall through to the next keyBy
+// candidate. The returned value is irrelevant on collision —
+// ResolveKey ignores it — but the bool MUST be true.
+func TestExtractCookie_DuplicateNameSignalsCollision(t *testing.T) {
+	_, collided := extractCookie(
+		map[string]string{"cookie": "session=victim_id; theme=dark; session=attacker_id"},
+		"session",
+	)
+	assert.True(t, collided, "duplicate cookie names must surface a collision flag")
 }
 
 // --- Context propagation tests ---

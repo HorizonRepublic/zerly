@@ -480,7 +480,7 @@ func (h *Handler) resolveRateLimitKey(
 		keyBy,
 		in.RemoteAddr,
 		func(name string) string { return in.Headers[name] },
-		func(name string) string { return extractCookie(in.Headers, name) },
+		func(name string) (string, bool) { return extractCookie(in.Headers, name) },
 		claimsMap,
 	)
 
@@ -573,33 +573,59 @@ func stripAuthHeaders(in map[string]string) map[string]string {
 	return out
 }
 
-// extractCookie parses a single named cookie from the Cookie header.
-// Avoids allocating a full cookie map per request — most rate-limit
-// keyBy chains resolve before reaching the cookie strategy.
+// extractCookie parses a single named cookie from the Cookie header
+// and reports whether the name appeared more than once.
 //
-// Per RFC 6265 §5.4, cookie-pairs are separated by "; " and the
-// cookie-value MAY be wrapped in DQUOTE characters. The returned
-// value is therefore trimmed of surrounding whitespace and a single
-// pair of matching quotes so that "session=abc", `session="abc"`,
-// and `session= abc` all collapse to "abc". Without this
-// normalisation, equivalent cookies would land in distinct
+// The first return is the value of the first matching cookie-pair
+// (RFC 6265 §5.4 cookie-pair = cookie-name "=" cookie-value). The
+// second return signals collision: when true the rate-limit caller
+// MUST treat the cookie strategy as unresolvable and fall through to
+// the next keyBy entry, because RFC 6265 permits multiple same-name
+// cookies and an attacker can sandwich a victim's session next to
+// their own to defeat per-session rate-limit isolation.
+//
+// Avoids allocating a full cookie map per request — most rate-limit
+// keyBy chains resolve before reaching the cookie strategy. The
+// duplicate check still walks the whole header even after a hit so
+// that injection attempts surface as collision rather than silently
+// returning the first match.
+//
+// Per RFC 6265 §5.4 cookie-values MAY be wrapped in DQUOTE characters.
+// The returned value is trimmed of surrounding whitespace and a
+// single pair of matching quotes so that "session=abc",
+// `session="abc"`, and `session= abc` all collapse to "abc". Without
+// this normalisation, equivalent cookies would land in distinct
 // rate-limit buckets.
-func extractCookie(headers map[string]string, name string) string {
+func extractCookie(headers map[string]string, name string) (string, bool) {
 	cookieHeader := headers["cookie"]
 	if cookieHeader == "" {
-		return ""
+		return "", false
 	}
+
+	var (
+		value    string
+		matched  bool
+		collided bool
+	)
 
 	for _, part := range strings.Split(cookieHeader, ";") {
 		part = strings.TrimSpace(part)
-		if eqIdx := strings.IndexByte(part, '='); eqIdx > 0 && part[:eqIdx] == name {
-			value := strings.TrimSpace(part[eqIdx+1:])
-
-			return trimCookieQuotes(value)
+		eqIdx := strings.IndexByte(part, '=')
+		if eqIdx <= 0 || part[:eqIdx] != name {
+			continue
 		}
+
+		if matched {
+			collided = true
+
+			break
+		}
+
+		value = trimCookieQuotes(strings.TrimSpace(part[eqIdx+1:]))
+		matched = true
 	}
 
-	return ""
+	return value, collided
 }
 
 // trimCookieQuotes strips a single matching pair of DQUOTE characters
