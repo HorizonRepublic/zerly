@@ -58,14 +58,21 @@ func TestBuildPreflightHeaders_FullConfig(t *testing.T) {
 	assert.Equal(t, "Origin", h["Vary"])
 }
 
-func TestBuildPreflightHeaders_WildcardNoVary(t *testing.T) {
+// TestBuildPreflightHeaders_WildcardEmitsVary pins the always-emit
+// contract: even for wildcard CORS, Vary: Origin must reach the wire.
+// In a mixed deployment where one route serves "*" and another serves
+// an allowlist on the same path under different conditions, an
+// intermediate CDN that does not see Vary keys on (URL, Method)
+// alone and serves the wrong preflight to the wrong origin. Always-
+// emit removes the entire class of CDN-cache-confusion bugs.
+func TestBuildPreflightHeaders_WildcardEmitsVary(t *testing.T) {
 	cors := &registry.CORSMeta{Origins: []string{"*"}}
 
 	h := BuildPreflightHeaders(cors, "*")
 
 	assert.Equal(t, "*", h["Access-Control-Allow-Origin"])
-	_, hasVary := h["Vary"]
-	assert.False(t, hasVary, "Vary should not be set for wildcard origin")
+	assert.Equal(t, "Origin", h["Vary"],
+		"Vary: Origin MUST reach the wire on wildcard preflights for CDN cache correctness")
 }
 
 func TestBuildPreflightHeaders_WildcardWithCredentials_SkipsCredentialsHeader(t *testing.T) {
@@ -173,6 +180,32 @@ func TestBuildResponseCORSHeaders_EmptyExposeHeadersFallsBackToDefault(t *testin
 		"X-Request-Id, X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset, Retry-After",
 		h["Access-Control-Expose-Headers"],
 	)
+}
+
+// TestBuildResponseCORSHeaders_WildcardEmitsVary mirrors the wildcard
+// always-Vary contract for the response-side builder. Same
+// CDN-cache-correctness rationale.
+func TestBuildResponseCORSHeaders_WildcardEmitsVary(t *testing.T) {
+	cors := &registry.CORSMeta{Origins: []string{"*"}}
+
+	h := BuildResponseCORSHeaders(cors, "*")
+
+	assert.Equal(t, "*", h["Access-Control-Allow-Origin"])
+	assert.Equal(t, "Origin", h["Vary"],
+		"Vary: Origin MUST reach the wire on wildcard responses for CDN cache correctness")
+}
+
+// TestBuildResponseCORSHeaders_AllowlistEmitsVary pins the allowlist
+// path: an exact-origin match also emits Vary: Origin so a CDN keying
+// on (URL, Method, Origin) caches correctly when the same path is
+// requested from a different allowlisted origin later.
+func TestBuildResponseCORSHeaders_AllowlistEmitsVary(t *testing.T) {
+	cors := &registry.CORSMeta{Origins: []string{"https://app.example.com", "https://admin.example.com"}}
+
+	h := BuildResponseCORSHeaders(cors, "https://app.example.com")
+
+	assert.Equal(t, "https://app.example.com", h["Access-Control-Allow-Origin"])
+	assert.Equal(t, "Origin", h["Vary"])
 }
 
 // TestBuildPreflightHeaders_NilCORSReturnsNil pins the defensive

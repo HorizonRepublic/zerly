@@ -50,6 +50,16 @@ func MatchOrigin(cors *registry.CORSMeta, origin string) string {
 // surfaces as a no-op rather than a nil-pointer dereference. Existing
 // callers always nil-check before invoking; this is the second line
 // of defense, not a substitute for the first.
+//
+// Vary: Origin is emitted unconditionally on every CORS response,
+// regardless of whether the matched origin is "*" or an exact match.
+// In a mixed deployment where one route serves wildcard CORS while
+// another serves an allowlist on the same origin, an intermediate
+// CDN that caches the preflight without seeing Vary would key on
+// (URL, Method) alone and serve the wildcard preflight to a request
+// that should have been pinned to its exact origin (or vice versa).
+// Always-emit removes the entire class of CDN-cache-confusion bugs
+// at zero wire cost.
 func BuildPreflightHeaders(cors *registry.CORSMeta, matchedOrigin string) map[string]string {
 	if cors == nil {
 		return nil
@@ -81,9 +91,7 @@ func BuildPreflightHeaders(cors *registry.CORSMeta, matchedOrigin string) map[st
 		h["Access-Control-Max-Age"] = strconv.Itoa(cors.MaxAge)
 	}
 
-	if matchedOrigin != "*" {
-		h["Vary"] = "Origin"
-	}
+	h["Vary"] = "Origin"
 
 	return h
 }
@@ -99,6 +107,11 @@ func BuildPreflightHeaders(cors *registry.CORSMeta, matchedOrigin string) map[st
 // Retry-After). When the route's CORSMeta.ExposeHeaders is set the
 // gateway emits exactly that list; otherwise the standard gateway
 // default list applies.
+//
+// Vary: Origin is emitted unconditionally on every CORS response,
+// regardless of whether the matched origin is "*" or an exact match.
+// See BuildPreflightHeaders for the CDN-cache-correctness rationale —
+// it applies identically to non-preflight responses.
 //
 // Returns nil when cors is nil for the same defensive reason as
 // BuildPreflightHeaders — see that function for details.
@@ -119,9 +132,7 @@ func BuildResponseCORSHeaders(cors *registry.CORSMeta, matchedOrigin string) map
 
 	h["Access-Control-Expose-Headers"] = resolveExposeHeaders(cors.ExposeHeaders)
 
-	if matchedOrigin != "*" {
-		h["Vary"] = "Origin"
-	}
+	h["Vary"] = "Origin"
 
 	return h
 }
