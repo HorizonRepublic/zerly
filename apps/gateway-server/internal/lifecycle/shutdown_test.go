@@ -3,6 +3,7 @@ package lifecycle
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -14,6 +15,32 @@ import (
 
 	"github.com/HorizonRepublic/zerly/apps/gateway-server/internal/registry"
 )
+
+// logCapture is a thread-safe in-memory io.Writer for zerolog,
+// used to inspect drain step output during shutdown tests.
+type logCapture struct {
+	mu  sync.Mutex
+	buf strings.Builder
+}
+
+func (l *logCapture) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.buf.Write(p)
+}
+
+func (l *logCapture) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.buf.String()
+}
+
+// CountField returns how many log lines contain the named JSON field.
+// The match is naive substring (`"<name>":`) — sufficient for
+// asserting that every drain step emitted an `elapsed` field.
+func (l *logCapture) CountField(name string) int {
+	return strings.Count(l.String(), `"`+name+`":`)
+}
 
 // stepRecorder is a shared monotonic counter the fake collaborators
 // use to stamp the order in which Drain invokes them. The sequence
@@ -195,6 +222,41 @@ func TestDrain_NoRouterSkipsCloseStep(t *testing.T) {
 	nats.mu.Lock()
 	assert.True(t, nats.called, "NATS drain must still run when RateLimit is nil")
 	nats.mu.Unlock()
+}
+
+func TestDrain_LogsElapsedPerStep(t *testing.T) {
+	// Each step's completion (or failure) log line MUST carry an
+	// `elapsed` field so a slow-drain postmortem can pin which
+	// resource burned the budget without correlating timestamps
+	// across separate log lines.
+	http := &fakeHTTPServer{}
+	nats := &fakeNATSConn{}
+	watcher := stubWatcher()
+	router := &recordingRouter{}
+
+	var buf logCapture
+	logger := zerolog.New(&buf)
+
+	Drain(Options{
+		HTTP:      http,
+		Watcher:   watcher,
+		RateLimit: router,
+		NATS:      nats,
+		Timeout:   1 * time.Second,
+		Logger:    logger,
+	})
+
+	output := buf.String()
+	assert.Contains(t, output, `"message":"shutdown step: http complete"`)
+	assert.Contains(t, output, `"message":"shutdown step: registry watcher complete"`)
+	assert.Contains(t, output, `"message":"shutdown step: ratelimit router complete"`)
+	assert.Contains(t, output, `"message":"shutdown step: nats drain complete"`)
+	assert.Contains(t, output, `"message":"gateway shutdown: drain complete"`)
+	// Every completion log line carries `elapsed` — the field is what
+	// makes the per-step duration grep-able.
+	elapsedCount := buf.CountField("elapsed")
+	assert.GreaterOrEqual(t, elapsedCount, 5,
+		"4 step-completion lines + 1 overall-complete line must each carry elapsed")
 }
 
 func TestDrain_RateLimitCloseErrorDoesNotAbortSequence(t *testing.T) {

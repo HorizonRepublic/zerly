@@ -171,6 +171,7 @@ func WaitForSignal() os.Signal {
 // to attempt every drain unconditionally.
 func Drain(opts Options) {
 	opts.Logger.Info().Dur("timeout", opts.Timeout).Msg("gateway shutdown: draining resources")
+	overallStart := time.Now()
 
 	ctx, cancel := context.WithTimeout(context.Background(), opts.Timeout)
 	defer cancel()
@@ -180,25 +181,43 @@ func Drain(opts Options) {
 	closeRateLimitRouter(opts)
 	drainNATS(ctx, opts)
 
-	opts.Logger.Info().Msg("gateway shutdown: drain complete")
+	opts.Logger.Info().
+		Dur("elapsed", time.Since(overallStart)).
+		Msg("gateway shutdown: drain complete")
 }
 
 // shutdownHTTP stops the Hertz server from accepting new connections
 // and waits for in-flight requests to finish. Errors are logged at
-// ERROR but do not abort the rest of the drain.
+// ERROR but do not abort the rest of the drain. Per-step elapsed
+// time is logged at INFO so a slow-drain postmortem can pinpoint
+// which resource burned the budget without correlating timestamps.
 func shutdownHTTP(ctx context.Context, opts Options) {
 	opts.Logger.Debug().Msg("shutdown step: http")
+	start := time.Now()
 	if err := opts.HTTP.Shutdown(ctx); err != nil {
-		opts.Logger.Error().Err(err).Msg("http shutdown failed; continuing drain")
+		opts.Logger.Error().
+			Err(err).
+			Dur("elapsed", time.Since(start)).
+			Msg("http shutdown failed; continuing drain")
+		return
 	}
+	opts.Logger.Info().
+		Dur("elapsed", time.Since(start)).
+		Msg("shutdown step: http complete")
 }
 
 // stopWatcher cancels the registry watcher's background goroutine.
 // Stop is idempotent (guarded by sync.Once in the watcher) and
 // cannot fail, so there is nothing to log on the error branch.
+// Elapsed duration is logged at INFO so operators can spot a stuck
+// initial-load that prevents Stop from returning quickly.
 func stopWatcher(opts Options) {
 	opts.Logger.Debug().Msg("shutdown step: registry watcher")
+	start := time.Now()
 	opts.Watcher.Stop()
+	opts.Logger.Info().
+		Dur("elapsed", time.Since(start)).
+		Msg("shutdown step: registry watcher complete")
 }
 
 // closeRateLimitRouter transitions the rate-limit router into its
@@ -221,11 +240,17 @@ func closeRateLimitRouter(opts Options) {
 	}
 
 	opts.Logger.Debug().Msg("shutdown step: ratelimit router")
+	start := time.Now()
 	if err := opts.RateLimit.Close(); err != nil {
-		opts.Logger.Error().Err(err).Msg("ratelimit router close failed; continuing drain")
+		opts.Logger.Error().
+			Err(err).
+			Dur("elapsed", time.Since(start)).
+			Msg("ratelimit router close failed; continuing drain")
 		return
 	}
-	opts.Logger.Debug().Msg("shutdown step: ratelimit router closed")
+	opts.Logger.Info().
+		Dur("elapsed", time.Since(start)).
+		Msg("shutdown step: ratelimit router complete")
 }
 
 // drainNATS waits for in-flight subscriptions and publishes on the
@@ -243,6 +268,7 @@ func closeRateLimitRouter(opts Options) {
 // socket finally drops.
 func drainNATS(ctx context.Context, opts Options) {
 	opts.Logger.Debug().Msg("shutdown step: nats drain")
+	start := time.Now()
 
 	done := make(chan error, 1)
 	go func() {
@@ -252,11 +278,19 @@ func drainNATS(ctx context.Context, opts Options) {
 	select {
 	case err := <-done:
 		if err != nil {
-			opts.Logger.Error().Err(err).Msg("nats drain failed")
+			opts.Logger.Error().
+				Err(err).
+				Dur("elapsed", time.Since(start)).
+				Msg("nats drain failed")
+			return
 		}
+		opts.Logger.Info().
+			Dur("elapsed", time.Since(start)).
+			Msg("shutdown step: nats drain complete")
 	case <-ctx.Done():
 		opts.Logger.Warn().
 			Err(ctx.Err()).
+			Dur("elapsed", time.Since(start)).
 			Msg("nats drain timed out; forcing shutdown")
 	}
 }
