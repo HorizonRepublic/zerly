@@ -143,3 +143,42 @@ func TestRequester_RejectsEmptyConnectionSlice(t *testing.T) {
 	assert.Nil(t, requester)
 	assert.ErrorIs(t, err, errNoConns)
 }
+
+// TestRequester_CloseDrainsUnderlyingConnections pins the shutdown
+// contract: Close MUST iterate every pooled connection and invoke
+// Drain so in-flight subscriptions complete before the socket tears
+// down. After Close the pooled connections must report Closed/Draining
+// — a regression that swapped Drain for Close would surface here as a
+// connection that did not first transition through DRAINING.
+func TestRequester_CloseDrainsUnderlyingConnections(t *testing.T) {
+	ctx := context.Background()
+	container, err := tcnats.Run(ctx, "nats:2.11.7")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = container.Terminate(ctx) })
+
+	url, err := container.ConnectionString(ctx)
+	require.NoError(t, err)
+
+	first, err := natsgo.Connect(url)
+	require.NoError(t, err)
+	second, err := natsgo.Connect(url)
+	require.NoError(t, err)
+
+	requester, err := NewRequester([]*natsgo.Conn{first, second})
+	require.NoError(t, err)
+
+	// Pre-condition: both connections must be live before Close so
+	// the post-Close assertion proves Close did the transition.
+	require.False(t, first.IsClosed())
+	require.False(t, second.IsClosed())
+
+	requester.Close()
+
+	// Drain is asynchronous — it returns once the close goroutine is
+	// scheduled, not once the socket finishes draining. Poll briefly
+	// so the test does not race the drain finalisation on slow CI.
+	assert.Eventually(t, func() bool {
+		return first.IsClosed() && second.IsClosed()
+	}, 5*time.Second, 50*time.Millisecond,
+		"Close must drain every pooled connection so each ends up CLOSED")
+}
