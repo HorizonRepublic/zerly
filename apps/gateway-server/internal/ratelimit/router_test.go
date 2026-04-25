@@ -327,6 +327,8 @@ func TestRouter_CountersAllAggregatesAcrossBackends(t *testing.T) {
 
 	routerCounters := all["router"]
 	assert.Contains(t, routerCounters, "ratelimit_store_fallback_total")
+	assert.Contains(t, routerCounters, "ratelimit_cookie_collision_total",
+		"router-level cookie-collision counter must surface for dashboards")
 }
 
 // TestMemoryStoreCountersIncludeMinimumSchema enforces the cross-
