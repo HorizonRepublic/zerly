@@ -208,6 +208,23 @@ type Config struct {
 	// trigger immediate timeouts in every gate evaluation.
 	RateLimitTimeout time.Duration `env:"RATELIMIT_TIMEOUT" envDefault:"50ms"`
 
+	// RateLimitMemoryMaxEntries caps how many distinct keys the
+	// in-process MemoryStore admits before refusing to grow further.
+	// Once the cap is reached, brand-new keys produce an
+	// ErrMemoryStoreSaturated error that flows through the FailPolicy
+	// (closed → 503, open → request passes); existing keys keep
+	// resolving normally.
+	//
+	// The cap defends against a cardinality-spike DoS where an
+	// attacker rotates source IP every request — without a cap the
+	// store would hold all of them in RAM until the sweeper's TTL
+	// pass dropped them. At 64-byte keys + 64-byte memoryEntry,
+	// 1_000_000 entries is roughly 128 MiB.
+	//
+	// Zero disables the cap (legacy unbounded behaviour). Negative
+	// values are rejected at Load().
+	RateLimitMemoryMaxEntries int64 `env:"RATELIMIT_MEMORY_MAX_ENTRIES" envDefault:"1000000"`
+
 	// LogLevel is the minimum zerolog level to emit. Valid values:
 	// trace, debug, info, warn, error, fatal, panic, disabled.
 	LogLevel string `env:"LOG_LEVEL"          envDefault:"info"`
@@ -283,6 +300,10 @@ func Load() (*Config, error) {
 
 	if cfg.RateLimitTimeout <= 0 || cfg.RateLimitTimeout > time.Second {
 		return nil, fmt.Errorf("RATELIMIT_TIMEOUT must be > 0 and ≤ 1s, got %s", cfg.RateLimitTimeout)
+	}
+
+	if cfg.RateLimitMemoryMaxEntries < 0 {
+		return nil, fmt.Errorf("RATELIMIT_MEMORY_MAX_ENTRIES must be ≥ 0 (0 disables the cap), got %d", cfg.RateLimitMemoryMaxEntries)
 	}
 
 	return cfg, nil

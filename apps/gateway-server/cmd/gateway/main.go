@@ -381,7 +381,10 @@ func rateLimitBackendFactory(
 	switch id {
 	case "memory":
 		return func() (ratelimit.Store, error) {
-			return ratelimit.NewMemoryStore(cfg.RateLimitKeyTTL), nil
+			return ratelimit.NewMemoryStoreWithCap(
+				cfg.RateLimitKeyTTL,
+				cfg.RateLimitMemoryMaxEntries,
+			), nil
 		}
 	case "nats-kv":
 		return func() (ratelimit.Store, error) {

@@ -3,6 +3,7 @@ package ratelimit
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -184,4 +185,56 @@ func TestMemoryStore_Close_ConcurrentCallsAreIdempotent(t *testing.T) {
 	}, "concurrent Close calls must not panic on the channel close")
 
 	assert.Empty(t, errors, "every Close call must return nil")
+}
+
+// TestMemoryStore_SaturationRejectsNewKey pins the cardinality cap:
+// once entriesSize reaches maxEntries, a brand-new key receives
+// ErrMemoryStoreSaturated. Existing keys still resolve normally —
+// the cap protects against carpet-bombing attacks rotating IPs, not
+// against legitimate active clients.
+func TestMemoryStore_SaturationRejectsNewKey(t *testing.T) {
+	s := NewMemoryStoreWithCap(time.Minute, 2)
+	t.Cleanup(func() { _ = s.Close() })
+
+	ctx := context.Background()
+
+	dec, err := s.Allow(ctx, "k1", 100, 10)
+	require.NoError(t, err)
+	assert.True(t, dec.Allowed)
+
+	dec, err = s.Allow(ctx, "k2", 100, 10)
+	require.NoError(t, err)
+	assert.True(t, dec.Allowed)
+
+	// Brand-new key beyond the cap must surface ErrMemoryStoreSaturated.
+	_, err = s.Allow(ctx, "k3-new", 100, 10)
+	assert.ErrorIs(t, err, ErrMemoryStoreSaturated,
+		"new key beyond cap must surface ErrMemoryStoreSaturated for FailPolicy routing")
+
+	// Counters reflect the saturation event.
+	c := s.Counters()
+	assert.Equal(t, int64(1), c["ratelimit_memory_saturated_total"],
+		"saturation counter must tick once per refused new key")
+
+	// Existing keys still work — the cap only refuses new admissions.
+	dec, err = s.Allow(ctx, "k1", 100, 10)
+	require.NoError(t, err)
+	assert.True(t, dec.Allowed,
+		"existing keys must keep resolving even when the store is at capacity")
+}
+
+// TestMemoryStore_SaturationCapZeroDisablesCheck pins the legacy
+// behaviour: NewMemoryStore (no cap) leaves the door open. Operators
+// who do not set RATELIMIT_MEMORY_MAX_ENTRIES keep the pre-cap
+// semantics.
+func TestMemoryStore_SaturationCapZeroDisablesCheck(t *testing.T) {
+	s := NewMemoryStore(time.Minute)
+	t.Cleanup(func() { _ = s.Close() })
+
+	ctx := context.Background()
+	for i := 0; i < 1000; i++ {
+		key := "key-" + strings.Repeat("a", i%20)
+		_, err := s.Allow(ctx, key, 100, 10)
+		require.NoError(t, err, "uncapped store must never refuse new keys")
+	}
 }
