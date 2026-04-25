@@ -215,3 +215,70 @@ func TestResolveClientIP_NilPeerIP_FallbackEmptyString(t *testing.T) {
 	got := trustedproxy.ResolveClientIP(nil, "1.2.3.4", trusted)
 	assert.Empty(t, got, "nil peer IP → empty string (non-panic safe degradation)")
 }
+
+// ---------- ResolveClientIPSingle ----------
+
+// TestResolveClientIPSingle_PeerTrusted_ReturnsHeaderValue pins the
+// canonical happy path: a trusted predecessor's single-value forwarded
+// header (X-Real-IP / CF-Connecting-IP / True-Client-IP) is honoured
+// verbatim once the IP parses as valid.
+func TestResolveClientIPSingle_PeerTrusted_ReturnsHeaderValue(t *testing.T) {
+	trusted := resolverFixture(t)
+	got := trustedproxy.ResolveClientIPSingle(net.ParseIP("10.0.0.1"), "203.0.113.7", trusted)
+	assert.Equal(t, "203.0.113.7", got,
+		"trusted peer + valid single-value header → header IP")
+}
+
+// TestResolveClientIPSingle_PeerUntrusted_IgnoresHeader is the
+// spoofing-defence pin: an untrusted peer cannot vouch for a
+// single-value forwarded header any more than it can vouch for XFF.
+// The resolver MUST drop the header and fall back to the peer.
+func TestResolveClientIPSingle_PeerUntrusted_IgnoresHeader(t *testing.T) {
+	trusted := resolverFixture(t)
+	got := trustedproxy.ResolveClientIPSingle(net.ParseIP("5.5.5.5"), "203.0.113.7", trusted)
+	assert.Equal(t, "5.5.5.5", got,
+		"untrusted peer must NOT honour single-value header — spoofing defence")
+}
+
+// TestResolveClientIPSingle_PeerTrusted_EmptyHeader_FallsBackToPeer
+// covers the no-header path: a trusted peer with no header carries no
+// upstream identity to forward, so the peer IP is the correct identity.
+func TestResolveClientIPSingle_PeerTrusted_EmptyHeader_FallsBackToPeer(t *testing.T) {
+	trusted := resolverFixture(t)
+	got := trustedproxy.ResolveClientIPSingle(net.ParseIP("10.0.0.1"), "", trusted)
+	assert.Equal(t, "10.0.0.1", got,
+		"trusted peer + empty header → peer (no upstream identity to honour)")
+}
+
+// TestResolveClientIPSingle_PeerTrusted_MalformedHeader_FallsBackToPeer
+// pins the parse-failure recovery: a trusted predecessor that ships
+// junk in the header MUST NOT be treated as authoritative — without
+// a valid IP the resolver cannot return a meaningful identity, so it
+// degrades to the peer rather than emitting an unparseable string.
+func TestResolveClientIPSingle_PeerTrusted_MalformedHeader_FallsBackToPeer(t *testing.T) {
+	trusted := resolverFixture(t)
+	got := trustedproxy.ResolveClientIPSingle(net.ParseIP("10.0.0.1"), "not-an-ip", trusted)
+	assert.Equal(t, "10.0.0.1", got,
+		"malformed single-value header must fall through to peer rather than propagate junk")
+}
+
+// TestResolveClientIPSingle_PeerTrusted_IPv6_ReturnsVerbatim covers
+// the IPv6 path. net.ParseIP returns a canonicalised form, so the
+// assertion uses the parsed string to absorb any whitespace stripping
+// or zero compression normalisation the stdlib applies.
+func TestResolveClientIPSingle_PeerTrusted_IPv6_ReturnsVerbatim(t *testing.T) {
+	trusted := resolverFixture(t)
+	got := trustedproxy.ResolveClientIPSingle(net.ParseIP("::1"), "2001:db8::1", trusted)
+	assert.Equal(t, "2001:db8::1", got,
+		"trusted peer + IPv6 single-value header → IPv6 client IP")
+}
+
+// TestResolveClientIPSingle_NilPeerIP_ReturnsEmptyString matches the
+// nil-peer behaviour of ResolveClientIP — a non-TCP connection (exotic
+// test or transport surface) MUST degrade to the empty string rather
+// than panic.
+func TestResolveClientIPSingle_NilPeerIP_ReturnsEmptyString(t *testing.T) {
+	trusted := resolverFixture(t)
+	got := trustedproxy.ResolveClientIPSingle(nil, "203.0.113.7", trusted)
+	assert.Empty(t, got, "nil peer IP → empty string (non-panic safe degradation)")
+}
