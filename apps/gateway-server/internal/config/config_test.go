@@ -282,6 +282,79 @@ func TestLoad_KVBucketRequired(t *testing.T) {
 	})
 }
 
+// TestLoad_TrustedProxyHeader_DefaultsToXForwardedFor pins the
+// default header source: operators who do not set TRUSTED_PROXY_HEADER
+// continue to see X-Forwarded-For — preserving the historical contract.
+func TestLoad_TrustedProxyHeader_DefaultsToXForwardedFor(t *testing.T) {
+	setRequiredEnv(t)
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	assert.Equal(t, "X-Forwarded-For", cfg.TrustedProxyHeader)
+}
+
+// TestLoad_TrustedProxyHeader_AcceptsAllowedHeaders pins the
+// allowed-set contract: every supported alternative parses cleanly
+// and is canonicalised to its conventional capitalisation.
+func TestLoad_TrustedProxyHeader_AcceptsAllowedHeaders(t *testing.T) {
+	cases := []struct {
+		input string
+		want  string
+	}{
+		{"X-Forwarded-For", "X-Forwarded-For"},
+		{"x-forwarded-for", "X-Forwarded-For"},
+		{"X-Real-IP", "X-Real-IP"},
+		{"x-real-ip", "X-Real-IP"},
+		{"X-REAL-IP", "X-Real-IP"},
+		{"CF-Connecting-IP", "CF-Connecting-IP"},
+		{"cf-connecting-ip", "CF-Connecting-IP"},
+		{"True-Client-IP", "True-Client-IP"},
+		{"true-client-ip", "True-Client-IP"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.input, func(t *testing.T) {
+			setRequiredEnv(t)
+			t.Setenv("TRUSTED_PROXY_HEADER", tc.input)
+
+			cfg, err := Load()
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, cfg.TrustedProxyHeader,
+				"operator-supplied header must canonicalise to the conventional capitalisation")
+		})
+	}
+}
+
+// TestLoad_TrustedProxyHeader_RejectsUnknown pins the fail-closed
+// behaviour: an unknown header name aborts startup so a typo in
+// production cannot silently degrade the trust resolution.
+func TestLoad_TrustedProxyHeader_RejectsUnknown(t *testing.T) {
+	cases := []struct {
+		name  string
+		value string
+	}{
+		{"typo", "X-Forwarded-Fro"},
+		{"random-header", "X-Forwarded-By"},
+		{"vendor-not-in-allowlist", "Fly-Client-IP"},
+		{"x-amzn-trace-id-not-allowlisted", "X-Amzn-Trace-Id"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			setRequiredEnv(t)
+			t.Setenv("TRUSTED_PROXY_HEADER", tc.value)
+
+			_, err := Load()
+			require.Error(t, err,
+				"unknown TRUSTED_PROXY_HEADER must fail Load() — startup aborts rather than running with an unsafe trust source")
+			assert.Contains(t, err.Error(), "TRUSTED_PROXY_HEADER",
+				"error must name the offending env var for operator diagnosis")
+			assert.Contains(t, err.Error(), "unknown header",
+				"error must name the failure mode")
+		})
+	}
+}
+
 // TestLoad_WriteTimeoutStrictlyExceedsRequestTimeout guards the
 // invariant documented on Config.WriteTimeout: the HTTP write deadline
 // must leave enough budget for the handler to emit a 504 after the

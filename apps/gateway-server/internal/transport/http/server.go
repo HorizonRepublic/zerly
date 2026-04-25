@@ -108,7 +108,7 @@ func NewServer(cfg *config.Config, handler *proxy.Handler, logger zerolog.Logger
 		withNoDefaultServerHeader(),
 	)
 
-	h.Use(newTrustedProxyMiddleware(cfg.TrustedProxies))
+	h.Use(newTrustedProxyMiddleware(cfg.TrustedProxies, cfg.TrustedProxyHeader))
 	h.Any("/*path", NewHertzAdapter(handler))
 
 	return h, nil

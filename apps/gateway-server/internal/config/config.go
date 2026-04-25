@@ -22,12 +22,35 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/caarlos0/env/v11"
 
 	"github.com/HorizonRepublic/zerly/apps/gateway-server/internal/trustedproxy"
 )
+
+// allowedTrustedProxyHeaders is the set of HTTP header names the
+// trusted-proxy middleware accepts as the source of the client IP.
+//
+// Keys are lowercase MIME canonical-fold form because operator-supplied
+// values are normalised to lowercase before lookup. The mapped value
+// is the canonical capitalised spelling preserved on the parsed
+// Config.TrustedProxyHeader so log lines and downstream consumers see
+// the conventional form regardless of how the operator typed it.
+//
+// Adding a new vendor header (e.g. Fly-Client-IP) requires inserting
+// it here AND extending the trusted-proxy middleware to know how to
+// read its value (single-value verbatim vs comma-walk). Operators who
+// configure an unknown header MUST get a startup error rather than a
+// silent fallback to the default — a typo in production should fail
+// closed.
+var allowedTrustedProxyHeaders = map[string]string{
+	"x-forwarded-for":   "X-Forwarded-For",
+	"x-real-ip":         "X-Real-IP",
+	"cf-connecting-ip":  "CF-Connecting-IP",
+	"true-client-ip":    "True-Client-IP",
+}
 
 // Config is the complete set of operator-controlled gateway parameters.
 //
@@ -78,6 +101,24 @@ type Config struct {
 	// trusted-proxy middleware. Populated by Load() at startup; not
 	// an env field (derived from TrustedProxiesRaw).
 	TrustedProxies []*net.IPNet `env:"-"`
+
+	// TrustedProxyHeader names the HTTP header the trusted-proxy
+	// middleware reads to recover the client IP when the peer is in
+	// TrustedProxies. Defaults to `X-Forwarded-For`, the de-facto
+	// L7-forwarded standard.
+	//
+	// Accepted values (case-insensitive on input; canonicalised to the
+	// conventional capitalisation at Load): `X-Forwarded-For`,
+	// `X-Real-IP`, `CF-Connecting-IP`, `True-Client-IP`. Any other
+	// value fails Load() so a typo in production aborts startup
+	// instead of silently demoting the trust resolution.
+	//
+	// Single-value headers (`X-Real-IP`, `CF-Connecting-IP`,
+	// `True-Client-IP`) are used verbatim. `X-Forwarded-For` performs
+	// the rightmost-untrusted walk per RFC 7239 §7.1; multi-hop
+	// forwarders MUST use it because the single-value alternatives
+	// preserve only the immediate predecessor.
+	TrustedProxyHeader string `env:"TRUSTED_PROXY_HEADER" envDefault:"X-Forwarded-For"`
 
 	// NATSUrls is the comma-separated list of NATS server URLs to
 	// connect to. Supports a single URL, a static cluster list, or a
@@ -214,6 +255,14 @@ func Load() (*Config, error) {
 			cfg.TrustedProxiesRaw, err)
 	}
 	cfg.TrustedProxies = trusted
+
+	canonical, ok := allowedTrustedProxyHeaders[strings.ToLower(strings.TrimSpace(cfg.TrustedProxyHeader))]
+	if !ok {
+		return nil, fmt.Errorf("TRUSTED_PROXY_HEADER=%q is not one of "+
+			"X-Forwarded-For, X-Real-IP, CF-Connecting-IP, True-Client-IP "+
+			"(unknown header)", cfg.TrustedProxyHeader)
+	}
+	cfg.TrustedProxyHeader = canonical
 
 	switch cfg.RateLimitFailPolicy {
 	case "open", "closed":

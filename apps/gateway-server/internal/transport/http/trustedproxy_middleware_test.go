@@ -66,7 +66,7 @@ func clientIPFromCtx(t *testing.T, ctx *app.RequestContext) (string, bool) {
 // public-IP XFF must land in the adapter with the XFF IP stamped on
 // the per-request context slot.
 func TestTrustedProxyMiddleware_TrustedPeerHonoursXFF(t *testing.T) {
-	middleware := newTrustedProxyMiddleware(testTrusted(t))
+	middleware := newTrustedProxyMiddleware(testTrusted(t), xForwardedForHeader)
 
 	ctx := ut.CreateUtRequestContext("GET", "https://gateway.test/x", nil,
 		ut.Header{Key: "X-Forwarded-For", Value: "1.2.3.4"},
@@ -85,7 +85,7 @@ func TestTrustedProxyMiddleware_TrustedPeerHonoursXFF(t *testing.T) {
 // must have its XFF ignored, regardless of contents. This is the
 // test that would have caught the spoofing bug before H.3.
 func TestTrustedProxyMiddleware_UntrustedPeerIgnoresXFF(t *testing.T) {
-	middleware := newTrustedProxyMiddleware(testTrusted(t))
+	middleware := newTrustedProxyMiddleware(testTrusted(t), xForwardedForHeader)
 
 	ctx := ut.CreateUtRequestContext("GET", "https://gateway.test/x", nil,
 		ut.Header{Key: "X-Forwarded-For", Value: "1.2.3.4"},
@@ -104,7 +104,7 @@ func TestTrustedProxyMiddleware_UntrustedPeerIgnoresXFF(t *testing.T) {
 // no-XFF path: if the trusted peer does not forward an XFF, the
 // peer IP itself is stamped.
 func TestTrustedProxyMiddleware_NoXFF_TrustedPeer_StampsPeer(t *testing.T) {
-	middleware := newTrustedProxyMiddleware(testTrusted(t))
+	middleware := newTrustedProxyMiddleware(testTrusted(t), xForwardedForHeader)
 
 	ctx := ut.CreateUtRequestContext("GET", "https://gateway.test/x", nil)
 	attachRemote(ctx, &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 54321})
@@ -119,7 +119,7 @@ func TestTrustedProxyMiddleware_NoXFF_TrustedPeer_StampsPeer(t *testing.T) {
 // symmetrical path: loopback ::1 is in the private sentinel, so an
 // IPv6 XFF from a loopback peer resolves the same way as IPv4.
 func TestTrustedProxyMiddleware_IPv6Chain_Resolves(t *testing.T) {
-	middleware := newTrustedProxyMiddleware(testTrusted(t))
+	middleware := newTrustedProxyMiddleware(testTrusted(t), xForwardedForHeader)
 
 	ctx := ut.CreateUtRequestContext("GET", "https://gateway.test/x", nil,
 		ut.Header{Key: "X-Forwarded-For", Value: "2001:db8::1"},
@@ -136,7 +136,7 @@ func TestTrustedProxyMiddleware_IPv6Chain_Resolves(t *testing.T) {
 // resilience path: malformed XFF entries are skipped, the walk
 // continues to the next valid one.
 func TestTrustedProxyMiddleware_MalformedXFF_SkipsGarbage(t *testing.T) {
-	middleware := newTrustedProxyMiddleware(testTrusted(t))
+	middleware := newTrustedProxyMiddleware(testTrusted(t), xForwardedForHeader)
 
 	ctx := ut.CreateUtRequestContext("GET", "https://gateway.test/x", nil,
 		ut.Header{Key: "X-Forwarded-For", Value: "garbage, 1.2.3.4"},
@@ -147,6 +147,131 @@ func TestTrustedProxyMiddleware_MalformedXFF_SkipsGarbage(t *testing.T) {
 
 	got, _ := clientIPFromCtx(t, ctx)
 	assert.Equal(t, "1.2.3.4", got)
+}
+
+// ---------- single-value forwarded-IP headers ----------
+
+// TestTrustedProxyMiddleware_XRealIP_TrustedPeer pins the X-Real-IP
+// happy path: a trusted peer attaching X-Real-IP makes the resolver
+// take that value verbatim, with no chain walk.
+func TestTrustedProxyMiddleware_XRealIP_TrustedPeer(t *testing.T) {
+	middleware := newTrustedProxyMiddleware(testTrusted(t), "X-Real-IP")
+
+	ctx := ut.CreateUtRequestContext("GET", "https://gateway.test/x", nil,
+		ut.Header{Key: "X-Real-IP", Value: "1.2.3.4"},
+	)
+	attachRemote(ctx, &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 54321})
+
+	middleware(context.Background(), ctx)
+
+	got, ok := clientIPFromCtx(t, ctx)
+	require.True(t, ok)
+	assert.Equal(t, "1.2.3.4", got)
+}
+
+// TestTrustedProxyMiddleware_XRealIP_UntrustedPeerIgnoresHeader pins
+// the spoofing defence for single-value headers. An untrusted peer
+// cannot vouch for X-Real-IP any more than it can vouch for XFF.
+func TestTrustedProxyMiddleware_XRealIP_UntrustedPeerIgnoresHeader(t *testing.T) {
+	middleware := newTrustedProxyMiddleware(testTrusted(t), "X-Real-IP")
+
+	ctx := ut.CreateUtRequestContext("GET", "https://gateway.test/x", nil,
+		ut.Header{Key: "X-Real-IP", Value: "1.2.3.4"},
+	)
+	attachRemote(ctx, &net.TCPAddr{IP: net.ParseIP("5.5.5.5"), Port: 12345})
+
+	middleware(context.Background(), ctx)
+
+	got, _ := clientIPFromCtx(t, ctx)
+	assert.Equal(t, "5.5.5.5", got,
+		"untrusted peer → X-Real-IP ignored → peer IP stamped (spoofing defence)")
+}
+
+// TestTrustedProxyMiddleware_XRealIP_TrustedPeerNoHeaderFallsBackToPeer
+// pins the no-header path: if the trusted peer does not attach
+// X-Real-IP, the peer IP itself is stamped.
+func TestTrustedProxyMiddleware_XRealIP_TrustedPeerNoHeaderFallsBackToPeer(t *testing.T) {
+	middleware := newTrustedProxyMiddleware(testTrusted(t), "X-Real-IP")
+
+	ctx := ut.CreateUtRequestContext("GET", "https://gateway.test/x", nil)
+	attachRemote(ctx, &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 54321})
+
+	middleware(context.Background(), ctx)
+
+	got, _ := clientIPFromCtx(t, ctx)
+	assert.Equal(t, "127.0.0.1", got)
+}
+
+// TestTrustedProxyMiddleware_XRealIP_MalformedFallsBackToPeer pins
+// the resilience path: a malformed X-Real-IP value falls back to peer
+// instead of leaking garbage downstream.
+func TestTrustedProxyMiddleware_XRealIP_MalformedFallsBackToPeer(t *testing.T) {
+	middleware := newTrustedProxyMiddleware(testTrusted(t), "X-Real-IP")
+
+	ctx := ut.CreateUtRequestContext("GET", "https://gateway.test/x", nil,
+		ut.Header{Key: "X-Real-IP", Value: "not-an-ip"},
+	)
+	attachRemote(ctx, &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 54321})
+
+	middleware(context.Background(), ctx)
+
+	got, _ := clientIPFromCtx(t, ctx)
+	assert.Equal(t, "127.0.0.1", got)
+}
+
+// TestTrustedProxyMiddleware_XRealIP_IgnoresXFFWhenConfiguredHeader
+// pins the orthogonality contract: when TRUSTED_PROXY_HEADER selects
+// X-Real-IP, an attacker injecting XFF must NOT influence the resolved
+// IP. A request that ships both headers must resolve from X-Real-IP
+// and ignore XFF entirely.
+func TestTrustedProxyMiddleware_XRealIP_IgnoresXFFWhenConfiguredHeader(t *testing.T) {
+	middleware := newTrustedProxyMiddleware(testTrusted(t), "X-Real-IP")
+
+	ctx := ut.CreateUtRequestContext("GET", "https://gateway.test/x", nil,
+		ut.Header{Key: "X-Real-IP", Value: "1.2.3.4"},
+		ut.Header{Key: "X-Forwarded-For", Value: "9.9.9.9"},
+	)
+	attachRemote(ctx, &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 54321})
+
+	middleware(context.Background(), ctx)
+
+	got, _ := clientIPFromCtx(t, ctx)
+	assert.Equal(t, "1.2.3.4", got,
+		"configured header is X-Real-IP — XFF must be ignored even when present")
+}
+
+// TestTrustedProxyMiddleware_CFConnectingIP_TrustedPeer pins the
+// Cloudflare-vendor header: identical semantics to X-Real-IP, but
+// resolved from CF-Connecting-IP per Cloudflare's contract.
+func TestTrustedProxyMiddleware_CFConnectingIP_TrustedPeer(t *testing.T) {
+	middleware := newTrustedProxyMiddleware(testTrusted(t), "CF-Connecting-IP")
+
+	ctx := ut.CreateUtRequestContext("GET", "https://gateway.test/x", nil,
+		ut.Header{Key: "CF-Connecting-IP", Value: "203.0.113.5"},
+	)
+	attachRemote(ctx, &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 54321})
+
+	middleware(context.Background(), ctx)
+
+	got, _ := clientIPFromCtx(t, ctx)
+	assert.Equal(t, "203.0.113.5", got)
+}
+
+// TestTrustedProxyMiddleware_TrueClientIP_TrustedPeer pins the
+// Akamai/CloudFront-vendor header: identical semantics to X-Real-IP,
+// resolved from True-Client-IP.
+func TestTrustedProxyMiddleware_TrueClientIP_TrustedPeer(t *testing.T) {
+	middleware := newTrustedProxyMiddleware(testTrusted(t), "True-Client-IP")
+
+	ctx := ut.CreateUtRequestContext("GET", "https://gateway.test/x", nil,
+		ut.Header{Key: "True-Client-IP", Value: "198.51.100.7"},
+	)
+	attachRemote(ctx, &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 54321})
+
+	middleware(context.Background(), ctx)
+
+	got, _ := clientIPFromCtx(t, ctx)
+	assert.Equal(t, "198.51.100.7", got)
 }
 
 // ---------- adapter.resolveRemoteAddr ----------

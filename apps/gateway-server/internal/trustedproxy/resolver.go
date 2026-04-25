@@ -148,6 +148,38 @@ func ResolveClientIP(peerIP net.IP, xff string, trusted []*net.IPNet) string {
 	return peerStr
 }
 
+// ResolveClientIPSingle returns the client IP for a single-value
+// forwarded-IP header (X-Real-IP, CF-Connecting-IP, True-Client-IP).
+//
+// Algorithm:
+//  1. If peerIP is nil or not in trusted → return peerIP.String() and
+//     ignore the header verbatim. An untrusted peer cannot vouch for
+//     a single-value header any more than it can vouch for XFF.
+//  2. If peerIP is trusted AND headerValue parses as a valid IP →
+//     return that IP. The single-value contract has no chain to walk;
+//     a trusted predecessor is asserting the value as-is.
+//  3. Fallback (empty header, malformed value) → return peerIP.String().
+//
+// Trust testing for the supplied IP is intentionally NOT applied — a
+// single-value header carries the originating client by definition,
+// and stripping a "trusted-looking" value would defeat its purpose.
+// The XFF rightmost-untrusted walk exists because XFF carries an
+// arbitrary chain; single-value headers carry exactly one entry.
+func ResolveClientIPSingle(peerIP net.IP, headerValue string, trusted []*net.IPNet) string {
+	peerStr := ipString(peerIP)
+
+	if !ipIn(peerIP, trusted) {
+		return peerStr
+	}
+
+	candidate := net.ParseIP(strings.TrimSpace(headerValue))
+	if candidate == nil {
+		return peerStr
+	}
+
+	return candidate.String()
+}
+
 // ipIn reports whether ip falls inside any network in the trusted
 // list. Nil IP is never trusted. IPv4-mapped IPv6 addresses are
 // converted to IPv4 before matching so operators who configure an

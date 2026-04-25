@@ -147,6 +147,7 @@ All settings are environment variables, grouped by concern. The struct definitio
 | Variable | Type | Default | Description |
 |---|---|---|---|
 | `TRUSTED_PROXIES` | sentinel \| CIDR list | `private` (when unset) | Trusted upstream proxies for `X-Forwarded-For` resolution. Forms: `""` (trust nothing — always use peer IP), `"private"` (expand to the 7 private/loopback ranges), or a literal comma-separated CIDR list (`"10.0.0.0/8,172.16.0.0/12"`). Invalid CIDR fails `Load()` fail-closed. See `Config.TrustedProxiesRaw` / `Config.TrustedProxies`. |
+| `TRUSTED_PROXY_HEADER` | enum | `X-Forwarded-For` | Header the trusted-proxy middleware reads to recover the client IP when the peer is in `TRUSTED_PROXIES`. Allowed values: `X-Forwarded-For`, `X-Real-IP`, `CF-Connecting-IP`, `True-Client-IP` (case-insensitive). Single-value alternatives are used verbatim; `X-Forwarded-For` walks the chain rightmost-untrusted per RFC 7239 §7.1. Multi-hop topologies MUST use `X-Forwarded-For`. Unknown values fail `Load()` fail-closed. See `Config.TrustedProxyHeader`. |
 
 ### NATS transport
 
