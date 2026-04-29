@@ -34,16 +34,16 @@ importers:
         version: 6.6.13(@mikro-orm/core@6.6.13)
       '@nestia/core':
         specifier: ^11.0.0
-        version: 11.0.2(@nestia/fetcher@11.0.2)(@nestjs/common@12.0.0-alpha.2(class-validator@0.14.3)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.0-alpha.2)(reflect-metadata@0.2.2)(rxjs@7.8.2)(typia@12.0.2(@types/node@24.12.2)(typescript@5.9.3))
+        version: 11.1.0(@nestia/fetcher@11.1.0)(@nestjs/common@12.0.0-alpha.2(class-validator@0.14.3)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.0-alpha.2)(reflect-metadata@0.2.2)(rxjs@7.8.2)(typia@12.0.2(@types/node@24.12.2)(typescript@5.9.3))
       '@nestia/e2e':
         specifier: ^11.0.0
-        version: 11.0.2
+        version: 11.1.0
       '@nestia/fetcher':
         specifier: ^11.0.0
-        version: 11.0.2
+        version: 11.1.0
       '@nestia/sdk':
         specifier: ^11.0.0
-        version: 11.0.2(@nestia/core@11.0.2(@nestia/fetcher@11.0.2)(@nestjs/common@12.0.0-alpha.2(class-validator@0.14.3)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.0-alpha.2)(reflect-metadata@0.2.2)(rxjs@7.8.2)(typia@12.0.2(@types/node@24.12.2)(typescript@5.9.3)))(@swc/core@1.15.32(@swc/helpers@0.5.21))(@types/node@24.12.2)(typescript@5.9.3)
+        version: 11.1.0(@nestia/core@11.1.0(@nestia/fetcher@11.1.0)(@nestjs/common@12.0.0-alpha.2(class-validator@0.14.3)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.0-alpha.2)(reflect-metadata@0.2.2)(rxjs@7.8.2)(typia@12.0.2(@types/node@24.12.2)(typescript@5.9.3)))(@swc/core@1.15.32(@swc/helpers@0.5.21))(@types/node@24.12.2)(typescript@5.9.3)
       '@nestjs/common':
         specifier: 12.0.0-alpha.2
         version: 12.0.0-alpha.2(class-validator@0.14.3)(reflect-metadata@0.2.2)(rxjs@7.8.2)
@@ -122,7 +122,7 @@ importers:
         version: 7.1.31(@typescript-eslint/parser@8.59.1(eslint@9.39.4(jiti@2.6.1))(typescript@5.9.3))(class-validator@0.14.3)(eslint@9.39.4(jiti@2.6.1))(typescript@5.9.3)
       '@nestia/benchmark':
         specifier: ^11.0.0
-        version: 11.0.2
+        version: 11.1.0
       '@nestjs/schematics':
         specifier: 12.0.0-alpha.7
         version: 12.0.0-alpha.7(typescript@5.9.3)
@@ -1806,30 +1806,30 @@ packages:
   '@napi-rs/wasm-runtime@1.1.1':
     resolution: {integrity: sha512-p64ah1M1ld8xjWv3qbvFwHiFVWrq1yFvV4f7w+mzaqiR4IlSgkqhcRdHwsGgomwzBH51sRY4NEowLxnaBjcW/A==}
 
-  '@nestia/benchmark@11.0.2':
-    resolution: {integrity: sha512-GPpOct0AtHUSYfAei51otcnaTKZkRLw6fEQq1EEXktef16Tj+w5BVo41DA2yNFn5L7qLnFKTbLFw6sGmgs9H7Q==}
+  '@nestia/benchmark@11.1.0':
+    resolution: {integrity: sha512-H0EsKxVwgGANZaq7cO7MJ6m2XgmZXmpuHI0qniE3LfXEGAZom48ngIcnhLlaWEkb/DV+6BkrOs/fDwyorwiFdw==}
 
-  '@nestia/core@11.0.2':
-    resolution: {integrity: sha512-JCw/v+iJ69wtIwAB0MBLIdu9myizbjgjRe3aeUsz3D9GVb0AH90c0rAmWHNjgPhta9vF91sMBR0P0LjtWFl3Mg==}
+  '@nestia/core@11.1.0':
+    resolution: {integrity: sha512-+J+ts/VutPri2bnGeRZS3XjK2Ka6+mIlyqCT1HqUTov/NhMm4VzXlwARHJBf42k9UDRmrw7zDzR/I8f4fIxmVQ==}
     peerDependencies:
-      '@nestia/fetcher': ^11.0.2
+      '@nestia/fetcher': ^11.1.0
       '@nestjs/common': '>=7.0.1'
       '@nestjs/core': '>=7.0.1'
       reflect-metadata: '>=0.1.12'
       rxjs: '>=6.0.3'
       typia: ^12.0.0
 
-  '@nestia/e2e@11.0.2':
-    resolution: {integrity: sha512-pkixyxTYxj8a1byyqMCJ/Jbd/BSGHoXWy2zjL8rqO9YJAg1kILSrQ8JWzKLSydaaQODi35vWcFJr3wgGz9EFbA==}
+  '@nestia/e2e@11.1.0':
+    resolution: {integrity: sha512-icBd6t3nBIXIrkFg+U3xRyoAMbXZhq+fnk/m5URubwjJJGjNvmyQa9HyJZElnTfN7Q4RBp367LoNiaQdW2+C6g==}
 
-  '@nestia/fetcher@11.0.2':
-    resolution: {integrity: sha512-IdZNkJJt7bs/Kx96yzW78gA8PHHkqvzriYaXx7XnfN04Ky74rFrZLdu0KbW7+yoHlHUh202NZNTGnY4Ja2/iEw==}
+  '@nestia/fetcher@11.1.0':
+    resolution: {integrity: sha512-xOgKtAbkAIOqyZckaaxokAfmUvJQUnMiPGqy4t8cjVLeNKxBR+XYjSQWleOKdSlo01s4e75VRBEALhpknEjatw==}
 
-  '@nestia/sdk@11.0.2':
-    resolution: {integrity: sha512-T6zRM004HPQbbLEPmmHShkCs/bRAu27ULevBjz2V122nWNRENwfxzwH1hl35QQOtwwsgI7ZNb6akHfxykK2TVQ==}
+  '@nestia/sdk@11.1.0':
+    resolution: {integrity: sha512-xmPnK4Yc6R0TWzWIjol5aqMCoTS7lQkKFfQe01yKbsDkeLJ52OwM1+Mnncgtn5Xp37sOh0XCGyScIikIV5kzRA==}
     hasBin: true
     peerDependencies:
-      '@nestia/core': ^11.0.2
+      '@nestia/core': ^11.1.0
 
   '@nestjs/common@12.0.0-alpha.2':
     resolution: {integrity: sha512-KSfLj3WAPs4vsWGHAYZCQDzWcNayo3IvHxUO09qYF1tCcpOqbjUzxQzG2jMeJff7vZCEv0yQmEOdLsFsoPE9rg==}
@@ -10567,18 +10567,18 @@ snapshots:
       '@tybys/wasm-util': 0.10.1
     optional: true
 
-  '@nestia/benchmark@11.0.2':
+  '@nestia/benchmark@11.1.0':
     dependencies:
-      '@nestia/fetcher': 11.0.2
+      '@nestia/fetcher': 11.1.0
       tgrid: 1.2.1
       tstl: 3.0.0
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
 
-  '@nestia/core@11.0.2(@nestia/fetcher@11.0.2)(@nestjs/common@12.0.0-alpha.2(class-validator@0.14.3)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.0-alpha.2)(reflect-metadata@0.2.2)(rxjs@7.8.2)(typia@12.0.2(@types/node@24.12.2)(typescript@5.9.3))':
+  '@nestia/core@11.1.0(@nestia/fetcher@11.1.0)(@nestjs/common@12.0.0-alpha.2(class-validator@0.14.3)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.0-alpha.2)(reflect-metadata@0.2.2)(rxjs@7.8.2)(typia@12.0.2(@types/node@24.12.2)(typescript@5.9.3))':
     dependencies:
-      '@nestia/fetcher': 11.0.2
+      '@nestia/fetcher': 11.1.0
       '@nestjs/common': 12.0.0-alpha.2(class-validator@0.14.3)(reflect-metadata@0.2.2)(rxjs@7.8.2)
       '@nestjs/core': 12.0.0-alpha.2(@nestjs/common@12.0.0-alpha.2(class-validator@0.14.3)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/microservices@12.0.0-alpha.2)(@nestjs/platform-express@12.0.0-alpha.2)(reflect-metadata@0.2.2)(rxjs@7.8.2)
       '@typia/core': 12.0.2
@@ -10598,17 +10598,17 @@ snapshots:
       - bufferutil
       - utf-8-validate
 
-  '@nestia/e2e@11.0.2': {}
+  '@nestia/e2e@11.1.0': {}
 
-  '@nestia/fetcher@11.0.2':
+  '@nestia/fetcher@11.1.0':
     dependencies:
       '@typia/interface': 12.0.2
       '@typia/utils': 12.0.2
 
-  '@nestia/sdk@11.0.2(@nestia/core@11.0.2(@nestia/fetcher@11.0.2)(@nestjs/common@12.0.0-alpha.2(class-validator@0.14.3)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.0-alpha.2)(reflect-metadata@0.2.2)(rxjs@7.8.2)(typia@12.0.2(@types/node@24.12.2)(typescript@5.9.3)))(@swc/core@1.15.32(@swc/helpers@0.5.21))(@types/node@24.12.2)(typescript@5.9.3)':
+  '@nestia/sdk@11.1.0(@nestia/core@11.1.0(@nestia/fetcher@11.1.0)(@nestjs/common@12.0.0-alpha.2(class-validator@0.14.3)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.0-alpha.2)(reflect-metadata@0.2.2)(rxjs@7.8.2)(typia@12.0.2(@types/node@24.12.2)(typescript@5.9.3)))(@swc/core@1.15.32(@swc/helpers@0.5.21))(@types/node@24.12.2)(typescript@5.9.3)':
     dependencies:
-      '@nestia/core': 11.0.2(@nestia/fetcher@11.0.2)(@nestjs/common@12.0.0-alpha.2(class-validator@0.14.3)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.0-alpha.2)(reflect-metadata@0.2.2)(rxjs@7.8.2)(typia@12.0.2(@types/node@24.12.2)(typescript@5.9.3))
-      '@nestia/fetcher': 11.0.2
+      '@nestia/core': 11.1.0(@nestia/fetcher@11.1.0)(@nestjs/common@12.0.0-alpha.2(class-validator@0.14.3)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.0-alpha.2)(reflect-metadata@0.2.2)(rxjs@7.8.2)(typia@12.0.2(@types/node@24.12.2)(typescript@5.9.3))
+      '@nestia/fetcher': 11.1.0
       '@typia/core': 12.0.2
       '@typia/interface': 12.0.2
       '@typia/utils': 12.0.2
