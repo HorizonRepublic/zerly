@@ -230,7 +230,7 @@ importers:
         version: 2.4.2
       nestia:
         specifier: ^11.0.0
-        version: 11.0.2(@types/node@24.12.2)
+        version: 11.1.0(@types/node@24.12.2)
       nx:
         specifier: 22.5.1
         version: 22.5.1(@swc-node/register@1.11.1(@swc/core@1.15.32(@swc/helpers@0.5.21))(@swc/types@0.1.26)(typescript@5.9.3))(@swc/core@1.15.32(@swc/helpers@0.5.21))
@@ -6420,8 +6420,8 @@ packages:
       '@nestjs/core': ^8.0.0 || ^9.0.0 || ^10.0.0 || ^11.0.0
       '@types/inquirer': ^8.1.3
 
-  nestia@11.0.2:
-    resolution: {integrity: sha512-QSUTLEwnffNN6uttbofOZlnMiKw45TB8TGewGJzhTTZwgXNcUH2Iulh6oUiTDHKtq/TghUQVIgOrmZs1YZsM8A==}
+  nestia@11.1.0:
+    resolution: {integrity: sha512-BVljPFvKngmKDzBuogNAaBzK4iheoHKocXJg/0UXyJ/lky39qmhcogbE20WfSZBy8NjHuvAUr3akbFUe2HKP+w==}
     hasBin: true
 
   nestjs-pino@4.6.1:
@@ -7851,8 +7851,8 @@ packages:
     resolution: {integrity: sha512-wKyQRQpjJ0sIp62ErSZdGsjMJWsap5oRNihHhu6G7JVO/9jIB6UyevL+tXuOqrng8j/cxKTWyWUwvSTriiZz/g==}
     engines: {node: '>=8'}
 
-  string-width@8.2.0:
-    resolution: {integrity: sha512-6hJPQ8N0V0P3SNmP6h2J99RLuzrWz2gvT7VnK5tKvrNqJoyS9W4/Fb8mo31UiPvy00z7DQXkP2hnKBVav76thw==}
+  string-width@8.2.1:
+    resolution: {integrity: sha512-IIaP0g3iy9Cyy18w3M9YcaDudujEAVHKt3a3QJg1+sr/oX96TbaGUubG0hJyCjCBThFH+tFpcIyoUHUn1ogaLA==}
     engines: {node: '>=20'}
 
   string.prototype.padend@3.1.6:
@@ -16105,7 +16105,7 @@ snapshots:
       - '@types/node'
       - typescript
 
-  nestia@11.0.2(@types/node@24.12.2):
+  nestia@11.1.0(@types/node@24.12.2):
     dependencies:
       commander: 10.0.1
       comment-json: 4.6.2
@@ -16316,7 +16316,7 @@ snapshots:
       is-unicode-supported: 2.1.0
       log-symbols: 7.0.1
       stdin-discarder: 0.3.1
-      string-width: 8.2.0
+      string-width: 8.2.1
 
   own-keys@1.0.1:
     dependencies:
@@ -17626,7 +17626,7 @@ snapshots:
       is-fullwidth-code-point: 3.0.0
       strip-ansi: 6.0.1
 
-  string-width@8.2.0:
+  string-width@8.2.1:
     dependencies:
       get-east-asian-width: 1.5.0
       strip-ansi: 7.2.0
