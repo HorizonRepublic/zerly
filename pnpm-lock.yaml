@@ -28,16 +28,16 @@ importers:
         version: 6.6.15(@mikro-orm/core@6.6.15)
       '@nestia/core':
         specifier: ^11.0.0
-        version: 11.3.1(@nestia/fetcher@11.3.1)(@nestjs/common@12.0.0-alpha.5(class-validator@0.14.3)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.0-alpha.5)(reflect-metadata@0.2.2)(rxjs@7.8.2)(typia@12.1.1(@types/node@24.13.2)(typescript@5.9.3))
+        version: 11.3.4(@nestia/fetcher@11.3.4)(@nestjs/common@12.0.0-alpha.5(class-validator@0.14.3)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.0-alpha.5)(reflect-metadata@0.2.2)(rxjs@7.8.2)(typia@12.1.1(@types/node@24.13.2)(typescript@5.9.3))
       '@nestia/e2e':
         specifier: ^11.0.0
-        version: 11.3.1
+        version: 11.3.4
       '@nestia/fetcher':
         specifier: ^11.0.0
-        version: 11.3.1
+        version: 11.3.4
       '@nestia/sdk':
         specifier: ^11.0.0
-        version: 11.3.1(@nestia/core@11.3.1(@nestia/fetcher@11.3.1)(@nestjs/common@12.0.0-alpha.5(class-validator@0.14.3)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.0-alpha.5)(reflect-metadata@0.2.2)(rxjs@7.8.2)(typia@12.1.1(@types/node@24.13.2)(typescript@5.9.3)))(@swc/core@1.15.41(@swc/helpers@0.5.23))(@types/node@24.13.2)(typescript@5.9.3)
+        version: 11.3.4(@nestia/core@11.3.4(@nestia/fetcher@11.3.4)(@nestjs/common@12.0.0-alpha.5(class-validator@0.14.3)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.0-alpha.5)(reflect-metadata@0.2.2)(rxjs@7.8.2)(typia@12.1.1(@types/node@24.13.2)(typescript@5.9.3)))(@swc/core@1.15.41(@swc/helpers@0.5.23))(@types/node@24.13.2)(typescript@5.9.3)
       '@nestjs/common':
         specifier: 12.0.0-alpha.5
         version: 12.0.0-alpha.5(class-validator@0.14.3)(reflect-metadata@0.2.2)(rxjs@7.8.2)
@@ -116,7 +116,7 @@ importers:
         version: 7.2.4(@typescript-eslint/parser@8.61.1(eslint@9.39.4(jiti@2.6.1))(typescript@5.9.3))(class-validator@0.14.3)(eslint@9.39.4(jiti@2.6.1))(typescript@5.9.3)
       '@nestia/benchmark':
         specifier: ^11.0.0
-        version: 11.3.1
+        version: 11.3.4
       '@nestjs/schematics':
         specifier: 12.0.0-alpha.9
         version: 12.0.0-alpha.9(prettier@3.8.4)(typescript@5.9.3)
@@ -1893,30 +1893,30 @@ packages:
   '@napi-rs/wasm-runtime@1.1.1':
     resolution: {integrity: sha512-p64ah1M1ld8xjWv3qbvFwHiFVWrq1yFvV4f7w+mzaqiR4IlSgkqhcRdHwsGgomwzBH51sRY4NEowLxnaBjcW/A==}
 
-  '@nestia/benchmark@11.3.1':
-    resolution: {integrity: sha512-fRouqYKy34Jx2y8TkZs9uJQoHPhE3TJnIajJdxrmUjoQg1+nxSUuSakQBDGpXgSn54Jy2FUYHaGxUpKGQGp0lA==}
+  '@nestia/benchmark@11.3.4':
+    resolution: {integrity: sha512-AfiP94T7D6MEJ9GyVeMplxJ00742vp8WaXvmxO0zZPK0rx0buEdzaZ/oRDm2MMLBdYp7ZoB+nDGG1QcVf9DQ3Q==}
 
-  '@nestia/core@11.3.1':
-    resolution: {integrity: sha512-CcaVtM7p8KD1Ab7ujwxDme4muKYmE3zLt43GQPMF3NaBNdfc/VH/u+r6TWXA/y0Oj5XmvyQgApsu32+ATsJmMw==}
+  '@nestia/core@11.3.4':
+    resolution: {integrity: sha512-Y9N0KgMjMaRPTAZDMqcg4QBEnu7KrwvziuXmRT3x3rhqbbGJ6pz+S3O8evWETwYuz2OiuVNacXI9EWzt3HH9tA==}
     peerDependencies:
-      '@nestia/fetcher': ^11.3.1
+      '@nestia/fetcher': ^11.3.4
       '@nestjs/common': '>=7.0.1'
       '@nestjs/core': '>=7.0.1'
       reflect-metadata: '>=0.1.12'
       rxjs: '>=6.0.3'
       typia: ^12.1.0
 
-  '@nestia/e2e@11.3.1':
-    resolution: {integrity: sha512-a5V31IhJDB34/5qb00et5iKHFA6WTA5gV6zBXSKkCrPYiBWkzhZrw4XvL5tpsXg2dGGM8tFmFrmW31kV4Hsy0w==}
+  '@nestia/e2e@11.3.4':
+    resolution: {integrity: sha512-5Jrdq89cCMBEA5DNF0kZNWr/JP53Te2x7aXrP6x34okC/XM091wi+4vTGvHtf23WurvrqvyoIdPuhUjANz+vyQ==}
 
-  '@nestia/fetcher@11.3.1':
-    resolution: {integrity: sha512-1nHLMdiNFeHYFotPmzzSogo592ssLTlh/SJ6Cxs+cHP+St8whUSRKgZ13Clyir5gbFyBpQ3QTEhhImN7xa6E1w==}
+  '@nestia/fetcher@11.3.4':
+    resolution: {integrity: sha512-88ZvDk0QZ6cR968sunhR+Jp8TyEyY3lxR9qR8GaQzpiiiuHrT5V/xZ0cC6GAARpnV/OnFGWtW4tQ2DhNoYaurA==}
 
-  '@nestia/sdk@11.3.1':
-    resolution: {integrity: sha512-6xyQzOXeQRqi9ZJZHroJ8EfqRVsexF7AeYyrs2XR3v55wjGoMmJecCn9YoEeOYRO+Nv2ynGgSmSVhuzEmSBfAg==}
+  '@nestia/sdk@11.3.4':
+    resolution: {integrity: sha512-FF9aEfc55uz0pZCXQQPZi6zxWqMdpu4yxn6a7n8wg9awYGQJBPc/GOUmlOZwovAgCIENmhkwRC88o1fPEdBsjg==}
     hasBin: true
     peerDependencies:
-      '@nestia/core': ^11.3.1
+      '@nestia/core': ^11.3.4
 
   '@nestjs/common@12.0.0-alpha.5':
     resolution: {integrity: sha512-MB2bFWi/GE5TYIR1Z6Y1gp7iRk4xm9+zOlFlV5+5T3j7LNA6AR25YqibUdbgRkAbpklrHIxxj/gEFAw9yAeIwQ==}
@@ -2912,8 +2912,8 @@ packages:
     resolution: {integrity: sha512-WmoN8qaIAo7WTYWbAZuG8PYEhn5fkz7dZrqTBZ7dtt//lL2Gwms1IcnQ5yHqjDfX8Ft5j4YzDM23f87zBfDe9g==}
     deprecated: Potential CWE-502 - Update to 1.3.1 or higher
 
-  '@ungap/structured-clone@1.3.1':
-    resolution: {integrity: sha512-mUFwbeTqrVgDQxFveS+df2yfap6iuP20NAKAsBt5jDEoOTDew+zwLAOilHCeQJOVSvmgCX4ogqIrA0mnyr08yQ==}
+  '@ungap/structured-clone@1.3.2':
+    resolution: {integrity: sha512-5jsZFwgR5rTdKwidH9Qmat75RKwqfpKlWWB1frDkljN127mwqBu8K0PYo7/hFpF03IEJpfVPpCQDY/eDx3iHvA==}
 
   '@unrs/resolver-binding-android-arm-eabi@1.11.1':
     resolution: {integrity: sha512-ppLRUgHVaGRWUx0R0Ut06Mjo9gBaBkg3v/8AxusGLhsIotbBLuRk51rAzqLC8gq6NyyAojEXglNjzf6R948DNw==}
@@ -4411,8 +4411,8 @@ packages:
     engines: {node: '>=0.10.0'}
     hasBin: true
 
-  electron-to-chromium@1.5.376:
-    resolution: {integrity: sha512-cUVA7/RvbFTEuw/i3obUwDTRIXojaxkResf+ibByPFxjc6XK3VNtcQXV0NSbAlJ0FMjcJGgftVVB4Qo184EXvA==}
+  electron-to-chromium@1.5.378:
+    resolution: {integrity: sha512-VinvOAuuPmdD1guEgGv5f2Qp7/vlfqOrUOMYNnOD4wj3pit8kRsQHzfIf6teyUGWo15Tg5+bOJaRunvyltpVWQ==}
 
   emittery@0.13.1:
     resolution: {integrity: sha512-DeWwawk6r5yR9jFgnDKYt4sLS0LmHJJi3ZOnb5/JdbYwj3nW+FxQnHIjhBKz8YLC7oRNPVM9NQ47I3CVx34eqQ==}
@@ -5112,6 +5112,7 @@ packages:
   git-raw-commits@5.0.1:
     resolution: {integrity: sha512-Y+csSm2GD/PCSh6Isd/WiMjNAydu0VBiG9J7EdQsNA5P9uXvLayqjmTsNlK5Gs9IhblFZqOU0yid5Il5JPoLiQ==}
     engines: {node: '>=18'}
+    deprecated: Deprecated and no longer maintained. Use @conventional-changelog/git-client instead.
     hasBin: true
 
   glob-parent@5.1.2:
@@ -6565,8 +6566,8 @@ packages:
   node-machine-id@1.1.12:
     resolution: {integrity: sha512-QNABxbrPa3qEIfrE6GOJ7BYIuignnJw7iQ2YPbc3Nla1HzRJjXzZOiikfF8m7eAMfichLt3M4VgLOetqgDmgGQ==}
 
-  node-releases@2.0.48:
-    resolution: {integrity: sha512-1uz8041X6LoI6ZSdZacM9lVY28vuzDlSKitnpbSNK0RfKoIJkX29NBPVEFXhnuSuEOA9Ww0xnPJ+ILWbGAv8DA==}
+  node-releases@2.0.49:
+    resolution: {integrity: sha512-f06bl1D+8ZDkn2oOQQKAh5/otFWqVnM1Q5oerA8Pex7UfT66Tx4IPHIqVVFKqFT3FUtaDstdgkM7yT7JWhqxfw==}
     engines: {node: '>=18'}
 
   normalize-path@3.0.0:
@@ -8337,17 +8338,6 @@ packages:
       esbuild:
         optional: true
       jest-util:
-        optional: true
-
-  ts-loader@9.6.1:
-    resolution: {integrity: sha512-8FMHnmxtpncUAu0ZjkqpXnOTlwc9eY95esH8WVN94guTPPdkg2ofVdiVM5j8L2lmjiGerXd56zXb/D2JyVQPLg==}
-    engines: {node: '>=12.0.0'}
-    peerDependencies:
-      loader-utils: '*'
-      typescript: '*'
-      webpack: ^4.0.0 || ^5.0.0
-    peerDependenciesMeta:
-      loader-utils:
         optional: true
 
   ts-loader@9.6.2:
@@ -10988,18 +10978,18 @@ snapshots:
       '@tybys/wasm-util': 0.10.1
     optional: true
 
-  '@nestia/benchmark@11.3.1':
+  '@nestia/benchmark@11.3.4':
     dependencies:
-      '@nestia/fetcher': 11.3.1
+      '@nestia/fetcher': 11.3.4
       tgrid: 1.2.1
       tstl: 3.0.0
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
 
-  '@nestia/core@11.3.1(@nestia/fetcher@11.3.1)(@nestjs/common@12.0.0-alpha.5(class-validator@0.14.3)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.0-alpha.5)(reflect-metadata@0.2.2)(rxjs@7.8.2)(typia@12.1.1(@types/node@24.13.2)(typescript@5.9.3))':
+  '@nestia/core@11.3.4(@nestia/fetcher@11.3.4)(@nestjs/common@12.0.0-alpha.5(class-validator@0.14.3)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.0-alpha.5)(reflect-metadata@0.2.2)(rxjs@7.8.2)(typia@12.1.1(@types/node@24.13.2)(typescript@5.9.3))':
     dependencies:
-      '@nestia/fetcher': 11.3.1
+      '@nestia/fetcher': 11.3.4
       '@nestjs/common': 12.0.0-alpha.5(class-validator@0.14.3)(reflect-metadata@0.2.2)(rxjs@7.8.2)
       '@nestjs/core': 12.0.0-alpha.5(@nestjs/common@12.0.0-alpha.5(class-validator@0.14.3)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/microservices@12.0.0-alpha.5)(@nestjs/platform-express@12.0.0-alpha.5)(reflect-metadata@0.2.2)(rxjs@7.8.2)
       '@typia/core': 12.1.1
@@ -11019,17 +11009,17 @@ snapshots:
       - bufferutil
       - utf-8-validate
 
-  '@nestia/e2e@11.3.1': {}
+  '@nestia/e2e@11.3.4': {}
 
-  '@nestia/fetcher@11.3.1':
+  '@nestia/fetcher@11.3.4':
     dependencies:
       '@typia/interface': 12.1.1
       '@typia/utils': 12.1.1
 
-  '@nestia/sdk@11.3.1(@nestia/core@11.3.1(@nestia/fetcher@11.3.1)(@nestjs/common@12.0.0-alpha.5(class-validator@0.14.3)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.0-alpha.5)(reflect-metadata@0.2.2)(rxjs@7.8.2)(typia@12.1.1(@types/node@24.13.2)(typescript@5.9.3)))(@swc/core@1.15.41(@swc/helpers@0.5.23))(@types/node@24.13.2)(typescript@5.9.3)':
+  '@nestia/sdk@11.3.4(@nestia/core@11.3.4(@nestia/fetcher@11.3.4)(@nestjs/common@12.0.0-alpha.5(class-validator@0.14.3)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.0-alpha.5)(reflect-metadata@0.2.2)(rxjs@7.8.2)(typia@12.1.1(@types/node@24.13.2)(typescript@5.9.3)))(@swc/core@1.15.41(@swc/helpers@0.5.23))(@types/node@24.13.2)(typescript@5.9.3)':
     dependencies:
-      '@nestia/core': 11.3.1(@nestia/fetcher@11.3.1)(@nestjs/common@12.0.0-alpha.5(class-validator@0.14.3)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.0-alpha.5)(reflect-metadata@0.2.2)(rxjs@7.8.2)(typia@12.1.1(@types/node@24.13.2)(typescript@5.9.3))
-      '@nestia/fetcher': 11.3.1
+      '@nestia/core': 11.3.4(@nestia/fetcher@11.3.4)(@nestjs/common@12.0.0-alpha.5(class-validator@0.14.3)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.0-alpha.5)(reflect-metadata@0.2.2)(rxjs@7.8.2)(typia@12.1.1(@types/node@24.13.2)(typescript@5.9.3))
+      '@nestia/fetcher': 11.3.4
       '@typia/core': 12.1.1
       '@typia/interface': 12.1.1
       '@typia/utils': 12.1.1
@@ -11439,7 +11429,7 @@ snapshots:
       source-map-loader: 5.0.0(webpack@5.107.2)
       style-loader: 3.3.4(webpack@5.107.2)
       terser-webpack-plugin: 5.3.16(@swc/core@1.15.41(@swc/helpers@0.5.23))(webpack@5.107.2)
-      ts-loader: 9.6.1(loader-utils@2.0.4)(typescript@5.9.3)(webpack@5.107.2)
+      ts-loader: 9.6.2(loader-utils@2.0.4)(typescript@5.9.3)(webpack@5.107.2)
       tsconfig-paths-webpack-plugin: 4.2.0
       tslib: 2.8.1
       webpack: 5.107.2(@swc/core@1.15.41(@swc/helpers@0.5.23))(postcss@8.5.6)(webpack-cli@6.0.1)
@@ -12290,7 +12280,7 @@ snapshots:
 
   '@ungap/structured-clone@1.3.0': {}
 
-  '@ungap/structured-clone@1.3.1': {}
+  '@ungap/structured-clone@1.3.2': {}
 
   '@unrs/resolver-binding-android-arm-eabi@1.11.1':
     optional: true
@@ -13226,8 +13216,8 @@ snapshots:
     dependencies:
       baseline-browser-mapping: 2.10.38
       caniuse-lite: 1.0.30001799
-      electron-to-chromium: 1.5.376
-      node-releases: 2.0.48
+      electron-to-chromium: 1.5.378
+      node-releases: 2.0.49
       update-browserslist-db: 1.2.3(browserslist@4.28.1)
 
   bs-logger@0.2.6:
@@ -13934,7 +13924,7 @@ snapshots:
     dependencies:
       jake: 10.9.4
 
-  electron-to-chromium@1.5.376: {}
+  electron-to-chromium@1.5.378: {}
 
   emittery@0.13.1: {}
 
@@ -16098,7 +16088,7 @@ snapshots:
   jest-worker@30.4.1:
     dependencies:
       '@types/node': 24.13.2
-      '@ungap/structured-clone': 1.3.1
+      '@ungap/structured-clone': 1.3.2
       jest-util: 30.4.1
       merge-stream: 2.0.0
       supports-color: 8.1.1
@@ -16648,7 +16638,7 @@ snapshots:
 
   node-machine-id@1.1.12: {}
 
-  node-releases@2.0.48: {}
+  node-releases@2.0.49: {}
 
   normalize-path@3.0.0: {}
 
@@ -18489,18 +18479,6 @@ snapshots:
       '@jest/types': 30.4.1
       babel-jest: 30.4.1(@babel/core@7.29.7)
       jest-util: 30.4.1
-
-  ts-loader@9.6.1(loader-utils@2.0.4)(typescript@5.9.3)(webpack@5.107.2):
-    dependencies:
-      chalk: 4.1.2
-      enhanced-resolve: 5.24.0
-      micromatch: 4.0.8
-      semver: 7.8.5
-      source-map: 0.7.6
-      typescript: 5.9.3
-      webpack: 5.107.2(@swc/core@1.15.41(@swc/helpers@0.5.23))(postcss@8.5.6)(webpack-cli@6.0.1)
-    optionalDependencies:
-      loader-utils: 2.0.4
 
   ts-loader@9.6.2(loader-utils@2.0.4)(typescript@5.9.3)(webpack@5.107.2):
     dependencies:
