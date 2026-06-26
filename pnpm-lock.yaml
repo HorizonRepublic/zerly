@@ -119,7 +119,7 @@ importers:
         version: 11.3.4
       '@nestjs/schematics':
         specifier: 12.0.0-alpha.9
-        version: 12.0.0-alpha.9(prettier@3.8.4)(typescript@5.9.3)
+        version: 12.0.0-alpha.9(prettier@3.8.5)(typescript@5.9.3)
       '@nestjs/testing':
         specifier: 12.0.0-alpha.5
         version: 12.0.0-alpha.5(@nestjs/common@12.0.0-alpha.5(class-validator@0.14.3)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.0-alpha.5)(@nestjs/microservices@12.0.0-alpha.5)(@nestjs/platform-express@12.0.0-alpha.5)
@@ -191,7 +191,7 @@ importers:
         version: 1.2.3(eslint@9.39.4(jiti@2.6.1))
       eslint-plugin-prettier:
         specifier: ^5.5.5
-        version: 5.5.6(@types/eslint@9.6.1)(eslint-config-prettier@10.1.8(eslint@9.39.4(jiti@2.6.1)))(eslint@9.39.4(jiti@2.6.1))(prettier@3.8.4)
+        version: 5.5.6(@types/eslint@9.6.1)(eslint-config-prettier@10.1.8(eslint@9.39.4(jiti@2.6.1)))(eslint@9.39.4(jiti@2.6.1))(prettier@3.8.5)
       eslint-plugin-rxjs-x:
         specifier: ^1.0.0
         version: 1.0.2(eslint@9.39.4(jiti@2.6.1))(rxjs@7.8.2)(typescript@5.9.3)
@@ -233,7 +233,7 @@ importers:
         version: 13.1.3
       prettier:
         specifier: ^3.8.1
-        version: 3.8.4
+        version: 3.8.5
       swc-loader:
         specifier: ^0.2.7
         version: 0.2.7(@swc/core@1.15.43(@swc/helpers@0.5.23))(webpack@5.108.1)
@@ -7326,6 +7326,11 @@ packages:
     engines: {node: '>=14'}
     hasBin: true
 
+  prettier@3.8.5:
+    resolution: {integrity: sha512-zxcTTCedNGJM4R8sj/Cq/F0W/c4iE0afWBcBwMTRtw4WHYP9TWkYjdiH3npPRUYsXQCPR0hTU9yjovOu+E6EQA==}
+    engines: {node: '>=14'}
+    hasBin: true
+
   pretty-format@30.2.0:
     resolution: {integrity: sha512-9uBdv/B4EefsuAL+pWqueZyZS2Ba+LxfFeQ9DN14HU4bN8bhaxKdkpjpB6fs9+pSjIBu+FXQHImEg8j/Lw0+vA==}
     engines: {node: ^18.14.0 || ^20.0.0 || ^22.0.0 || >=24.0.0}
@@ -11193,7 +11198,7 @@ snapshots:
     transitivePeerDependencies:
       - chokidar
 
-  '@nestjs/schematics@12.0.0-alpha.9(prettier@3.8.4)(typescript@5.9.3)':
+  '@nestjs/schematics@12.0.0-alpha.9(prettier@3.8.5)(typescript@5.9.3)':
     dependencies:
       '@angular-devkit/core': 21.2.1
       '@angular-devkit/schematics': 21.2.1
@@ -11202,7 +11207,7 @@ snapshots:
       pluralize: 8.0.0
       typescript: 5.9.3
     optionalDependencies:
-      prettier: 3.8.4
+      prettier: 3.8.5
     transitivePeerDependencies:
       - chokidar
 
@@ -14309,10 +14314,10 @@ snapshots:
     dependencies:
       eslint: 9.39.4(jiti@2.6.1)
 
-  eslint-plugin-prettier@5.5.6(@types/eslint@9.6.1)(eslint-config-prettier@10.1.8(eslint@9.39.4(jiti@2.6.1)))(eslint@9.39.4(jiti@2.6.1))(prettier@3.8.4):
+  eslint-plugin-prettier@5.5.6(@types/eslint@9.6.1)(eslint-config-prettier@10.1.8(eslint@9.39.4(jiti@2.6.1)))(eslint@9.39.4(jiti@2.6.1))(prettier@3.8.5):
     dependencies:
       eslint: 9.39.4(jiti@2.6.1)
-      prettier: 3.8.4
+      prettier: 3.8.5
       prettier-linter-helpers: 1.0.1
       synckit: 0.11.13
     optionalDependencies:
@@ -17517,6 +17522,8 @@ snapshots:
       fast-diff: 1.3.0
 
   prettier@3.8.4: {}
+
+  prettier@3.8.5: {}
 
   pretty-format@30.2.0:
     dependencies:
