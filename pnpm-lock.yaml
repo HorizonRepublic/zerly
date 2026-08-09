@@ -113,7 +113,7 @@ importers:
         version: 20.5.3
       '@darraghor/eslint-plugin-nestjs-typed':
         specifier: ^7.1.22
-        version: 7.3.0(@typescript-eslint/parser@8.66.0(eslint@9.39.5(jiti@2.6.1)(supports-color@8.1.1))(supports-color@8.1.1)(typescript@5.9.3))(class-validator@0.14.3)(eslint@9.39.5(jiti@2.6.1)(supports-color@8.1.1))(supports-color@8.1.1)(typescript@5.9.3)
+        version: 7.3.1(@typescript-eslint/parser@8.66.0(eslint@9.39.5(jiti@2.6.1)(supports-color@8.1.1))(supports-color@8.1.1)(typescript@5.9.3))(class-validator@0.14.3)(eslint@9.39.5(jiti@2.6.1)(supports-color@8.1.1))(supports-color@8.1.1)(typescript@5.9.3)
       '@nestia/benchmark':
         specifier: ^11.0.0
         version: 11.3.4
@@ -1093,8 +1093,8 @@ packages:
     resolution: {integrity: sha512-y20e+e6dFYkOUUJLVUZTsJRuTiXZaUQ32WD+R/ux/HBybbTx4ge7cNINcua0pU8+SNkKuRbOF12mBmzuzM8n5w==}
     engines: {node: '>= 14.17.0'}
 
-  '@darraghor/eslint-plugin-nestjs-typed@7.3.0':
-    resolution: {integrity: sha512-5ko032m5DPIGlAqv+KRNNJEGAJW/gXcdTX3YQEyCvvXPWl9PTm3kck+qXdxtfIl5rlt6DV3s3EbvqRSvx2C9QA==}
+  '@darraghor/eslint-plugin-nestjs-typed@7.3.1':
+    resolution: {integrity: sha512-VDck2DbUeoRPVlfXgaLq2xAfct14O6vTk5uYbunv1QmbDwuS9KLYaVqMM/6bmIhD/oX2af32Tjc66AutXu1DKQ==}
     engines: {node: '>=24.0.0'}
     peerDependencies:
       '@typescript-eslint/parser': ^7.0.0 || ^8.0.0
@@ -10171,7 +10171,7 @@ snapshots:
       tough-cookie: 5.1.2
       tunnel-agent: 0.6.0
 
-  '@darraghor/eslint-plugin-nestjs-typed@7.3.0(@typescript-eslint/parser@8.66.0(eslint@9.39.5(jiti@2.6.1)(supports-color@8.1.1))(supports-color@8.1.1)(typescript@5.9.3))(class-validator@0.14.3)(eslint@9.39.5(jiti@2.6.1)(supports-color@8.1.1))(supports-color@8.1.1)(typescript@5.9.3)':
+  '@darraghor/eslint-plugin-nestjs-typed@7.3.1(@typescript-eslint/parser@8.66.0(eslint@9.39.5(jiti@2.6.1)(supports-color@8.1.1))(supports-color@8.1.1)(typescript@5.9.3))(class-validator@0.14.3)(eslint@9.39.5(jiti@2.6.1)(supports-color@8.1.1))(supports-color@8.1.1)(typescript@5.9.3)':
     dependencies:
       '@typescript-eslint/parser': 8.66.0(eslint@9.39.5(jiti@2.6.1)(supports-color@8.1.1))(supports-color@8.1.1)(typescript@5.9.3)
       '@typescript-eslint/scope-manager': 8.66.0
@@ -12276,7 +12276,7 @@ snapshots:
   '@typescript-eslint/project-service@8.56.1(supports-color@8.1.1)(typescript@5.9.3)':
     dependencies:
       '@typescript-eslint/tsconfig-utils': 8.65.0(typescript@5.9.3)
-      '@typescript-eslint/types': 8.65.0
+      '@typescript-eslint/types': 8.66.0
       debug: 4.4.3(supports-color@8.1.1)
       typescript: 5.9.3
     transitivePeerDependencies:
@@ -12285,7 +12285,7 @@ snapshots:
   '@typescript-eslint/project-service@8.65.0(supports-color@8.1.1)(typescript@5.9.3)':
     dependencies:
       '@typescript-eslint/tsconfig-utils': 8.65.0(typescript@5.9.3)
-      '@typescript-eslint/types': 8.65.0
+      '@typescript-eslint/types': 8.66.0
       debug: 4.4.3(supports-color@8.1.1)
       typescript: 5.9.3
     transitivePeerDependencies:
@@ -12366,7 +12366,7 @@ snapshots:
       '@typescript-eslint/types': 8.56.1
       '@typescript-eslint/visitor-keys': 8.56.1
       debug: 4.4.3(supports-color@8.1.1)
-      minimatch: 10.2.5
+      minimatch: 10.2.6
       semver: 7.8.5
       tinyglobby: 0.2.16
       ts-api-utils: 2.5.0(typescript@5.9.3)
@@ -12381,7 +12381,7 @@ snapshots:
       '@typescript-eslint/types': 8.65.0
       '@typescript-eslint/visitor-keys': 8.65.0
       debug: 4.4.3(supports-color@8.1.1)
-      minimatch: 10.2.5
+      minimatch: 10.2.6
       semver: 7.8.5
       tinyglobby: 0.2.17
       ts-api-utils: 2.5.0(typescript@5.9.3)
@@ -14854,7 +14854,7 @@ snapshots:
 
   filelist@1.0.5:
     dependencies:
-      minimatch: 10.2.5
+      minimatch: 10.2.6
 
   filename-reserved-regex@4.0.0: {}
 
