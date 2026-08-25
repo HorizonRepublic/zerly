@@ -194,7 +194,7 @@ importers:
         version: 5.5.6(@types/eslint@9.6.1)(eslint-config-prettier@10.1.8(eslint@9.39.5(jiti@2.6.1)(supports-color@8.1.1)))(eslint@9.39.5(jiti@2.6.1)(supports-color@8.1.1))(prettier@3.9.6)
       eslint-plugin-rxjs-x:
         specifier: ^1.0.0
-        version: 1.0.5(eslint@9.39.5(jiti@2.6.1)(supports-color@8.1.1))(rxjs@7.8.2)(supports-color@8.1.1)(typescript@5.9.3)
+        version: 1.0.6(eslint@9.39.5(jiti@2.6.1)(supports-color@8.1.1))(rxjs@7.8.2)(supports-color@8.1.1)(typescript@5.9.3)
       eslint-plugin-security:
         specifier: ^4.0.0
         version: 4.0.1
@@ -4714,8 +4714,8 @@ packages:
       eslint-config-prettier:
         optional: true
 
-  eslint-plugin-rxjs-x@1.0.5:
-    resolution: {integrity: sha512-OgW1MBTvvT7G3bweRa2s396HrhJdNafTEdRAI8zcvtEQJ8p0JJHwkPqKAXkMHh6pI9EhbNhRY+kOKKJFCuCD0Q==}
+  eslint-plugin-rxjs-x@1.0.6:
+    resolution: {integrity: sha512-1n2OOFxywdYp3oaOY7374qeZan6Wuaht76CbUoejeQmlYnuLC3y3ZE8ljGHpc0ifnM/ctjUIrDuqFflblQXd9w==}
     engines: {node: ^20.19.0 || ^22.13.0 || >=24}
     peerDependencies:
       eslint: ^10.0.1
@@ -14356,7 +14356,7 @@ snapshots:
       '@types/eslint': 9.6.1
       eslint-config-prettier: 10.1.8(eslint@9.39.5(jiti@2.6.1)(supports-color@8.1.1))
 
-  eslint-plugin-rxjs-x@1.0.5(eslint@9.39.5(jiti@2.6.1)(supports-color@8.1.1))(rxjs@7.8.2)(supports-color@8.1.1)(typescript@5.9.3):
+  eslint-plugin-rxjs-x@1.0.6(eslint@9.39.5(jiti@2.6.1)(supports-color@8.1.1))(rxjs@7.8.2)(supports-color@8.1.1)(typescript@5.9.3):
     dependencies:
       '@typescript-eslint/utils': 8.67.0(eslint@9.39.5(jiti@2.6.1)(supports-color@8.1.1))(supports-color@8.1.1)(typescript@5.9.3)
       decamelize: 6.0.1
