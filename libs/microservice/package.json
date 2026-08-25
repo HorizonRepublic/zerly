@@ -30,8 +30,8 @@
   "types": "./src/index.d.ts",
   "dependencies": {
     "@horizon-republic/nestjs-jetstream": "^1.0.6",
-    "@nestjs/common": "12.0.0-alpha.5",
-    "@nestjs/microservices": "12.0.0-alpha.5",
+    "@nestjs/common": "12.0.0-alpha.6",
+    "@nestjs/microservices": "12.0.0-alpha.6",
     "nats": "^2.29.3",
     "rxjs": "^7.8.2",
     "@zerly/kernel": "0.8.0",
