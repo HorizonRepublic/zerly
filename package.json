@@ -15,7 +15,7 @@
     "@commitlint/config-conventional": "^20.4.1",
     "@darraghor/eslint-plugin-nestjs-typed": "^7.1.22",
     "@nestia/benchmark": "^11.0.0",
-    "@nestjs/schematics": "12.0.0",
+    "@nestjs/schematics": "12.0.1",
     "@nestjs/testing": "12.0.1",
     "@nx/eslint": "22.5.1",
     "@nx/eslint-plugin": "22.5.1",
