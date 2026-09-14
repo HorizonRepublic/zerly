@@ -30,11 +30,11 @@
   "types": "./src/index.d.ts",
   "dependencies": {
     "tslib": "^2.8.1",
-    "typia": "^12.0.0",
-    "uuid": "^13.0.1",
+    "typia": "^14.0.0",
+    "uuid": "^14.0.0",
     "qs": "^6.15.2",
     "nest-commander": "^3.20.1",
-    "@fastify/compress": "^8.3.1",
+    "@fastify/compress": "^9.0.0",
     "@fastify/helmet": "^13.0.2",
     "@zerly/config": "0.8.0"
   },
