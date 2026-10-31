@@ -29,7 +29,7 @@
   },
   "dependencies": {
     "tslib": "^2.3.0",
-    "@nestjs/common": "12.2.0",
+    "@nestjs/common": "12.3.2",
     "nest-commander": "^3.20.1",
     "@zerly/kernel": "0.8.0"
   },
